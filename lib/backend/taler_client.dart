@@ -140,6 +140,72 @@ class TalerClient extends ChangeNotifier {
 
   TalerContact? contactById(int id) => store.contacts[id];
 
+  final Set<int> _resolvingContacts = <int>{};
+
+  /// Подтягивает имена и аватарки людей, которых нет в контактах
+  /// (Opcode.contactInfo), и переименовывает «Диалог #id» в настоящие имена.
+  Future<void> resolveContacts(Iterable<int> ids) async {
+    if (_isDemoMode || !session.isOnline) return;
+    final missing = ids
+        .where((id) => id > 0 && store.contacts[id] == null && !_resolvingContacts.contains(id))
+        .toSet()
+        .toList();
+    if (missing.isEmpty) return;
+    _resolvingContacts.addAll(missing);
+    final resolved = <TalerContact>[];
+    try {
+      for (var i = 0; i < missing.length; i += 100) {
+        final end = i + 100 < missing.length ? i + 100 : missing.length;
+        try {
+          final packet = await session.request(Opcode.contactInfo, <String, dynamic>{
+            'contactIds': missing.sublist(i, end),
+          });
+          final list = packet.payloadAsMap?['contacts'];
+          if (list is List) {
+            for (final item in list.whereType<Map>()) {
+              final contact = TalerContact.fromServerMap(item);
+              if (contact.id != 0) resolved.add(contact);
+            }
+          }
+        } catch (_) {}
+      }
+    } finally {
+      _resolvingContacts.removeAll(missing);
+    }
+    if (resolved.isEmpty) return;
+    await store.saveContacts(resolved);
+
+    final updated = <TalerChat>[];
+    for (final chat in store.chats.values) {
+      final peer = chat.peerId;
+      if (!chat.isDialog || peer == null) continue;
+      final contact = store.contacts[peer];
+      if (contact == null) continue;
+      final placeholder = chat.title.isEmpty || chat.title.startsWith('Диалог #');
+      final needsAvatar = chat.avatarUrl == null && contact.avatarUrl != null;
+      if (placeholder || needsAvatar) {
+        updated.add(chat.copyWith(
+          title: placeholder ? contact.displayName : null,
+          avatarUrl: chat.avatarUrl ?? contact.avatarUrl,
+        ));
+      }
+    }
+    if (updated.isNotEmpty) await store.saveChats(updated);
+    notifyListeners();
+  }
+
+  /// Отправители сообщений открытого чата, которых нет в контактах.
+  Future<void> resolveChatMembers(int chatId) =>
+      resolveContacts(store.getMessages(chatId).map((m) => m.senderId));
+
+  void _resolveDialogPeers() {
+    final ids = <int>[
+      for (final c in store.chats.values)
+        if (c.isDialog && c.peerId != null && store.contacts[c.peerId!] == null) c.peerId!,
+    ];
+    if (ids.isNotEmpty) unawaited(resolveContacts(ids));
+  }
+
   String senderDisplayName(int senderId, {int? chatId}) {
     if (senderId == currentUser?.id) {
       return currentUser?.fullName ?? 'Вы';
@@ -554,6 +620,7 @@ class TalerClient extends ChangeNotifier {
     if (parsed.isNotEmpty) {
       await store.saveChats(parsed);
     }
+    _resolveDialogPeers();
   }
 
   TalerChat? _parseServerChat(
