@@ -116,7 +116,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     ),
                   ),
                   Text(
-                    'v1.0.0',
+                    'v1.0.1',
                     style: TalerTheme.monoStyle(size: 11.5, color: p.fg3),
                   ),
                 ],
