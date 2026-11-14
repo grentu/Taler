@@ -9,6 +9,7 @@ import '../../core/privacy/privacy_firewall.dart';
 import '../../core/privacy/spoof_profile.dart';
 import '../../core/privacy/spoofing_service.dart';
 import '../theme/taler_theme.dart';
+import '../icons/taler_icon.dart';
 
 enum _LogFilter { all, blocked, allowed }
 
@@ -71,7 +72,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
                     child: Row(
                       children: [
                         TelegramIconBadge(
-                          icon: Icons.shield_rounded,
+                          icon: TalerIcons.shieldCheck,
                           color: p.statusLive,
                           size: 30,
                         ),
@@ -123,7 +124,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
                         ],
                         TalerTactileButton(
                           label: isWide ? 'Тест перехвата' : 'Тест',
-                          icon: Icons.radar_rounded,
+                          icon: TalerIcons.radar,
                           compact: true,
                           onPressed: () =>
                               widget.client.triggerTelemetryTestProbe(),
@@ -254,7 +255,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
       child: Column(
         children: [
           _PrivacySwitchRow(
-            icon: Icons.visibility_off_rounded,
+            icon: TalerIcons.eyeOff,
             badgeColor: const Color(0xFF8E6CEF),
             title: 'Режим Призрака (Ghost Mode)',
             subtitle:
@@ -267,7 +268,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
           ),
           Divider(height: 1, indent: 58, color: p.line),
           _PrivacySwitchRow(
-            icon: Icons.edit_off_rounded,
+            icon: TalerIcons.pencilOff,
             badgeColor: const Color(0xFF2AABEE),
             title: 'Скрыть индикатор набора текста',
             subtitle: 'Блокировать исходящий Opcode 65 (CHAT_TYPING)',
@@ -276,7 +277,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
           ),
           Divider(height: 1, indent: 58, color: p.line),
           _PrivacySwitchRow(
-            icon: Icons.done_all_rounded,
+            icon: TalerIcons.checkCheck,
             badgeColor: const Color(0xFF26A69A),
             title: 'Скрыть прочтение сообщений',
             subtitle: 'Блокировать отправку READ-маркеров через Opcode 21',
@@ -285,7 +286,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
           ),
           Divider(height: 1, indent: 58, color: p.line),
           _PrivacySwitchRow(
-            icon: Icons.history_toggle_off_rounded,
+            icon: TalerIcons.timerOff,
             badgeColor: const Color(0xFFF5A623),
             title: 'Anti-Delete (сохранять удалённые)',
             subtitle:
@@ -295,7 +296,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
           ),
           Divider(height: 1, indent: 58, color: p.line),
           _PrivacySwitchRow(
-            icon: Icons.fingerprint_rounded,
+            icon: TalerIcons.fingerprint,
             badgeColor: const Color(0xFF4ECC5E),
             title: 'Подмена отпечатка устройства',
             subtitle: 'Маскировать модель, ОС, экран и UUID в хендшейке Opcode 6',
@@ -312,7 +313,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
       title: 'Маскировка устройства (Opcode 6)',
       trailing: TalerTactileButton(
         label: 'Новый ID',
-        icon: Icons.refresh_rounded,
+        icon: TalerIcons.refresh,
         compact: true,
         onPressed: () => widget.client.spoofingService.regenerateIdentifiers(),
       ),
@@ -365,7 +366,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
     return TalerTableShell(
       title: 'Инспектор пакетов (Wire Audit)',
       trailing: TalerIconButton(
-        icon: Icons.delete_sweep_outlined,
+        icon: TalerIcons.listX,
         tooltip: 'Очистить журнал',
         size: 30,
         iconSize: 18,
@@ -453,7 +454,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
                 entry.isBlocked ? 'BLOCK' : 'PASS',
                 style: TalerTheme.monoStyle(
                   size: 11,
-                  weight: FontWeight.w700,
+                  weight: FontWeight.w600,
                   color: entry.isBlocked ? p.danger : p.statusLive,
                 ),
               ),
@@ -554,7 +555,7 @@ class _SummaryStat extends StatelessWidget {
                 )
               : TalerTheme.tabularStyle(
                   size: 17,
-                  weight: FontWeight.w700,
+                  weight: FontWeight.w600,
                   color: valueColor,
                 ),
         ),
@@ -564,7 +565,7 @@ class _SummaryStat extends StatelessWidget {
 }
 
 class _PrivacySwitchRow extends StatelessWidget {
-  final IconData icon;
+  final TalerIconData icon;
   final Color badgeColor;
   final String title;
   final String subtitle;
@@ -736,16 +737,16 @@ class _AuditRow extends StatelessWidget {
                 blocked ? 'BLOCK' : 'PASS',
                 style: TalerTheme.monoStyle(
                   size: 10.5,
-                  weight: FontWeight.w700,
+                  weight: FontWeight.w600,
                   color: blocked ? p.danger : p.statusLive,
                 ),
               ),
             ),
             const SizedBox(width: 10),
-            Icon(
+            TalerIcon(
               entry.direction == PacketDirection.outgoing
-                  ? Icons.north_east_rounded
-                  : Icons.south_west_rounded,
+                  ? TalerIcons.arrowUpRight
+                  : TalerIcons.arrowDownLeft,
               size: 15,
               color: p.fg2,
             ),
