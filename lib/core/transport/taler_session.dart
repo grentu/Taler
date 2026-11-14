@@ -183,11 +183,10 @@ class TalerSession {
       _isAttemptingConnect = false;
     }
 
-    _lastConnectError = lastError?.toString();
+    _lastConnectError = lastError.toString();
     _transport = TalerTransport.none;
     _setState(TalerConnectionState.disconnected);
-    throw lastError ??
-        const TalerPacketException('Не удалось подключиться к серверу MAX');
+    throw lastError;
   }
 
   Future<Map<String, dynamic>> _connectViaTls(
