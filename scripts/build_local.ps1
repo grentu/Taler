@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$FlutterBin = "C:\src\flutter\bin\flutter.bat",
     [switch]$Windows = $true,
     [switch]$Android = $true,
@@ -29,11 +29,12 @@ Write-Host ">> Установка зависимостей и проверка �
 if ($Windows) {
     Write-Host ">> Сборка Windows x64 Release..." -ForegroundColor Cyan
     & $FlutterBin build windows --release
-    $WinRelease = Join-Path $RootDir "build\windows\x64\runner\Release\*"
-    $WinZip = Join-Path $DistDir "Taler-Windows-x64.zip"
-    if (Test-Path $WinZip) { Remove-Item $WinZip -Force }
-    Compress-Archive -Path $WinRelease -DestinationPath $WinZip -Force
-    Write-Host ">> Готово: $WinZip" -ForegroundColor Green
+    Write-Host ">> Сборка однофайлового лаунчера..." -ForegroundColor Cyan
+    & cmake -S windows/onefile -B build/onefile -A x64
+    & cmake --build build/onefile --config Release
+    $WinExe = Join-Path $DistDir "Taler-Windows-x64.exe"
+    & (Join-Path $PSScriptRoot "pack_onefile.ps1") -SourceDir (Join-Path $RootDir "build\windows\x64\runner\Release") -Launcher (Join-Path $RootDir "build\onefile\Release\launcher.exe") -Output $WinExe
+    Write-Host ">> Готово: $WinExe" -ForegroundColor Green
 }
 
 if ($Android) {
