@@ -577,18 +577,25 @@ class _AuthScreenState extends State<AuthScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _QuietLink(
-                icon: TalerIcons.arrowLeft,
-                label: 'Другой номер',
-                onTap: busy ? null : _backToPhone,
+              Flexible(
+                child: _QuietLink(
+                  icon: TalerIcons.arrowLeft,
+                  label: 'Другой номер',
+                  onTap: busy ? null : _backToPhone,
+                ),
               ),
-              const Spacer(),
-              _QuietLink(
-                icon: TalerIcons.refresh,
-                label: canResend
-                    ? 'Отправить код снова'
-                    : 'Повтор через $_resendSeconds с',
-                onTap: canResend ? _resendOtp : null,
+              const SizedBox(width: 8),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _QuietLink(
+                    icon: TalerIcons.refresh,
+                    label: canResend
+                        ? 'Отправить код снова'
+                        : 'Повтор через $_resendSeconds с',
+                    onTap: canResend ? _resendOtp : null,
+                  ),
+                ),
               ),
             ],
           ),
@@ -683,7 +690,9 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 TalerIcon(TalerIcons.check, size: 16, color: p.fg3),
                 const SizedBox(width: 10),
-                Text(f, style: TextStyle(fontSize: 14, color: p.fg2)),
+                Expanded(
+                  child: Text(f, style: TextStyle(fontSize: 14, color: p.fg2)),
+                ),
               ],
             ),
           ),
@@ -1017,9 +1026,13 @@ class _QuietLink extends StatelessWidget {
           children: [
             TalerIcon(icon, size: 16, color: color),
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: TalerTheme.tabularStyle(size: 13, color: color),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TalerTheme.tabularStyle(size: 13, color: color),
+              ),
             ),
           ],
         ),
@@ -1135,7 +1148,9 @@ class _LoginRestrictedPanel extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               TalerTactileButton(
                 label: 'Запросить код снова',
@@ -1144,7 +1159,6 @@ class _LoginRestrictedPanel extends StatelessWidget {
                 variant: TalerButtonVariant.primary,
                 onPressed: busy ? null : onResend,
               ),
-              const SizedBox(width: 8),
               TalerTactileButton(
                 label: 'Войти по токену',
                 compact: true,
