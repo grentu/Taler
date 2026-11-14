@@ -1,15 +1,15 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../theme/taler_theme.dart';
 
-/// Экран открытого диалога/чата/канала.
+/// Экран открытого диалога / чата / канала в монохромной тактильной системе Taler.
 class ChatScreen extends StatefulWidget {
   final TalerClient client;
   final TalerChat chat;
@@ -95,7 +95,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
           duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
+          curve: TalerTheme.easeOutCurve,
         );
       }
     });
@@ -137,7 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = TalerTheme.paletteOf(context);
     final myId = widget.client.currentUser?.id ?? 1;
 
     return ListenableBuilder(
@@ -146,39 +146,47 @@ class _ChatScreenState extends State<ChatScreen> {
         widget.client.privacySettings,
       ]),
       builder: (context, _) {
-        final liveChat = widget.client.store.chats[widget.chat.id] ?? widget.chat;
+        final liveChat =
+            widget.client.store.chats[widget.chat.id] ?? widget.chat;
         final messages = widget.client.messagesForChat(widget.chat.id);
         final ghost = widget.client.privacySettings.ghostModeOnline;
 
         return Column(
           children: [
-            // Шапка чата
+            // Единая шапка 56px
             Container(
-              height: 64,
+              height: 56,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                border: Border(
-                  bottom: BorderSide(color: theme.dividerColor),
-                ),
+                color: p.bg2,
+                border: Border(bottom: BorderSide(color: p.line)),
               ),
               child: Row(
                 children: [
-                  if (widget.showBackButton)
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
+                  if (widget.showBackButton) ...[
+                    TalerIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      tooltip: 'Назад',
+                      onPressed:
+                          widget.onBack ?? () => Navigator.of(context).pop(),
                     ),
-                  CircleAvatar(
-                    radius: 19,
-                    backgroundColor:
-                        theme.colorScheme.primary.withValues(alpha: 0.16),
+                    const SizedBox(width: 4),
+                  ],
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.surface2,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: p.line2),
+                    ),
                     child: Text(
                       liveChat.initials,
                       style: TextStyle(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                        color: p.fg,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12.5,
                       ),
                     ),
                   ),
@@ -195,61 +203,78 @@ class _ChatScreenState extends State<ChatScreen> {
                                 liveChat.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 14.5,
+                                  color: p.fg,
                                 ),
                               ),
                             ),
                             if (liveChat.isOfficial) ...[
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 6),
                               Icon(
-                                Icons.verified,
-                                size: 15,
-                                color: theme.colorScheme.primary,
+                                Icons.verified_outlined,
+                                size: 14,
+                                color: p.fg2,
                               ),
                             ],
                           ],
                         ),
-                        Text(
-                          _subtitleForChat(liveChat),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: liveChat.typingLabel != null || liveChat.isOnline
-                                ? TalerTheme.shieldGreen
-                                : theme.colorScheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
+                        const SizedBox(height: 1),
+                        Row(
+                          children: [
+                            if (liveChat.isOnline ||
+                                liveChat.typingLabel != null) ...[
+                              TalerStatusDot(color: p.statusLive, size: 6),
+                              const SizedBox(width: 6),
+                            ],
+                            Flexible(
+                              child: Text(
+                                _subtitleForChat(liveChat),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TalerTheme.tabularStyle(
+                                  size: 12,
+                                  color: liveChat.typingLabel != null ||
+                                          liveChat.isOnline
+                                      ? p.statusLive
+                                      : p.fg3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                   if (ghost)
                     Tooltip(
-                      message: 'Режим Призрака активен',
+                      message: 'Режим Призрака: статус онлайн скрыт',
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: TalerTheme.shieldGreen.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(8),
+                          color: p.surface,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: p.line),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
                               Icons.visibility_off_outlined,
-                              size: 14,
-                              color: TalerTheme.shieldGreen,
+                              size: 13,
+                              color: p.fg2,
                             ),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 6),
                             Text(
                               'Призрак',
                               style: TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: TalerTheme.shieldGreen,
+                                fontWeight: FontWeight.w500,
+                                color: p.fg2,
                               ),
                             ),
                           ],
@@ -264,17 +289,26 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: messages.isEmpty
                   ? Center(
-                      child: Text(
-                        'Нет сообщений в локальном кэше',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 24,
+                            color: p.fg3,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Нет сообщений в локальном кэше',
+                            style: TextStyle(fontSize: 13, color: p.fg3),
+                          ),
+                        ],
                       ),
                     )
                   : ListView.builder(
                       controller: _scrollCtrl,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
+                        horizontal: 16,
                         vertical: 16,
                       ),
                       itemCount: messages.length,
@@ -298,14 +332,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
             ),
 
-            // Баннер ответа / редактирования
+            // Плашка ответа / редактирования
             if (_replyingTo != null || _editingMessage != null)
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border(top: BorderSide(color: theme.dividerColor)),
+                  color: p.bg2,
+                  border: Border(top: BorderSide(color: p.line)),
                 ),
                 child: Row(
                   children: [
@@ -313,8 +347,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       _editingMessage != null
                           ? Icons.edit_outlined
                           : Icons.reply_rounded,
-                      size: 18,
-                      color: theme.colorScheme.primary,
+                      size: 16,
+                      color: p.fg2,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -323,25 +357,27 @@ class _ChatScreenState extends State<ChatScreen> {
                         children: [
                           Text(
                             _editingMessage != null
-                                ? 'Редактирование сообщения'
-                                : 'Ответ: ${widget.client.senderDisplayName(_replyingTo!.senderId, chatId: liveChat.id)}',
+                                ? 'Редактирование'
+                                : 'Ответ · ${widget.client.senderDisplayName(_replyingTo!.senderId, chatId: liveChat.id)}',
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                              color: p.fg,
                             ),
                           ),
                           Text(
                             (_editingMessage ?? _replyingTo)!.text,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall,
+                            style: TextStyle(fontSize: 12, color: p.fg2),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18),
+                    TalerIconButton(
+                      icon: Icons.close_rounded,
+                      size: 32,
+                      iconSize: 16,
                       onPressed: () {
                         setState(() {
                           _replyingTo = null;
@@ -354,51 +390,55 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
 
-            // Поле ввода
+            // Нижняя панель ввода
             Container(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                border: Border(top: BorderSide(color: theme.dividerColor)),
+                color: p.bg2,
+                border: Border(top: BorderSide(color: p.line)),
               ),
               child: SafeArea(
                 top: false,
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    IconButton(
+                    TalerIconButton(
+                      icon: Icons.attach_file_rounded,
+                      tooltip: 'Прикрепить файл',
                       onPressed: _pickAttachment,
-                      tooltip: 'Прикрепить фото или файл',
-                      icon: const Icon(Icons.attach_file_rounded),
                     ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _inputCtrl,
                         onChanged: _onTextChanged,
                         minLines: 1,
                         maxLines: 5,
+                        style: TextStyle(fontSize: 14, color: p.fg),
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
                         decoration: InputDecoration(
                           hintText: widget.client.privacySettings.hideTyping
-                              ? 'Сообщение (набор скрыт)...'
-                              : 'Написать сообщение...',
+                              ? 'Сообщение · набор скрыт'
+                              : 'Сообщение',
                           isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    FilledButton(
+                    TalerIconButton(
+                      icon: Icons.arrow_upward_rounded,
+                      tooltip: 'Отправить',
+                      circle: true,
+                      size: 38,
+                      iconSize: 18,
+                      backgroundColor: p.solid,
+                      color: p.onSolid,
                       onPressed: _send,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Icon(Icons.send_rounded, size: 20),
                     ),
                   ],
                 ),
@@ -425,40 +465,68 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showEditHistory(TalerMessage msg) {
+    final p = TalerTheme.paletteOf(context);
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('История изменений'),
+        title: const Text(
+          'История изменений',
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+        ),
         content: SizedBox(
-          width: 380,
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const Text(
-                'Текущая версия:',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              Text(msg.text),
-              const Divider(height: 20),
-              for (final rev in msg.editHistory.reversed) ...[
-                Text(
-                  DateFormat('dd.MM.yyyy HH:mm:ss').format(
-                    DateTime.fromMillisecondsSinceEpoch(rev.timestamp),
+          width: 400,
+          child: TalerTableShell(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Текущая версия',
+                        style: TextStyle(fontSize: 11.5, color: p.fg3),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        msg.text,
+                        style: TextStyle(fontSize: 13.5, color: p.fg),
+                      ),
+                    ],
                   ),
-                  style: Theme.of(ctx).textTheme.bodySmall,
                 ),
-                const SizedBox(height: 2),
-                Text(rev.text),
-                const SizedBox(height: 12),
+                for (final rev in msg.editHistory.reversed) ...[
+                  Divider(height: 1, color: p.line),
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateFormat('dd.MM.yyyy HH:mm:ss').format(
+                            DateTime.fromMillisecondsSinceEpoch(rev.timestamp),
+                          ),
+                          style: TalerTheme.monoStyle(size: 11, color: p.fg3),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          rev.text,
+                          style: TextStyle(fontSize: 13, color: p.fg2),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [
-          TextButton(
+          TalerTactileButton(
+            label: 'Закрыть',
+            compact: true,
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Закрыть'),
           ),
         ],
       ),
@@ -466,114 +534,178 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageActions(TalerMessage msg, bool isMine) {
-    const quickEmojis = ['👍', '❤️', '🔥', '👀', '🛡️', '😂'];
+    final p = TalerTheme.paletteOf(context);
+    const quickEmojis = ['👍', '❤️', '🔥', '👀', '✓', '😂'];
+
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              // Ручка нижней шторки (44x4px)
+              Container(
+                width: 44,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: p.fg4,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final emoji in quickEmojis)
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        widget.client.toggleReaction(
+                          widget.chat.id,
+                          msg.id,
+                          emoji,
+                        );
+                      },
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: p.surface,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: p.line),
+                        ),
+                        child: Text(emoji, style: const TextStyle(fontSize: 18)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TalerTableShell(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (final emoji in quickEmojis)
-                      InkWell(
-                        borderRadius: BorderRadius.circular(20),
+                    _SheetActionRow(
+                      icon: Icons.reply_rounded,
+                      label: 'Ответить',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        setState(() {
+                          _editingMessage = null;
+                          _replyingTo = msg;
+                        });
+                      },
+                    ),
+                    if (msg.text.isNotEmpty) ...[
+                      Divider(height: 1, color: p.line),
+                      _SheetActionRow(
+                        icon: Icons.copy_rounded,
+                        label: 'Копировать текст',
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: msg.text));
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
+                    ],
+                    if (isMine && !msg.deletedByPeer) ...[
+                      Divider(height: 1, color: p.line),
+                      _SheetActionRow(
+                        icon: Icons.edit_outlined,
+                        label: 'Редактировать',
                         onTap: () {
                           Navigator.of(ctx).pop();
-                          widget.client.toggleReaction(
+                          setState(() {
+                            _replyingTo = null;
+                            _editingMessage = msg;
+                            _inputCtrl.text = msg.text;
+                          });
+                        },
+                      ),
+                    ],
+                    if (msg.isEdited) ...[
+                      Divider(height: 1, color: p.line),
+                      _SheetActionRow(
+                        icon: Icons.history_rounded,
+                        label: 'История изменений',
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _showEditHistory(msg);
+                        },
+                      ),
+                    ],
+                    if (widget.client.isDemoMode && !msg.deletedByPeer) ...[
+                      Divider(height: 1, color: p.line),
+                      _SheetActionRow(
+                        icon: Icons.shield_outlined,
+                        label: 'Симулировать удаление (Anti-Delete)',
+                        color: p.warning,
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          widget.client.simulatePeerDeleteInDemo(
                             widget.chat.id,
                             msg.id,
-                            emoji,
                           );
                         },
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Text(emoji, style: const TextStyle(fontSize: 22)),
-                        ),
                       ),
+                    ],
+                    Divider(height: 1, color: p.line),
+                    _SheetActionRow(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Удалить у себя',
+                      color: p.danger,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        widget.client.deleteMessage(widget.chat.id, msg.id);
+                      },
+                    ),
                   ],
                 ),
               ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.reply_rounded),
-                title: const Text('Ответить'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  setState(() {
-                    _editingMessage = null;
-                    _replyingTo = msg;
-                  });
-                },
-              ),
-              if (msg.text.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.copy_rounded),
-                  title: const Text('Копировать текст'),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: msg.text));
-                    Navigator.of(ctx).pop();
-                  },
-                ),
-              if (isMine && !msg.deletedByPeer)
-                ListTile(
-                  leading: const Icon(Icons.edit_outlined),
-                  title: const Text('Редактировать'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    setState(() {
-                      _replyingTo = null;
-                      _editingMessage = msg;
-                      _inputCtrl.text = msg.text;
-                    });
-                  },
-                ),
-              if (msg.isEdited)
-                ListTile(
-                  leading: const Icon(Icons.history_rounded),
-                  title: const Text('Посмотреть историю изменений'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _showEditHistory(msg);
-                  },
-                ),
-              if (widget.client.isDemoMode && !msg.deletedByPeer)
-                ListTile(
-                  leading: const Icon(
-                    Icons.shield_outlined,
-                    color: TalerTheme.warningAmber,
-                  ),
-                  title: const Text('Симулировать удаление собеседником'),
-                  subtitle: const Text('Проверка режима Anti-Delete'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    widget.client.simulatePeerDeleteInDemo(
-                      widget.chat.id,
-                      msg.id,
-                    );
-                  },
-                ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: TalerTheme.dangerRed,
-                ),
-                title: const Text(
-                  'Удалить у себя',
-                  style: TextStyle(color: TalerTheme.dangerRed),
-                ),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  widget.client.deleteMessage(widget.chat.id, msg.id);
-                },
-              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetActionRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _SheetActionRow({
+    required this.icon,
+    required this.label,
+    this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final fg = color ?? p.fg;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 17, color: color ?? p.fg2),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13.5, color: fg),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -601,21 +733,27 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final p = TalerTheme.paletteOf(context);
     final deleted = message.deletedByPeer;
 
     final bubbleColor = deleted
-        ? TalerTheme.warningAmber.withValues(alpha: isDark ? 0.14 : 0.10)
+        ? p.warningSurface
         : isMine
-            ? theme.colorScheme.primary.withValues(alpha: isDark ? 0.22 : 0.14)
-            : theme.colorScheme.surface;
+            ? p.surface2
+            : p.bg2;
 
     final borderColor = deleted
-        ? TalerTheme.warningAmber.withValues(alpha: 0.65)
+        ? p.warningLine
         : isMine
-            ? theme.colorScheme.primary.withValues(alpha: 0.35)
-            : theme.dividerColor;
+            ? p.line2
+            : p.line;
+
+    final borderRadius = BorderRadius.only(
+      topLeft: const Radius.circular(16),
+      topRight: const Radius.circular(16),
+      bottomLeft: Radius.circular(isMine ? 16 : 4),
+      bottomRight: Radius.circular(isMine ? 4 : 16),
+    );
 
     final timeStr = DateFormat('HH:mm').format(
       DateTime.fromMillisecondsSinceEpoch(message.time),
@@ -631,10 +769,10 @@ class _MessageBubble extends StatelessWidget {
           onLongPress: onTapMenu,
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: bubbleColor,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: borderRadius,
               border: Border.all(color: borderColor),
             ),
             child: Column(
@@ -642,30 +780,27 @@ class _MessageBubble extends StatelessWidget {
               children: [
                 if (deleted)
                   Container(
-                    margin: const EdgeInsets.only(bottom: 6),
+                    margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
-                      vertical: 3,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: TalerTheme.warningAmber.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
+                      color: p.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: p.warningLine),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.shield_outlined,
-                          size: 13,
-                          color: TalerTheme.warningAmber,
-                        ),
-                        SizedBox(width: 5),
+                        TalerStatusDot(color: p.warning, size: 6),
+                        const SizedBox(width: 6),
                         Text(
-                          'Удалено собеседником — сохранено Taler',
+                          'Удалено собеседником · сохранено',
                           style: TextStyle(
                             fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: TalerTheme.warningAmber,
+                            fontWeight: FontWeight.w500,
+                            color: p.warning,
                           ),
                         ),
                       ],
@@ -673,26 +808,28 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 if (showSenderName)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
+                    padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
                       senderName,
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                        color: p.fg2,
                       ),
                     ),
                   ),
                 if (message.forwardedFromName != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      'Переслано от ${message.forwardedFromName}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontStyle: FontStyle.italic,
-                        color: theme.colorScheme.onSurfaceVariant,
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.only(left: 8),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: p.line2, width: 2),
                       ),
+                    ),
+                    child: Text(
+                      'Переслано · ${message.forwardedFromName}',
+                      style: TextStyle(fontSize: 11.5, color: p.fg2),
                     ),
                   ),
                 if (message.replyTo != null)
@@ -701,10 +838,7 @@ class _MessageBubble extends StatelessWidget {
                     padding: const EdgeInsets.only(left: 8),
                     decoration: BoxDecoration(
                       border: Border(
-                        left: BorderSide(
-                          color: theme.colorScheme.primary,
-                          width: 2.5,
-                        ),
+                        left: BorderSide(color: p.fg2, width: 2),
                       ),
                     ),
                     child: Column(
@@ -713,16 +847,16 @@ class _MessageBubble extends StatelessWidget {
                         Text(
                           message.replyTo!.senderName ?? 'Ответ',
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.primary,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: p.fg,
                           ),
                         ),
                         Text(
-                          message.replyTo!.text ?? '[Вложение]',
+                          message.replyTo!.text ?? 'Вложение',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall,
+                          style: TextStyle(fontSize: 12, color: p.fg2),
                         ),
                       ],
                     ),
@@ -732,38 +866,39 @@ class _MessageBubble extends StatelessWidget {
                 if (message.text.isNotEmpty)
                   SelectableText(
                     message.text,
-                    style: theme.textTheme.bodyMedium?.copyWith(height: 1.38),
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      color: p.fg,
+                    ),
                   ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     for (final r in message.reactions)
-                      InkWell(
-                        borderRadius: BorderRadius.circular(10),
+                      GestureDetector(
                         onTap: () => onToggleReaction(r.emoji),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
+                            horizontal: 8,
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: r.isMine
-                                ? theme.colorScheme.primary
-                                    .withValues(alpha: 0.2)
-                                : theme.colorScheme.surfaceContainer,
-                            borderRadius: BorderRadius.circular(10),
+                            color: r.isMine ? p.solid : p.surface,
+                            borderRadius: BorderRadius.circular(999),
                             border: Border.all(
-                              color: r.isMine
-                                  ? theme.colorScheme.primary
-                                  : theme.dividerColor,
+                              color: r.isMine ? p.solid : p.line,
                             ),
                           ),
                           child: Text(
                             '${r.emoji} ${r.count}',
-                            style: const TextStyle(fontSize: 12),
+                            style: TalerTheme.monoStyle(
+                              size: 11.5,
+                              color: r.isMine ? p.onSolid : p.fg2,
+                            ),
                           ),
                         ),
                       ),
@@ -774,17 +909,15 @@ class _MessageBubble extends StatelessWidget {
                           'изменено',
                           style: TextStyle(
                             fontSize: 11,
-                            color: theme.colorScheme.primary,
+                            color: p.fg2,
                             decoration: TextDecoration.underline,
+                            decorationColor: p.fg3,
                           ),
                         ),
                       ),
                     Text(
                       timeStr,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: 11,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                      style: TalerTheme.monoStyle(size: 11, color: p.fg3),
                     ),
                   ],
                 ),
@@ -804,12 +937,12 @@ class _AttachmentView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = TalerTheme.paletteOf(context);
     if (attachment.type == 'PHOTO' && attachment.url != null) {
       final url = attachment.url!;
       final isHttp = url.startsWith('http://') || url.startsWith('https://');
       return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 8),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: isHttp
@@ -838,20 +971,20 @@ class _AttachmentView extends StatelessWidget {
         : attachment.type;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
+        color: p.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: theme.dividerColor),
+        border: Border.all(color: p.line),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.insert_drive_file_outlined,
-            size: 20,
-            color: theme.colorScheme.primary,
+            size: 18,
+            color: p.fg2,
           ),
           const SizedBox(width: 8),
           Flexible(
@@ -859,17 +992,20 @@ class _AttachmentView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  attachment.fileName ?? attachment.previewText ?? attachment.type,
+                  attachment.fileName ??
+                      attachment.previewText ??
+                      attachment.type,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
+                    color: p.fg,
                   ),
                 ),
                 Text(
                   sizeKb,
-                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                  style: TalerTheme.monoStyle(size: 11, color: p.fg3),
                 ),
               ],
             ),

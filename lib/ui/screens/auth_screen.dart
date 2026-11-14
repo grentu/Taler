@@ -7,7 +7,7 @@ enum _AuthTab { phone, token, demo }
 
 enum _PhoneStep { enterPhone, enterOtp, enter2fa, enterProfile }
 
-/// Экран входа в Taler с выбором способа авторизации и предпросмотром спуфинга.
+/// Экран входа в Taler: асимметричный split на ПК и компактный стек на телефоне.
 class AuthScreen extends StatefulWidget {
   final TalerClient client;
 
@@ -96,7 +96,7 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => _localError = null);
     final token = _tokenCtrl.text.trim();
     if (token.isEmpty) {
-      setState(() => _localError = 'Вставьте токен сессии MAX');
+      setState(() => _localError = 'Укажите токен сессии MAX');
       return;
     }
     try {
@@ -109,259 +109,344 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = TalerTheme.paletteOf(context);
     final spoof = widget.client.spoofingService;
 
     return Scaffold(
+      backgroundColor: p.bg,
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              child: ListenableBuilder(
-                listenable: Listenable.merge([widget.client, spoof]),
-                builder: (context, _) {
-                  final profile = spoof.activeProfile;
-                  final busy = widget.client.isLoading;
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isDesktop = constraints.maxWidth >= 860;
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: theme.colorScheme.primary
-                                    .withValues(alpha: 0.35),
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.shield_outlined,
-                              color: theme.colorScheme.primary,
-                              size: 26,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+            return ListenableBuilder(
+              listenable: Listenable.merge([widget.client, spoof]),
+              builder: (context, _) {
+                final busy = widget.client.isLoading;
+
+                return Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(isDesktop ? 32 : 20),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: isDesktop ? 980 : 480,
+                      ),
+                      child: isDesktop
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Text(
-                                  'Taler',
-                                  style:
-                                      theme.textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                Expanded(
+                                  flex: 11,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _buildBrandHeader(p, isDesktop: true),
+                                      const SizedBox(height: 24),
+                                      _buildSpoofShell(
+                                        p,
+                                        spoof.activeProfile,
+                                        busy,
+                                        compact: false,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                Text(
-                                  'Независимый клиент MAX без телеметрии',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
+                                const SizedBox(width: 32),
+                                SizedBox(
+                                  width: 420,
+                                  child: _buildAuthPanel(p, busy),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _buildBrandHeader(p, isDesktop: false),
+                                const SizedBox(height: 16),
+                                _buildAuthPanel(p, busy),
+                                const SizedBox(height: 12),
+                                _buildSpoofShell(
+                                  p,
+                                  spoof.activeProfile,
+                                  busy,
+                                  compact: true,
                                 ),
                               ],
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Карточка предпросмотра спуфинга до первого подключения
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.verified_user_outlined,
-                                    size: 18,
-                                    color: TalerTheme.shieldGreen,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Expanded(
-                                    child: Text(
-                                      'Маскировка устройства активна',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: busy
-                                        ? null
-                                        : () => spoof.randomizeAll(),
-                                    icon: const Icon(Icons.shuffle, size: 16),
-                                    label: const Text('Сменить'),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '${profile.label} • ${profile.osVersion}',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'deviceId: ${profile.deviceId}  •  TZ: ${profile.timezone}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontFamily: 'monospace',
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      SegmentedButton<_AuthTab>(
-                        segments: const [
-                          ButtonSegment(
-                            value: _AuthTab.phone,
-                            label: Text('Телефон'),
-                            icon: Icon(Icons.phone_outlined, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: _AuthTab.token,
-                            label: Text('Токен'),
-                            icon: Icon(Icons.key_outlined, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: _AuthTab.demo,
-                            label: Text('Демо'),
-                            icon: Icon(Icons.science_outlined, size: 18),
-                          ),
-                        ],
-                        selected: {_tab},
-                        onSelectionChanged: busy
-                            ? null
-                            : (next) {
-                                setState(() {
-                                  _tab = next.first;
-                                  _localError = null;
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 16),
-
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: switch (_tab) {
-                            _AuthTab.phone => _buildPhoneForm(busy, theme),
-                            _AuthTab.token => _buildTokenForm(busy, theme),
-                            _AuthTab.demo => _buildDemoForm(busy, theme),
-                          },
-                        ),
-                      ),
-
-                      if (_localError != null ||
-                          widget.client.errorMessage != null) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: TalerTheme.dangerRed.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color:
-                                  TalerTheme.dangerRed.withValues(alpha: 0.4),
-                            ),
-                          ),
-                          child: Text(
-                            _localError ?? widget.client.errorMessage ?? '',
-                            style: const TextStyle(
-                              color: TalerTheme.dangerRed,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildPhoneForm(bool busy, ThemeData theme) {
+  Widget _buildBrandHeader(TalerPalette p, {required bool isDesktop}) {
+    return Row(
+      children: [
+        Container(
+          width: isDesktop ? 44 : 40,
+          height: isDesktop ? 44 : 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: p.surface2,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: p.line2),
+          ),
+          child: Icon(
+            Icons.shield_outlined,
+            color: p.fg,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Taler',
+                style: TextStyle(
+                  fontSize: isDesktop ? 26 : 22,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.6,
+                  height: 1.1,
+                  color: p.fg,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Независимый клиент MAX без телеметрии',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: p.fg2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpoofShell(
+    TalerPalette p,
+    dynamic profile,
+    bool busy, {
+    required bool compact,
+  }) {
+    return TalerTableShell(
+      title: 'Маскировка устройства активна',
+      titleLeading: TalerStatusDot(color: p.statusLive, size: 6),
+      trailing: TalerTactileButton(
+        label: 'Сменить',
+        icon: Icons.shuffle_rounded,
+        compact: true,
+        onPressed: busy ? null : () => widget.client.spoofingService.randomizeAll(),
+      ),
+      child: Column(
+        children: [
+          _SpecRow(
+            label: 'Модель',
+            value: '${profile.label}  ·  ${profile.osVersion}',
+            compact: compact,
+          ),
+          Divider(height: 1, color: p.line),
+          _SpecRow(
+            label: 'Device ID',
+            value: '${profile.deviceId}  ·  ${profile.timezone}',
+            monospace: true,
+            compact: compact,
+          ),
+          if (!compact) ...[
+            Divider(height: 1, color: p.line),
+            _SpecRow(
+              label: 'Экран · Локаль',
+              value: '${profile.screen}  ·  ${profile.locale}',
+              monospace: true,
+              compact: compact,
+            ),
+            Divider(height: 1, color: p.line),
+            const _SpecRow(
+              label: 'Блокировка',
+              value: 'LOG #5 · DEBUG #2 · BANNERS #302 · SUGGEST #300',
+              monospace: true,
+              compact: false,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuthPanel(TalerPalette p, bool busy) {
+    final err = _localError ?? widget.client.errorMessage;
+
+    return TalerTableShell(
+      bodyPadding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TalerSlidingPillSwitch<_AuthTab>(
+            value: _tab,
+            height: 32,
+            onChanged: busy
+                ? null
+                : (next) {
+                    setState(() {
+                      _tab = next;
+                      _localError = null;
+                    });
+                  },
+            items: const [
+              TalerSegment(
+                value: _AuthTab.phone,
+                label: 'Телефон',
+                icon: Icons.phone_outlined,
+              ),
+              TalerSegment(
+                value: _AuthTab.token,
+                label: 'Токен',
+                icon: Icons.key_outlined,
+              ),
+              TalerSegment(
+                value: _AuthTab.demo,
+                label: 'Демо',
+                icon: Icons.science_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: TalerTheme.easeOutCurve,
+            child: KeyedSubtree(
+              key: ValueKey('auth_${_tab.name}_${_phoneStep.name}'),
+              child: switch (_tab) {
+                _AuthTab.phone => _buildPhoneForm(p, busy),
+                _AuthTab.token => _buildTokenForm(p, busy),
+                _AuthTab.demo => _buildDemoForm(p, busy),
+              },
+            ),
+          ),
+          if (err != null && err.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: p.dangerSurface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: p.dangerLine),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: TalerStatusDot(color: p.danger, size: 6),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      err,
+                      style: TextStyle(color: p.danger, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneForm(TalerPalette p, bool busy) {
+    final ctaLabel = switch (_phoneStep) {
+      _PhoneStep.enterPhone => 'Запросить код',
+      _PhoneStep.enterOtp => 'Подтвердить код',
+      _PhoneStep.enter2fa => 'Войти с паролем',
+      _PhoneStep.enterProfile => 'Создать профиль',
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_phoneStep == _PhoneStep.enterPhone) ...[
-          const Text(
-            'Вход по номеру телефона MAX',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-          ),
-          const SizedBox(height: 6),
           Text(
-            'Хендшейк выполняется напрямую по протоколу WebSocket MAX со спуфингом устройства и блокировкой телеметрии.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            'Вход по номеру телефона',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+              color: p.fg,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 4),
+          Text(
+            'Прямое подключение WebSocket MAX с подменой отпечатка устройства.',
+            style: TextStyle(fontSize: 13, color: p.fg2, height: 1.4),
+          ),
+          const SizedBox(height: 16),
           TextField(
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
             enabled: !busy,
+            style: TalerTheme.tabularStyle(size: 14, color: p.fg),
             decoration: const InputDecoration(
               labelText: 'Номер телефона',
               hintText: '+7 999 000 00 00',
-              prefixIcon: Icon(Icons.phone_android_outlined),
+              prefixIcon: Icon(Icons.phone_outlined, size: 18),
             ),
           ),
         ] else if (_phoneStep == _PhoneStep.enterOtp) ...[
-          const Text(
-            'Введите код подтверждения',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          Text(
+            'Код подтверждения',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+              color: p.fg,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _otpCtrl,
             keyboardType: TextInputType.number,
             enabled: !busy,
+            style: TalerTheme.monoStyle(size: 15, color: p.fg),
             decoration: const InputDecoration(
-              labelText: 'Код из SMS / MAX',
-              prefixIcon: Icon(Icons.sms_outlined),
+              labelText: 'Код из SMS',
+              prefixIcon: Icon(Icons.sms_outlined, size: 18),
             ),
           ),
+          const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
-            child: TextButton(
+            child: TalerTactileButton(
+              label: 'Изменить номер',
+              compact: true,
               onPressed: busy
                   ? null
                   : () => setState(() => _phoneStep = _PhoneStep.enterPhone),
-              child: const Text('Изменить номер'),
             ),
           ),
         ] else if (_phoneStep == _PhoneStep.enter2fa) ...[
-          const Text(
-            'Облачный пароль (2FA)',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          Text(
+            'Облачный пароль',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+              color: p.fg,
+            ),
           ),
           if (_twoFaHint != null && _twoFaHint!.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               'Подсказка: $_twoFaHint',
-              style: theme.textTheme.bodySmall,
+              style: TextStyle(fontSize: 13, color: p.fg2),
             ),
           ],
           const SizedBox(height: 12),
@@ -371,13 +456,17 @@ class _AuthScreenState extends State<AuthScreen> {
             enabled: !busy,
             decoration: const InputDecoration(
               labelText: 'Пароль 2FA',
-              prefixIcon: Icon(Icons.lock_outline),
+              prefixIcon: Icon(Icons.lock_outline, size: 18),
             ),
           ),
         ] else ...[
-          const Text(
-            'Завершение регистрации',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          Text(
+            'Новый профиль',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+              color: p.fg,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -385,113 +474,140 @@ class _AuthScreenState extends State<AuthScreen> {
             enabled: !busy,
             decoration: const InputDecoration(labelText: 'Имя'),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           TextField(
             controller: _lastNameCtrl,
             enabled: !busy,
-            decoration: const InputDecoration(labelText: 'Фамилия (необязательно)'),
+            decoration: const InputDecoration(labelText: 'Фамилия'),
           ),
         ],
         const SizedBox(height: 16),
-        FilledButton(
+        TalerTactileButton(
+          label: ctaLabel,
+          variant: TalerButtonVariant.primary,
+          loading: busy,
           onPressed: busy ? null : _submitPhone,
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(switch (_phoneStep) {
-                  _PhoneStep.enterPhone => 'Запросить код',
-                  _PhoneStep.enterOtp => 'Подтвердить код',
-                  _PhoneStep.enter2fa => 'Войти с паролем',
-                  _PhoneStep.enterProfile => 'Создать профиль',
-                }),
         ),
       ],
     );
   }
 
-  Widget _buildTokenForm(bool busy, ThemeData theme) {
+  Widget _buildTokenForm(TalerPalette p, bool busy) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Вход по готовому токену сессии',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        const SizedBox(height: 6),
         Text(
-          'Подходит для переноса существующей авторизации без повторного SMS-кода.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          'Вход по токену сессии',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 15,
+            color: p.fg,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 4),
+        Text(
+          'Перенос существующей авторизации без повторного SMS-кода.',
+          style: TextStyle(fontSize: 13, color: p.fg2, height: 1.4),
+        ),
+        const SizedBox(height: 16),
         TextField(
           controller: _tokenCtrl,
           maxLines: 3,
           enabled: !busy,
+          style: TalerTheme.monoStyle(size: 12, color: p.fg),
           decoration: const InputDecoration(
             labelText: 'Login Token',
-            hintText: 'Вставьте токен сессии...',
+            hintText: 'Токен сессии MAX',
           ),
         ),
         const SizedBox(height: 16),
-        FilledButton(
+        TalerTactileButton(
+          label: 'Подключиться и войти',
+          variant: TalerButtonVariant.primary,
+          loading: busy,
           onPressed: busy ? null : _submitToken,
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Подключиться и войти'),
         ),
       ],
     );
   }
 
-  Widget _buildDemoForm(bool busy, ThemeData theme) {
+  Widget _buildDemoForm(TalerPalette p, bool busy) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Локальный режим песочницы',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        const SizedBox(height: 6),
         Text(
-          'Открывает интерфейс Taler с предзаполненными диалогами, перехваченными сообщениями Anti-Delete, историей правок и живым аудитом заблокированной телеметрии — без подключения к аккаунту.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          'Локальный режим песочницы',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 15,
+            color: p.fg,
           ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Открывает диалоги, перехваченные сообщения Anti-Delete, историю правок и журнал Wire Audit без подключения к аккаунту.',
+          style: TextStyle(fontSize: 13, color: p.fg2, height: 1.4),
         ),
         const SizedBox(height: 16),
-        FilledButton.icon(
+        TalerTactileButton(
+          label: 'Запустить демо-режим Taler',
+          icon: Icons.play_arrow_rounded,
+          variant: TalerButtonVariant.primary,
+          loading: busy,
           onPressed: busy ? null : () => widget.client.enterDemoMode(),
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Запустить демо-режим Taler'),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
         ),
       ],
+    );
+  }
+}
+
+class _SpecRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool monospace;
+  final bool compact;
+
+  const _SpecRow({
+    required this.label,
+    required this.value,
+    this.monospace = false,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: compact ? 8 : 10,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 108,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: p.fg3),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: compact ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+              style: monospace
+                  ? TalerTheme.monoStyle(size: 12, color: p.fg2)
+                  : TextStyle(
+                      fontSize: 12.5,
+                      color: p.fg,
+                      fontWeight: FontWeight.w400,
+                    ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
