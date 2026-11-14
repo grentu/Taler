@@ -132,69 +132,69 @@ class TalerTheme {
 
   static const TalerPalette darkPalette = TalerPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF141415),
-    settingsBg: Color(0xFF0F0F10),
-    bg2: Color(0xFF19191B),
-    bg3: Color(0xFF232325),
-    surfaceHigh: Color(0xFF2A2A2D),
-    bubbleOut: Color(0xFF1F3A31),
-    bubbleIn: Color(0xFF1F1F21),
-    bubbleOutText: Color(0xFFEDF5F1),
-    bubbleInText: Color(0xFFEDEDED),
-    accent: Color(0xFF5DBB94),
-    accentMuted: Color(0xFF2F5E4C),
-    fg: Color(0xFFEDEDED),
-    fg2: Color(0xFFA1A1A6),
-    fg3: Color(0xFF85858B),
-    fg4: Color(0x3885858B),
-    surface: Color(0xFF1D1D1F),
-    surface2: Color(0xFF232325),
-    surface3: Color(0xFF2E2E31),
-    line: Color(0x14EDEDED),
-    line2: Color(0x24EDEDED),
-    solid: Color(0xFFEDEDED),
-    onSolid: Color(0xFF141415),
-    glass: Color(0xE6141415),
-    statusLive: Color(0xFF4CC38A),
-    statusLiveSurface: Color(0x1F4CC38A),
-    warning: Color(0xFFD9A441),
-    warningSurface: Color(0x1AD9A441),
-    warningLine: Color(0x40D9A441),
-    danger: Color(0xFFE5484D),
-    dangerSurface: Color(0x1AE5484D),
-    dangerLine: Color(0x40E5484D),
+    bg: Color(0xFF09090B),
+    settingsBg: Color(0xFF09090B),
+    bg2: Color(0xFF0C0C0E),
+    bg3: Color(0xFF222226),
+    surfaceHigh: Color(0xFF27272A),
+    bubbleOut: Color(0xFF2563EB),
+    bubbleIn: Color(0xFF1C1C20),
+    bubbleOutText: Color(0xFFFFFFFF),
+    bubbleInText: Color(0xFFF4F4F5),
+    accent: Color(0xFF4C8DFF),
+    accentMuted: Color(0x244C8DFF),
+    fg: Color(0xFFFAFAFA),
+    fg2: Color(0xFFA1A1AA),
+    fg3: Color(0xFF71717A),
+    fg4: Color(0x3871717A),
+    surface: Color(0xFF18181B),
+    surface2: Color(0xFF222226),
+    surface3: Color(0xFF2A2A2E),
+    line: Color(0x12FFFFFF),
+    line2: Color(0x1FFFFFFF),
+    solid: Color(0xFFFAFAFA),
+    onSolid: Color(0xFF09090B),
+    glass: Color(0xE618181A),
+    statusLive: Color(0xFF22C55E),
+    statusLiveSurface: Color(0x1F22C55E),
+    warning: Color(0xFFF59E0B),
+    warningSurface: Color(0x1FF59E0B),
+    warningLine: Color(0x40F59E0B),
+    danger: Color(0xFFEF4444),
+    dangerSurface: Color(0x1AEF4444),
+    dangerLine: Color(0x40EF4444),
   );
 
   static const TalerPalette lightPalette = TalerPalette(
     brightness: Brightness.light,
-    bg: Color(0xFFFAFAFA),
+    bg: Color(0xFFFFFFFF),
     settingsBg: Color(0xFFF4F4F5),
     bg2: Color(0xFFFFFFFF),
     bg3: Color(0xFFF4F4F5),
-    surfaceHigh: Color(0xFFEDEDEF),
-    bubbleOut: Color(0xFFDDEFE6),
+    surfaceHigh: Color(0xFFE4E4E7),
+    bubbleOut: Color(0xFF2563EB),
     bubbleIn: Color(0xFFFFFFFF),
-    bubbleOutText: Color(0xFF10241B),
-    bubbleInText: Color(0xFF171717),
-    accent: Color(0xFF1F7A57),
-    accentMuted: Color(0xFF7DBFA3),
-    fg: Color(0xFF171717),
-    fg2: Color(0xFF525252),
-    fg3: Color(0xFF737373),
-    fg4: Color(0x38737373),
-    surface: Color(0xFFF4F4F5),
-    surface2: Color(0xFFEDEDEF),
+    bubbleOutText: Color(0xFFFFFFFF),
+    bubbleInText: Color(0xFF09090B),
+    accent: Color(0xFF2563EB),
+    accentMuted: Color(0x1A2563EB),
+    fg: Color(0xFF09090B),
+    fg2: Color(0xFF52525B),
+    fg3: Color(0xFF71717A),
+    fg4: Color(0x3871717A),
+    surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFF4F4F5),
     surface3: Color(0xFFE4E4E7),
-    line: Color(0x14171717),
-    line2: Color(0x24171717),
-    solid: Color(0xFF171717),
+    line: Color(0x1409090B),
+    line2: Color(0x2409090B),
+    solid: Color(0xFF09090B),
     onSolid: Color(0xFFFFFFFF),
-    glass: Color(0xEBFAFAFA),
+    glass: Color(0xC7FAFAFA),
     statusLive: Color(0xFF16A34A),
     statusLiveSurface: Color(0x1A16A34A),
-    warning: Color(0xFFB7791F),
-    warningSurface: Color(0x1AB7791F),
-    warningLine: Color(0x40B7791F),
+    warning: Color(0xFFB45309),
+    warningSurface: Color(0x1AF59E0B),
+    warningLine: Color(0x40B45309),
     danger: Color(0xFFDC2626),
     dangerSurface: Color(0x1ADC2626),
     dangerLine: Color(0x40DC2626),
@@ -398,7 +398,20 @@ class TalerTheme {
   }
 }
 
-/// Круглая аватарка пользователя или чата с мягкой палитрой по ID.
+/// Палитра аватарок и имён в группах (по id, стабильно).
+const List<Color> kTalerPeerColors = [
+  Color(0xFFE17076),
+  Color(0xFF7BC862),
+  Color(0xFF65AADD),
+  Color(0xFFA695E7),
+  Color(0xFFEE7AAE),
+  Color(0xFF6EC9CB),
+  Color(0xFFFAA774),
+  Color(0xFF8E97A6),
+];
+
+/// Круглая аватарка: фото с сервера MAX, а пока оно грузится или если его нет —
+/// инициалы на цветном круге.
 class TalerAvatar extends StatelessWidget {
   final int seedId;
   final String initials;
@@ -406,6 +419,7 @@ class TalerAvatar extends StatelessWidget {
   final bool isOnline;
   final Color? onlineBorderColor;
   final double? fontSize;
+  final String? imageUrl;
 
   const TalerAvatar({
     super.key,
@@ -415,43 +429,57 @@ class TalerAvatar extends StatelessWidget {
     this.isOnline = false,
     this.onlineBorderColor,
     this.fontSize,
+    this.imageUrl,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final colors = TalerPalette.avatarGradientForId(seedId);
-    final textSize = fontSize ?? (size * 0.34).clamp(11.0, 22.0);
-    final dotSize = (size * 0.24).clamp(9.0, 13.0);
-
+    final base = kTalerPeerColors[seedId.abs() % kTalerPeerColors.length];
+    final textSize = fontSize ?? (size * 0.36).clamp(10.0, 36.0);
+    final dotSize = (size * 0.26).clamp(9.0, 16.0);
+    final fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [base, Color.lerp(base, Colors.black, 0.22)!],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initials.isEmpty ? '?' : initials,
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: textSize),
+        ),
+      ),
+    );
+    final url = imageUrl;
+    final Widget face;
+    if (url != null && (url.startsWith('http://') || url.startsWith('https://'))) {
+      final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
+      face = ClipOval(
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          cacheWidth: px,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, _, _) => fallback,
+          frameBuilder: (context, child, frame, sync) => frame == null && !sync ? fallback : child,
+        ),
+      );
+    } else {
+      face = fallback;
+    }
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Container(
-            width: size,
-            height: size,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: colors,
-              ),
-              border: Border.all(color: p.line, width: 0.7),
-            ),
-            child: Text(
-              initials.isEmpty ? 'T' : initials,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-                fontSize: textSize,
-              ),
-            ),
-          ),
+          Positioned.fill(child: face),
           if (isOnline)
             Positioned(
               right: 0,
@@ -462,10 +490,7 @@ class TalerAvatar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: p.statusLive,
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: onlineBorderColor ?? p.bg2,
-                    width: 2,
-                  ),
+                  border: Border.all(color: onlineBorderColor ?? p.bg2, width: 2),
                 ),
               ),
             ),
