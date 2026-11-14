@@ -215,6 +215,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           TalerAvatar(
             seedId: user?.id ?? 1,
             initials: user?.initials ?? 'T',
+            imageUrl: user?.avatarUrl,
             size: 64,
             isOnline: true,
             onlineBorderColor: p.bg2,
