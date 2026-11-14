@@ -39,17 +39,34 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
-      - name: Package Taler-Windows-x64.zip
+      - name: Build single-file launcher
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "dist\Taler-Windows-x64.zip" -Force
+          cmake -S windows/onefile -B build/onefile -A x64
+          cmake --build build/onefile --config Release
+
+      - name: Package Taler-Windows-x64.exe (one file)
+        shell: pwsh
+        run: ./scripts/pack_onefile.ps1 -SourceDir build\windows\x64\runner\Release -Launcher build\onefile\Release\launcher.exe -Output dist\Taler-Windows-x64.exe
+
+      - name: Smoke test the single file
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $p = Start-Process -FilePath dist\Taler-Windows-x64.exe -ArgumentList '--taler-extract-only' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "launcher exit code $($p.ExitCode)" }
+          $app = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Taler') -Directory -Filter 'app-*' | Select-Object -First 1
+          if (-not $app) { throw 'launcher extracted nothing' }
+          foreach ($f in @('taler.exe', 'flutter_windows.dll', 'data\app.so', 'data\icudtl.dat')) {
+            if (-not (Test-Path (Join-Path $app.FullName $f))) { throw "missing $f" }
+          }
+          Write-Host "OK: $($app.FullName)"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: Taler-Windows-x64
-          path: dist/Taler-Windows-x64.zip
+          path: dist/Taler-Windows-x64.exe
 
   build-android:
     name: Android (APK)
