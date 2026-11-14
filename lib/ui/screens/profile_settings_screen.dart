@@ -5,6 +5,7 @@ import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../theme/taler_theme.dart';
 import '../widgets/taler_logo.dart';
+import '../icons/taler_icon.dart';
 
 /// Экран профиля, оформления, активных сессий и информации о клиенте Taler.
 class ProfileSettingsScreen extends StatefulWidget {
@@ -123,7 +124,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     child: Row(
                       children: [
                         TelegramIconBadge(
-                          icon: Icons.settings_rounded,
+                          icon: TalerIcons.settings,
                           color: p.accent,
                           size: 30,
                         ),
@@ -273,7 +274,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           const SizedBox(width: 10),
           TalerTactileButton(
             label: 'Изменить',
-            icon: Icons.edit_outlined,
+            icon: TalerIcons.pencil,
             compact: true,
             onPressed: user == null ? null : _editNameDialog,
           ),
@@ -293,7 +294,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             Row(
               children: [
                 TelegramIconBadge(
-                  icon: Icons.palette_rounded,
+                  icon: TalerIcons.palette,
                   color: p.accent,
                   size: 30,
                 ),
@@ -330,17 +331,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 TalerSegment(
                   value: ThemeMode.dark,
                   label: 'Ночная',
-                  icon: Icons.dark_mode_outlined,
+                  icon: TalerIcons.moon,
                 ),
                 TalerSegment(
                   value: ThemeMode.light,
                   label: 'Светлая',
-                  icon: Icons.light_mode_outlined,
+                  icon: TalerIcons.sun,
                 ),
                 TalerSegment(
                   value: ThemeMode.system,
                   label: 'Система',
-                  icon: Icons.brightness_auto_outlined,
+                  icon: TalerIcons.sunMoon,
                 ),
               ],
             ),
@@ -359,7 +360,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return TalerTableShell(
       title: 'Активные сессии (Opcode 96)',
       trailing: TalerIconButton(
-        icon: Icons.refresh_rounded,
+        icon: TalerIcons.refresh,
         tooltip: 'Обновить сессии',
         size: 30,
         iconSize: 18,
@@ -406,8 +407,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     children: [
                       TelegramIconBadge(
                         icon: s.current
-                            ? Icons.verified_user_rounded
-                            : Icons.devices_rounded,
+                            ? TalerIcons.shieldCheck
+                            : TalerIcons.devices,
                         color: s.current ? p.statusLive : p.accent,
                         size: 30,
                       ),
@@ -476,7 +477,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               padding: const EdgeInsets.all(12),
               child: TalerTactileButton(
                 label: 'Завершить все остальные сессии',
-                icon: Icons.devices_other_rounded,
+                icon: TalerIcons.devicesOther,
                 variant: TalerButtonVariant.danger,
                 onPressed: () => widget.client.terminateOtherSessions(),
               ),
@@ -526,7 +527,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             label: widget.client.isDemoMode
                 ? 'Выйти из демо-режима'
                 : 'Выйти из аккаунта',
-            icon: Icons.logout_rounded,
+            icon: TalerIcons.logOut,
             variant: TalerButtonVariant.danger,
             onPressed: () => widget.client.logout(),
           ),
