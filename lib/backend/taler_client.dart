@@ -188,6 +188,48 @@ class TalerClient extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Код ошибки MAX, когда у аккаунта есть активная сессия, а пароль
+  /// для входа (2FA) не задан: сервер не пускает новые устройства.
+  static const String no2faErrorCode = 'error.profile.active.session.no2fa';
+
+  /// Распознаёт ограничение входа "нужно установить 2FA" в любой обёртке.
+  static bool isNo2faError(Object error) {
+    if (error is TalerPacketException && error.code == no2faErrorCode) {
+      return true;
+    }
+    return error.toString().toLowerCase().contains('no2fa');
+  }
+
+  /// Заранее поднимает соединение с MAX, пока пользователь вводит номер,
+  /// чтобы запрос кода не ждал подключения.
+  void warmUpConnection() {
+    if (_isDemoMode || session.isOnline) return;
+    // Widget-тесты не должны ходить в сеть.
+    if (Platform.environment['FLUTTER_TEST'] == 'true') return;
+    session.connect().then<void>((_) {}, onError: (Object _) {});
+  }
+
+  /// Включает или выключает маскировку устройства перед входом и сразу
+  /// переподключается, чтобы следующий запрос кода ушёл с новым профилем.
+  Future<void> setLoginSpoofing(bool enabled) async {
+    if (privacySettings.spoofingEnabled == enabled) return;
+    await privacySettings.setSpoofingEnabled(enabled);
+    notifyListeners();
+    if (_isDemoMode || _isAuthenticated) return;
+    session.connect(forceReconnect: true).then<void>((_) {}, onError: (Object _) {});
+  }
+
+  /// Подключение через веб-шлюз MAX (deviceType WEB) вместо прямого TLS.
+  bool get preferWebGateway => session.preferWebGateway;
+
+  Future<void> setPreferWebGateway(bool value) async {
+    if (session.preferWebGateway == value) return;
+    session.preferWebGateway = value;
+    notifyListeners();
+    if (_isDemoMode || _isAuthenticated) return;
+    session.connect(forceReconnect: true).then<void>((_) {}, onError: (Object _) {});
+  }
+
   /// Запрос SMS/OTP кода авторизации (`Opcode.authRequest`).
   Future<String> requestOtp(String phone, {bool isResend = false}) async {
     _setBusy(true);
@@ -210,10 +252,13 @@ class TalerClient extends ChangeNotifier {
     String phone, {
     required bool isResend,
   }) async {
-    if (!session.isOnline || session.callsSeed == null) {
-      await session.connect(
-        forceReconnect: session.isOnline && session.callsSeed == null,
-      );
+    // Переподключаемся только когда это действительно нужно: TLS-сессия без
+    // callsSeed не примет запрос кода, а веб-шлюз seed не выдаёт вовсе.
+    final needsSeed = session.isOnline &&
+        session.transport == TalerTransport.tls &&
+        session.callsSeed == null;
+    if (!session.isOnline || needsSeed) {
+      await session.connect(forceReconnect: needsSeed);
     }
 
     final digits = phone.replaceAll(RegExp(r'\D'), '');
@@ -236,7 +281,11 @@ class TalerClient extends ChangeNotifier {
       payload['mode'] = ChatCacheFingerprint.compute(seed, deviceId);
     }
 
-    final packet = await session.request(Opcode.authRequest, payload);
+    final packet = await session.request(
+      Opcode.authRequest,
+      payload,
+      timeout: const Duration(seconds: 15),
+    );
     final data = packet.payloadAsMap ?? const {};
     final token = data['token'] as String?;
     if (token == null || token.isEmpty) {

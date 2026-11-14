@@ -1,7 +1,6 @@
-import 'dart:math' as math;
-import 'dart:ui' as ui;
-
 import 'package:material_ui/material_ui.dart';
+
+import '../icons/taler_icon.dart';
 
 /// Палитра дизайн-системы Taler в обсидианово-графитовом стиле (Obsidian Monochrome + Muted Indigo).
 class TalerPalette {
@@ -76,13 +75,13 @@ class TalerPalette {
   bool get isDark => brightness == Brightness.dark;
 
   static const List<(Color, Color)> _avatarGradients = [
-    (Color(0xFF8B84E2), Color(0xFF5E58B0)), // Slate Indigo
-    (Color(0xFFE07A5F), Color(0xFFB5543D)), // Muted Terracotta
-    (Color(0xFF52A88B), Color(0xFF337C64)), // Sage Emerald
-    (Color(0xFF6B8FB8), Color(0xFF47688F)), // Steel Blue
-    (Color(0xFFD49B54), Color(0xFFA77434)), // Warm Ochre
-    (Color(0xFFC46D8E), Color(0xFF964A67)), // Dusty Rose
-    (Color(0xFF7B818E), Color(0xFF525763)), // Graphite Pewter
+    (Color(0xFF5E7D8C), Color(0xFF5E7D8C)), // Slate
+    (Color(0xFFA0715A), Color(0xFFA0715A)), // Clay
+    (Color(0xFF5C8A72), Color(0xFF5C8A72)), // Patina
+    (Color(0xFF6E7AA0), Color(0xFF6E7AA0)), // Steel
+    (Color(0xFFA08A55), Color(0xFFA08A55)), // Brass
+    (Color(0xFF9A6B7C), Color(0xFF9A6B7C)), // Rosewood
+    (Color(0xFF6B6F78), Color(0xFF6B6F78)), // Graphite
   ];
 
   static const List<Color> _peerColorsDark = [
@@ -120,8 +119,8 @@ class TalerPalette {
 
 /// Тема оформления и тактильные UI-примитивы Taler (Monochrome Tactile UI + Obsidian Indigo).
 class TalerTheme {
-  static const Color obsidianIndigo = Color(0xFF7C76D6);
-  static const Color bubbleIndigo = Color(0xFF6862B8);
+  static const Color obsidianIndigo = Color(0xFF5DBB94);
+  static const Color bubbleIndigo = Color(0xFF1F3A31);
   static const Color shieldGreen = Color(0xFF30A46C);
   static const Color warningAmber = Color(0xFFE5A000);
   static const Color dangerRed = Color(0xFFE5484D);
@@ -133,72 +132,72 @@ class TalerTheme {
 
   static const TalerPalette darkPalette = TalerPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF0A0A0C),
-    settingsBg: Color(0xFF0A0A0C),
-    bg2: Color(0xFF121216),
-    bg3: Color(0xFF1A1A20),
-    surfaceHigh: Color(0xFF23232C),
-    bubbleOut: bubbleIndigo,
-    bubbleIn: Color(0xFF1C1C22),
-    bubbleOutText: Color(0xFFF5F5F7),
-    bubbleInText: Color(0xFFF2F2F4),
-    accent: obsidianIndigo,
-    accentMuted: Color(0xFF4E4A8A),
-    fg: Color(0xFFF2F2F0),
-    fg2: Color(0xFF9A9AA4),
-    fg3: Color(0xFF63636E),
-    fg4: Color(0x389A9AA4),
-    surface: Color(0xFF17171C),
-    surface2: Color(0xFF1F1F26),
-    surface3: Color(0xFF2A2A34),
-    line: Color(0x14FFFFFF),
-    line2: Color(0x22FFFFFF),
-    solid: Color(0xFFF2F2F0),
-    onSolid: Color(0xFF0A0A0C),
-    glass: Color(0xE6121216),
-    statusLive: shieldGreen,
-    statusLiveSurface: Color(0x1F30A46C),
-    warning: warningAmber,
-    warningSurface: Color(0x1FE5A000),
-    warningLine: Color(0x4DE5A000),
-    danger: dangerRed,
-    dangerSurface: Color(0x1FE5484D),
-    dangerLine: Color(0x4DE5484D),
+    bg: Color(0xFF141415),
+    settingsBg: Color(0xFF0F0F10),
+    bg2: Color(0xFF19191B),
+    bg3: Color(0xFF232325),
+    surfaceHigh: Color(0xFF2A2A2D),
+    bubbleOut: Color(0xFF1F3A31),
+    bubbleIn: Color(0xFF1F1F21),
+    bubbleOutText: Color(0xFFEDF5F1),
+    bubbleInText: Color(0xFFEDEDED),
+    accent: Color(0xFF5DBB94),
+    accentMuted: Color(0xFF2F5E4C),
+    fg: Color(0xFFEDEDED),
+    fg2: Color(0xFFA1A1A6),
+    fg3: Color(0xFF85858B),
+    fg4: Color(0x3885858B),
+    surface: Color(0xFF1D1D1F),
+    surface2: Color(0xFF232325),
+    surface3: Color(0xFF2E2E31),
+    line: Color(0x14EDEDED),
+    line2: Color(0x24EDEDED),
+    solid: Color(0xFFEDEDED),
+    onSolid: Color(0xFF141415),
+    glass: Color(0xE6141415),
+    statusLive: Color(0xFF4CC38A),
+    statusLiveSurface: Color(0x1F4CC38A),
+    warning: Color(0xFFD9A441),
+    warningSurface: Color(0x1AD9A441),
+    warningLine: Color(0x40D9A441),
+    danger: Color(0xFFE5484D),
+    dangerSurface: Color(0x1AE5484D),
+    dangerLine: Color(0x40E5484D),
   );
 
   static const TalerPalette lightPalette = TalerPalette(
     brightness: Brightness.light,
-    bg: Color(0xFFF1F1F3),
-    settingsBg: Color(0xFFF1F1F3),
-    bg2: Color(0xFFFAFAFB),
-    bg3: Color(0xFFEAEAEF),
-    surfaceHigh: Color(0xFFE4E3F5),
-    bubbleOut: bubbleIndigo,
+    bg: Color(0xFFFAFAFA),
+    settingsBg: Color(0xFFF4F4F5),
+    bg2: Color(0xFFFFFFFF),
+    bg3: Color(0xFFF4F4F5),
+    surfaceHigh: Color(0xFFEDEDEF),
+    bubbleOut: Color(0xFFDDEFE6),
     bubbleIn: Color(0xFFFFFFFF),
-    bubbleOutText: Color(0xFFFFFFFF),
-    bubbleInText: Color(0xFF111113),
-    accent: Color(0xFF5E58B0),
-    accentMuted: Color(0xFF8882D0),
-    fg: Color(0xFF111113),
-    fg2: Color(0xFF60606C),
-    fg3: Color(0xFF8C8C98),
-    fg4: Color(0x3860606C),
-    surface: Color(0xFFEFEFF2),
-    surface2: Color(0xFFE5E5EA),
-    surface3: Color(0xFFD9D9E0),
-    line: Color(0x14000000),
-    line2: Color(0x22000000),
-    solid: Color(0xFF111113),
+    bubbleOutText: Color(0xFF10241B),
+    bubbleInText: Color(0xFF171717),
+    accent: Color(0xFF1F7A57),
+    accentMuted: Color(0xFF7DBFA3),
+    fg: Color(0xFF171717),
+    fg2: Color(0xFF525252),
+    fg3: Color(0xFF737373),
+    fg4: Color(0x38737373),
+    surface: Color(0xFFF4F4F5),
+    surface2: Color(0xFFEDEDEF),
+    surface3: Color(0xFFE4E4E7),
+    line: Color(0x14171717),
+    line2: Color(0x24171717),
+    solid: Color(0xFF171717),
     onSolid: Color(0xFFFFFFFF),
-    glass: Color(0xEBFAFAFB),
-    statusLive: Color(0xFF288E5B),
-    statusLiveSurface: Color(0x1A288E5B),
-    warning: Color(0xFFC28200),
-    warningSurface: Color(0x1AE5A000),
-    warningLine: Color(0x4DC28200),
-    danger: Color(0xFFD63B40),
-    dangerSurface: Color(0x1AE5484D),
-    dangerLine: Color(0x4DD63B40),
+    glass: Color(0xEBFAFAFA),
+    statusLive: Color(0xFF16A34A),
+    statusLiveSurface: Color(0x1A16A34A),
+    warning: Color(0xFFB7791F),
+    warningSurface: Color(0x1AB7791F),
+    warningLine: Color(0x40B7791F),
+    danger: Color(0xFFDC2626),
+    dangerSurface: Color(0x1ADC2626),
+    dangerLine: Color(0x40DC2626),
   );
 
   static TalerPalette paletteOf(BuildContext context) {
@@ -213,8 +212,8 @@ class TalerTheme {
     Color? color,
   }) {
     return TextStyle(
-      fontFamily: 'monospace',
-      fontFamilyFallback: const ['Consolas', 'Menlo', 'Courier New'],
+      fontFamily: 'GeistMono',
+      fontFamilyFallback: const ['Consolas', 'Menlo'],
       fontSize: size,
       fontWeight: weight,
       color: color,
@@ -264,7 +263,9 @@ class TalerTheme {
 
     return ThemeData(
       useMaterial3: true,
+      fontFamily: 'Geist',
       brightness: p.brightness,
+      iconTheme: IconThemeData(color: p.fg2, size: 18),
       colorScheme: scheme,
       scaffoldBackgroundColor: p.bg,
       canvasColor: p.bg2,
@@ -276,6 +277,7 @@ class TalerTheme {
               ? Typography.material2021().white
               : Typography.material2021().black)
           .apply(
+        fontFamily: 'Geist',
         bodyColor: p.fg,
         displayColor: p.fg,
       ),
@@ -367,7 +369,7 @@ class TalerTheme {
           backgroundColor: p.solid,
           foregroundColor: p.onSolid,
           elevation: 0,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+          textStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
@@ -445,9 +447,8 @@ class TalerAvatar extends StatelessWidget {
               initials.isEmpty ? 'T' : initials,
               style: TextStyle(
                 color: Colors.white,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
                 fontSize: textSize,
-                letterSpacing: -0.2,
               ),
             ),
           ),
@@ -476,7 +477,7 @@ class TalerAvatar extends StatelessWidget {
 
 /// Монохромный тактильный бокс для иконки настройки без цветной заливки.
 class TelegramIconBadge extends StatelessWidget {
-  final IconData icon;
+  final TalerIconData icon;
   final Color? color;
   final double size;
 
@@ -499,7 +500,7 @@ class TelegramIconBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: p.line2),
       ),
-      child: Icon(
+      child: TalerIcon(
         icon,
         size: size * 0.54,
         color: p.fg2,
@@ -541,65 +542,15 @@ class TelegramChatBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    return Container(
-      color: p.bg,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          RepaintBoundary(
-            child: CustomPaint(
-              isComplex: true,
-              willChange: false,
-              painter: _DotMatrixPainter(isDark: p.isDark),
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
+    return ColoredBox(color: p.bg, child: child);
   }
-}
-
-class _DotMatrixPainter extends CustomPainter {
-  final bool isDark;
-
-  const _DotMatrixPainter({required this.isDark});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final dotColor =
-        isDark ? const Color(0x0BFFFFFF) : const Color(0x10000000);
-    final paint = Paint()
-      ..color = dotColor
-      ..strokeWidth = 1.4
-      ..strokeCap = StrokeCap.round;
-
-    const step = 32.0;
-    final cols = math.min(96, (size.width / step).ceil() + 1);
-    final rows = math.min(64, (size.height / step).ceil() + 1);
-    final points = <Offset>[];
-
-    for (var r = 0; r < rows; r++) {
-      final y = r * step + 16;
-      final rowOffset = r.isOdd ? step * 0.5 : 0.0;
-      for (var c = 0; c < cols; c++) {
-        points.add(Offset(c * step + rowOffset + 12, y));
-      }
-    }
-
-    canvas.drawPoints(ui.PointMode.points, points, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _DotMatrixPainter oldDelegate) =>
-      oldDelegate.isDark != isDark;
 }
 
 /// Описание сегмента для скользящего переключателя [TalerSlidingPillSwitch].
 class TalerSegment<T> {
   final T value;
   final String label;
-  final IconData? icon;
+  final TalerIconData? icon;
   final String? badge;
 
   const TalerSegment({
@@ -732,7 +683,7 @@ class _SegmentItemState<T> extends State<_SegmentItem<T>> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (widget.item.icon != null) ...[
-                  Icon(widget.item.icon, size: 15, color: fg),
+                  TalerIcon(widget.item.icon, size: 15, color: fg),
                   const SizedBox(width: 6),
                 ],
                 Flexible(
@@ -743,7 +694,7 @@ class _SegmentItemState<T> extends State<_SegmentItem<T>> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight:
-                          widget.selected ? FontWeight.w600 : FontWeight.w400,
+                          widget.selected ? FontWeight.w500 : FontWeight.w400,
                       color: fg,
                     ),
                   ),
@@ -772,7 +723,7 @@ enum TalerButtonVariant { primary, keycap, danger }
 /// Тактильная кнопка в стиле Monochrome Tactile UI (инвертированная `solid` для `primary`).
 class TalerTactileButton extends StatefulWidget {
   final String label;
-  final IconData? icon;
+  final TalerIconData? icon;
   final VoidCallback? onPressed;
   final TalerButtonVariant variant;
   final bool loading;
@@ -868,7 +819,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (widget.icon != null) ...[
-                          Icon(
+                          TalerIcon(
                             widget.icon,
                             size: widget.compact ? 15 : 17,
                             color: fg,
@@ -899,7 +850,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
 
 /// Компактная кнопка с одной иконкой в шапке и панели ввода.
 class TalerIconButton extends StatefulWidget {
-  final IconData icon;
+  final TalerIconData icon;
   final String? tooltip;
   final VoidCallback? onPressed;
   final double size;
@@ -961,7 +912,7 @@ class _TalerIconButtonState extends State<TalerIconButton> {
               color: bg,
               borderRadius: BorderRadius.circular(radius),
             ),
-            child: Icon(
+            child: TalerIcon(
               widget.icon,
               size: widget.iconSize,
               color: fg,

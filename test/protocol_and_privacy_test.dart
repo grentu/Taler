@@ -355,14 +355,14 @@ void main() {
     await tester.pumpWidget(const TalerApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Маскировка устройства активна'), findsOneWidget);
+    expect(find.text('Маскировка устройства'), findsOneWidget);
     expect(find.text('Демо'), findsOneWidget);
 
     await tester.tap(find.text('Демо'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Запустить демо-режим Taler'), findsOneWidget);
-    await tester.tap(find.text('Запустить демо-режим Taler'));
+    expect(find.text('Открыть демо'), findsOneWidget);
+    await tester.tap(find.text('Открыть демо'));
     await tester.pumpAndSettle();
 
     expect(find.text('Чаты'), findsOneWidget);

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
+import '../icons/taler_icon.dart';
 
 /// Векторный логотип Taler: чеканный обсидианово-серебряный талер с
 /// геометрической монограммой «T» и акцентом щита.
@@ -46,8 +47,8 @@ class TalerLogo extends StatelessWidget {
                     width: (size * 0.032).clamp(1.5, 2.8),
                   ),
                 ),
-                child: Icon(
-                  Icons.shield_rounded,
+                child: TalerIcon(
+                  TalerIcons.shieldCheck,
                   size: badgeSize * 0.56,
                   color: Colors.white,
                 ),

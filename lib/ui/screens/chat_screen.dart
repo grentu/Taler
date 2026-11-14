@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../theme/taler_theme.dart';
+import '../icons/taler_icon.dart';
 
 enum _InfoTab { members, media, files, shield }
 
@@ -220,7 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     children: [
                       if (widget.showBackButton) ...[
                         TalerIconButton(
-                          icon: Icons.arrow_back_rounded,
+                          icon: TalerIcons.arrowLeft,
                           tooltip: 'Назад',
                           onPressed:
                               widget.onBack ?? () => Navigator.of(context).pop(),
@@ -256,8 +257,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                                 if (liveChat.isOfficial) ...[
                                   const SizedBox(width: 5),
-                                  Icon(
-                                    Icons.verified_rounded,
+                                  TalerIcon(
+                                    TalerIcons.badgeCheck,
                                     size: 14,
                                     color: p.accent,
                                   ),
@@ -298,8 +299,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.visibility_off_rounded,
+                                  TalerIcon(
+                                    TalerIcons.eyeOff,
                                     size: 12,
                                     color: p.statusLive,
                                   ),
@@ -318,7 +319,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         ),
                       TalerIconButton(
-                        icon: Icons.search_rounded,
+                        icon: TalerIcons.search,
                         tooltip: 'Поиск в чате',
                         color: _showSearchBar ? p.accent : p.fg2,
                         onPressed: () {
@@ -332,7 +333,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         },
                       ),
                       TalerIconButton(
-                        icon: Icons.view_sidebar_outlined,
+                        icon: TalerIcons.panelLeft,
                         tooltip: 'Информация о чате',
                         color: showDockedInfo ? p.fg : p.fg2,
                         onPressed: () {
@@ -439,7 +440,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ],
                         ),
                       ),
-                      Icon(Icons.push_pin_outlined, size: 15, color: p.fg3),
+                      TalerIcon(TalerIcons.pin, size: 15, color: p.fg3),
                     ],
                   ),
                 ),
@@ -513,10 +514,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
+                    TalerIcon(
                       _editingMessage != null
-                          ? Icons.edit_rounded
-                          : Icons.reply_rounded,
+                          ? TalerIcons.pencil
+                          : TalerIcons.reply,
                       size: 18,
                       color: p.accent,
                     ),
@@ -554,7 +555,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                     TalerIconButton(
-                      icon: Icons.close_rounded,
+                      icon: TalerIcons.close,
                       size: 30,
                       iconSize: 17,
                       onPressed: () {
@@ -592,7 +593,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       TalerIconButton(
-                        icon: Icons.attach_file_rounded,
+                        icon: TalerIcons.paperclip,
                         tooltip: 'Прикрепить файл',
                         size: 36,
                         iconSize: 19,
@@ -627,7 +628,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       const SizedBox(width: 4),
                       TalerIconButton(
-                        icon: Icons.arrow_upward_rounded,
+                        icon: TalerIcons.arrowUp,
                         tooltip: 'Отправить',
                         circle: true,
                         size: 36,
@@ -809,7 +810,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _SheetActionRow(
-                      icon: Icons.reply_rounded,
+                      icon: TalerIcons.reply,
                       label: 'Ответить',
                       onTap: () {
                         Navigator.of(ctx).pop();
@@ -822,7 +823,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (msg.text.isNotEmpty) ...[
                       Divider(height: 1, color: p.line),
                       _SheetActionRow(
-                        icon: Icons.copy_rounded,
+                        icon: TalerIcons.copy,
                         label: 'Копировать текст',
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: msg.text));
@@ -833,7 +834,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (isMine && !msg.deletedByPeer) ...[
                       Divider(height: 1, color: p.line),
                       _SheetActionRow(
-                        icon: Icons.edit_outlined,
+                        icon: TalerIcons.pencil,
                         label: 'Редактировать',
                         onTap: () {
                           Navigator.of(ctx).pop();
@@ -848,7 +849,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (msg.isEdited) ...[
                       Divider(height: 1, color: p.line),
                       _SheetActionRow(
-                        icon: Icons.history_rounded,
+                        icon: TalerIcons.history,
                         label: 'История изменений',
                         onTap: () {
                           Navigator.of(ctx).pop();
@@ -859,7 +860,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (widget.client.isDemoMode && !msg.deletedByPeer) ...[
                       Divider(height: 1, color: p.line),
                       _SheetActionRow(
-                        icon: Icons.shield_outlined,
+                        icon: TalerIcons.shield,
                         label: 'Симулировать удаление (Anti-Delete)',
                         color: p.warning,
                         onTap: () {
@@ -873,7 +874,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                     Divider(height: 1, color: p.line),
                     _SheetActionRow(
-                      icon: Icons.delete_outline_rounded,
+                      icon: TalerIcons.trash,
                       label: 'Удалить у себя',
                       color: p.danger,
                       onTap: () {
@@ -928,7 +929,7 @@ class _ChatInfoPanel extends StatelessWidget {
             child: Row(
               children: [
                 TalerIconButton(
-                  icon: Icons.close_rounded,
+                  icon: TalerIcons.close,
                   tooltip: 'Закрыть',
                   onPressed: onClose,
                 ),
@@ -976,7 +977,7 @@ class _ChatInfoPanel extends StatelessWidget {
                     ),
                     if (chat.isOfficial) ...[
                       const SizedBox(width: 5),
-                      Icon(Icons.verified_rounded, size: 15, color: p.accent),
+                      TalerIcon(TalerIcons.badgeCheck, size: 15, color: p.accent),
                     ],
                   ],
                 ),
@@ -1003,8 +1004,8 @@ class _ChatInfoPanel extends StatelessWidget {
                     children: [
                       TelegramIconBadge(
                         icon: chat.isMuted
-                            ? Icons.notifications_off_outlined
-                            : Icons.notifications_none_rounded,
+                            ? TalerIcons.bellOff
+                            : TalerIcons.bell,
                         size: 30,
                       ),
                       const SizedBox(width: 10),
@@ -1215,7 +1216,7 @@ class _ChatInfoPanel extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.image_outlined, size: 18, color: p.fg2),
+                    TalerIcon(TalerIcons.image, size: 18, color: p.fg2),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1260,7 +1261,7 @@ class _ChatInfoPanel extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.insert_drive_file_outlined, size: 18, color: p.accent),
+                    TalerIcon(TalerIcons.file, size: 18, color: p.accent),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
@@ -1412,7 +1413,7 @@ class _InfoStatRow extends StatelessWidget {
 }
 
 class _SheetActionRow extends StatelessWidget {
-  final IconData icon;
+  final TalerIconData icon;
   final String label;
   final Color? color;
   final VoidCallback onTap;
@@ -1437,7 +1438,7 @@ class _SheetActionRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           children: [
-            Icon(icon, size: 19, color: color ?? p.fg2),
+            TalerIcon(icon, size: 19, color: color ?? p.fg2),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -1598,7 +1599,7 @@ class _ObsidianMessageBubble extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.shield_outlined, size: 13, color: p.warning),
+                    TalerIcon(TalerIcons.shield, size: 13, color: p.warning),
                     const SizedBox(width: 5),
                     Text(
                       'Удалено собеседником · сохранено',
@@ -1747,8 +1748,8 @@ class _ObsidianMessageBubble extends StatelessWidget {
                 ),
                 if (isMine) ...[
                   const SizedBox(width: 3),
-                  Icon(
-                    Icons.done_all_rounded,
+                  TalerIcon(
+                    TalerIcons.checkCheck,
                     size: 14,
                     color: metaColor,
                   ),
@@ -1822,8 +1823,8 @@ class _AttachmentView extends StatelessWidget {
               color: isMine ? Colors.white : p.bubbleOut,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.insert_drive_file_outlined,
+            child: TalerIcon(
+              TalerIcons.file,
               size: 17,
               color: isMine ? p.bubbleOut : Colors.white,
             ),

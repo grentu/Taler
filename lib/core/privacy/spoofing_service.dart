@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -105,8 +106,116 @@ class SpoofingService extends ChangeNotifier {
 
   SpoofProfile get activeProfile => _activeProfile;
 
+  static const _kNativeIdentity = 'taler_native_identity_v1';
+  SpoofProfile? _nativeProfile;
+
+  /// Профиль без маскировки: постоянный ID этой установки Taler, реальные
+  /// язык и часовой пояс. Он не меняется кнопкой «Новое устройство».
+  SpoofProfile get nativeProfile => _nativeProfile ??= buildNative();
+
+  Future<void> _loadNativeIdentity() async {
+    String? deviceId;
+    String? instanceId;
+    int? clientSessionId;
+    final raw = _prefs?.getString(_kNativeIdentity);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final m = jsonDecode(raw) as Map<String, dynamic>;
+        deviceId = m['deviceId'] as String?;
+        instanceId = m['instanceId'] as String?;
+        clientSessionId = (m['clientSessionId'] as num?)?.toInt();
+      } catch (_) {}
+    }
+    if (deviceId == null ||
+        deviceId.isEmpty ||
+        instanceId == null ||
+        instanceId.isEmpty ||
+        clientSessionId == null) {
+      deviceId = generateDeviceId();
+      instanceId = generateUuidV4();
+      clientSessionId = _rng.nextInt(0x7FFFFFFF) + 1;
+      await _prefs?.setString(
+        _kNativeIdentity,
+        jsonEncode({
+          'deviceId': deviceId,
+          'instanceId': instanceId,
+          'clientSessionId': clientSessionId,
+        }),
+      );
+    }
+    _nativeProfile = buildNative(
+      deviceId: deviceId,
+      instanceId: instanceId,
+      clientSessionId: clientSessionId,
+    );
+  }
+
+  /// Строит профиль без маскировки. На TLS-проводе MAX всё равно требует
+  /// deviceType ANDROID, поэтому модель берётся из базового пресета.
+  static SpoofProfile buildNative({
+    String? deviceId,
+    String? instanceId,
+    int? clientSessionId,
+  }) {
+    final base = presets.first;
+    return SpoofProfile(
+      presetId: 'native',
+      label: 'Это устройство',
+      deviceType: base.deviceType,
+      pushDeviceType: base.pushDeviceType,
+      deviceName: base.deviceName,
+      osVersion: base.osVersion,
+      screen: base.screen,
+      timezone: nativeTimezone(DateTime.now().timeZoneOffset),
+      locale: _nativeLocale(),
+      userAgent: base.userAgent,
+      appVersion: base.appVersion,
+      buildNumber: base.buildNumber,
+      arch: base.arch,
+      deviceId: deviceId ?? generateDeviceId(),
+      instanceId: instanceId ?? generateUuidV4(),
+      clientSessionId: clientSessionId ?? (_rng.nextInt(0x7FFFFFFF) + 1),
+    );
+  }
+
+  static String _nativeLocale() {
+    try {
+      final lang = Platform.localeName.split(RegExp(r'[-_.]')).first.toLowerCase();
+      return lang.length == 2 ? lang : 'ru';
+    } catch (_) {
+      return 'ru';
+    }
+  }
+
+  /// IANA-пояс по смещению UTC (для России точный, иначе Etc/GMT).
+  static String nativeTimezone(Duration offset) {
+    const byOffset = <int, String>{
+      0: 'Europe/London',
+      60: 'Europe/Berlin',
+      120: 'Europe/Kaliningrad',
+      180: 'Europe/Moscow',
+      240: 'Europe/Samara',
+      300: 'Asia/Yekaterinburg',
+      360: 'Asia/Omsk',
+      420: 'Asia/Novosibirsk',
+      480: 'Asia/Irkutsk',
+      540: 'Asia/Yakutsk',
+      600: 'Asia/Vladivostok',
+      660: 'Asia/Magadan',
+      720: 'Asia/Kamchatka',
+    };
+    final minutes = offset.inMinutes;
+    final known = byOffset[minutes];
+    if (known != null) return known;
+    if (minutes % 60 != 0) return 'Europe/Moscow';
+    final hours = minutes ~/ 60;
+    // В зонах Etc/GMT знак инвертирован по стандарту.
+    return hours > 0 ? 'Etc/GMT-$hours' : 'Etc/GMT+${-hours}';
+  }
+
   Future<void> load([SharedPreferences? prefs]) async {
     _prefs = prefs ?? await SharedPreferences.getInstance();
+    await _loadNativeIdentity();
     final raw = _prefs?.getString(_kActiveProfile);
     if (raw != null && raw.isNotEmpty) {
       try {

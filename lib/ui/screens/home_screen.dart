@@ -9,6 +9,7 @@ import '../widgets/taler_logo.dart';
 import 'chat_screen.dart';
 import 'privacy_shield_screen.dart';
 import 'profile_settings_screen.dart';
+import '../icons/taler_icon.dart';
 
 /// Главный адаптивный экран Taler в тёмном обсидианово-графитовом стиле (3 колонки на ПК).
 class HomeScreen extends StatefulWidget {
@@ -268,8 +269,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           hintStyle: TextStyle(fontSize: 13, color: p.fg3),
                           filled: true,
                           fillColor: p.bg3,
-                          prefixIcon: Icon(
-                            Icons.search_rounded,
+                          prefixIcon: TalerIcon(
+                            TalerIcons.search,
                             size: 17,
                             color: p.fg3,
                           ),
@@ -279,8 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
-                                  icon: Icon(
-                                    Icons.close_rounded,
+                                  icon: TalerIcon(
+                                    TalerIcons.close,
                                     size: 15,
                                     color: p.fg2,
                                   ),
@@ -364,8 +365,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.chat_bubble_outline_rounded,
+                          TalerIcon(
+                            TalerIcons.messageCircle,
                             size: 26,
                             color: p.fg3,
                           ),
@@ -489,8 +490,8 @@ class _ObsidianDesktopRail extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _RailNavItem(
-            icon: Icons.chat_bubble_rounded,
-            inactiveIcon: Icons.chat_bubble_outline_rounded,
+            icon: TalerIcons.messageCircle,
+            inactiveIcon: TalerIcons.messageCircle,
             label: 'Чаты',
             badge: unreadCount > 0 ? '$unreadCount' : null,
             selected: selectedIndex == 0,
@@ -498,8 +499,8 @@ class _ObsidianDesktopRail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _RailNavItem(
-            icon: Icons.shield_rounded,
-            inactiveIcon: Icons.shield_outlined,
+            icon: TalerIcons.shieldCheck,
+            inactiveIcon: TalerIcons.shield,
             label: 'Taler Shield',
             badge: blockedCount > 0 ? '$blockedCount' : null,
             selected: selectedIndex == 1,
@@ -507,8 +508,8 @@ class _ObsidianDesktopRail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _RailNavItem(
-            icon: Icons.settings_rounded,
-            inactiveIcon: Icons.settings_outlined,
+            icon: TalerIcons.settings,
+            inactiveIcon: TalerIcons.settings,
             label: 'Настройки',
             selected: selectedIndex == 2,
             onTap: () => onSelect(2),
@@ -516,8 +517,8 @@ class _ObsidianDesktopRail extends StatelessWidget {
           const Spacer(),
           TalerIconButton(
             icon: ghostMode
-                ? Icons.visibility_off_rounded
-                : Icons.visibility_off_outlined,
+                ? TalerIcons.eyeOff
+                : TalerIcons.eyeOff,
             tooltip: ghostMode
                 ? 'Призрак включён (онлайн скрыт)'
                 : 'Включить режим Призрака',
@@ -528,13 +529,13 @@ class _ObsidianDesktopRail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           TalerIconButton(
-            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            icon: isDark ? TalerIcons.sun : TalerIcons.moon,
             tooltip: isDark ? 'Светлая тема' : 'Ночная тема',
             onPressed: onToggleTheme,
           ),
           const SizedBox(height: 6),
           TalerIconButton(
-            icon: Icons.logout_rounded,
+            icon: TalerIcons.logOut,
             tooltip: 'Выйти из аккаунта',
             onPressed: onLogout,
           ),
@@ -545,8 +546,8 @@ class _ObsidianDesktopRail extends StatelessWidget {
 }
 
 class _RailNavItem extends StatefulWidget {
-  final IconData icon;
-  final IconData inactiveIcon;
+  final TalerIconData icon;
+  final TalerIconData inactiveIcon;
   final String label;
   final String? badge;
   final bool selected;
@@ -604,7 +605,7 @@ class _RailNavItemState extends State<_RailNavItem> {
               Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Icon(
+                  TalerIcon(
                     widget.selected ? widget.icon : widget.inactiveIcon,
                     size: 20,
                     color: fg,
@@ -626,7 +627,7 @@ class _RailNavItemState extends State<_RailNavItem> {
                           widget.badge!,
                           style: TalerTheme.tabularStyle(
                             size: 9.5,
-                            weight: FontWeight.w700,
+                            weight: FontWeight.w600,
                             color: Colors.white,
                           ),
                         ),
@@ -684,24 +685,24 @@ class _ObsidianMobileBottomBar extends StatelessWidget {
           child: Row(
             children: [
               _MobileTabButton(
-                icon: Icons.chat_bubble_rounded,
-                inactiveIcon: Icons.chat_bubble_outline_rounded,
+                icon: TalerIcons.messageCircle,
+                inactiveIcon: TalerIcons.messageCircle,
                 label: 'Чаты',
                 badge: unreadCount > 0 ? '$unreadCount' : null,
                 selected: selectedIndex == 0,
                 onTap: () => onSelect(0),
               ),
               _MobileTabButton(
-                icon: Icons.shield_rounded,
-                inactiveIcon: Icons.shield_outlined,
+                icon: TalerIcons.shieldCheck,
+                inactiveIcon: TalerIcons.shield,
                 label: 'Taler Shield',
                 badge: blockedCount > 0 ? '$blockedCount' : null,
                 selected: selectedIndex == 1,
                 onTap: () => onSelect(1),
               ),
               _MobileTabButton(
-                icon: Icons.settings_rounded,
-                inactiveIcon: Icons.settings_outlined,
+                icon: TalerIcons.settings,
+                inactiveIcon: TalerIcons.settings,
                 label: 'Настройки',
                 selected: selectedIndex == 2,
                 onTap: () => onSelect(2),
@@ -715,8 +716,8 @@ class _ObsidianMobileBottomBar extends StatelessWidget {
 }
 
 class _MobileTabButton extends StatelessWidget {
-  final IconData icon;
-  final IconData inactiveIcon;
+  final TalerIconData icon;
+  final TalerIconData inactiveIcon;
   final String label;
   final String? badge;
   final bool selected;
@@ -746,7 +747,7 @@ class _MobileTabButton extends StatelessWidget {
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(
+                TalerIcon(
                   selected ? icon : inactiveIcon,
                   size: 21,
                   color: selected ? p.accent : p.fg2,
@@ -768,7 +769,7 @@ class _MobileTabButton extends StatelessWidget {
                         badge!,
                         style: TalerTheme.tabularStyle(
                           size: 9.5,
-                          weight: FontWeight.w700,
+                          weight: FontWeight.w600,
                           color: Colors.white,
                         ),
                       ),
@@ -977,8 +978,8 @@ class _ShieldQuickRowState extends State<_ShieldQuickRow> {
                   shape: BoxShape.circle,
                   border: Border.all(color: p.line),
                 ),
-                child: Icon(
-                  Icons.shield_outlined,
+                child: TalerIcon(
+                  TalerIcons.shield,
                   size: 19,
                   color: p.fg2,
                 ),
@@ -1098,8 +1099,8 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                         if (chat.isChannel)
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
-                            child: Icon(
-                              Icons.campaign_outlined,
+                            child: TalerIcon(
+                              TalerIcons.megaphone,
                               size: 15,
                               color: p.fg2,
                             ),
@@ -1107,8 +1108,8 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                         else if (chat.isGroup)
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
-                            child: Icon(
-                              Icons.group_outlined,
+                            child: TalerIcon(
+                              TalerIcons.users,
                               size: 14,
                               color: p.fg2,
                             ),
@@ -1130,16 +1131,16 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                               ),
                               if (chat.isMuted) ...[
                                 const SizedBox(width: 4),
-                                Icon(
-                                  Icons.volume_off_rounded,
+                                TalerIcon(
+                                  TalerIcons.volumeOff,
                                   size: 13,
                                   color: p.fg3,
                                 ),
                               ],
                               if (chat.isOfficial) ...[
                                 const SizedBox(width: 4),
-                                Icon(
-                                  Icons.verified_rounded,
+                                TalerIcon(
+                                  TalerIcons.badgeCheck,
                                   size: 14,
                                   color: p.accent,
                                 ),
@@ -1149,8 +1150,8 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                         ),
                         const SizedBox(width: 6),
                         if (widget.lastMsgIsMine && timeStr.isNotEmpty) ...[
-                          Icon(
-                            Icons.done_all_rounded,
+                          TalerIcon(
+                            TalerIcons.checkCheck,
                             size: 14,
                             color: p.accent,
                           ),
@@ -1172,8 +1173,8 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                             chat.typingLabel == null)
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
-                            child: Icon(
-                              Icons.shield_outlined,
+                            child: TalerIcon(
+                              TalerIcons.shield,
                               size: 13,
                               color: p.warning,
                             ),
@@ -1195,8 +1196,8 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                         if (chat.isPinned && chat.unreadCount == 0)
                           Padding(
                             padding: const EdgeInsets.only(left: 6),
-                            child: Icon(
-                              Icons.push_pin_rounded,
+                            child: TalerIcon(
+                              TalerIcons.pin,
                               size: 14,
                               color: p.fg3,
                             ),
@@ -1216,7 +1217,7 @@ class _ObsidianChatTileState extends State<_ObsidianChatTile> {
                               '${chat.unreadCount}',
                               style: TalerTheme.tabularStyle(
                                 size: 11,
-                                weight: FontWeight.w700,
+                                weight: FontWeight.w600,
                                 color: Colors.white,
                               ),
                             ),

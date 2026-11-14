@@ -1,7 +1,7 @@
 name: taler
 description: "Taler — открытый мультиплатформенный клиент для мессенджера MAX без телеметрии."
 publish_to: 'none'
-version: 1.0.3+4
+version: 1.1.0+5
 
 environment:
   sdk: ^3.10.0
@@ -24,3 +24,18 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Geist and Geist Mono by Vercel, SIL Open Font License 1.1 (assets/fonts/OFL.txt).
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist-Regular.ttf
+        - asset: assets/fonts/Geist-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Geist-SemiBold.ttf
+          weight: 600
+    - family: GeistMono
+      fonts:
+        - asset: assets/fonts/GeistMono-Regular.ttf
+        - asset: assets/fonts/GeistMono-Medium.ttf
+          weight: 500
