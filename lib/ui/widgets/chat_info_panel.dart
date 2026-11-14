@@ -149,15 +149,18 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
           decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
           child: Row(
             children: [
-              for (final t in tabs)
-                _TabButton(
-                  label: switch (t) {
-                    _Tab.members => 'Участники',
-                    _Tab.media => 'Медиа',
-                    _Tab.files => 'Файлы',
-                  },
-                  selected: t == tab,
-                  onTap: () => setState(() => _tab = t),
+              for (var i = 0; i < tabs.length; i++)
+                Flexible(
+                  child: _TabButton(
+                    label: switch (tabs[i]) {
+                      _Tab.members => 'Участники',
+                      _Tab.media => 'Медиа',
+                      _Tab.files => 'Файлы',
+                    },
+                    selected: tabs[i] == tab,
+                    isLast: i == tabs.length - 1,
+                    onTap: () => setState(() => _tab = tabs[i]),
+                  ),
                 ),
             ],
           ),
@@ -416,9 +419,15 @@ class _ToggleRow extends StatelessWidget {
 class _TabButton extends StatelessWidget {
   final String label;
   final bool selected;
+  final bool isLast;
   final VoidCallback onTap;
 
-  const _TabButton({required this.label, required this.selected, required this.onTap});
+  const _TabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.isLast = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -428,12 +437,14 @@ class _TabButton extends StatelessWidget {
       splashFactory: NoSplash.splashFactory,
       child: Container(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 10),
-        margin: const EdgeInsets.only(right: 16),
+        margin: EdgeInsets.only(right: isLast ? 0 : 16),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: selected ? p.accent : Colors.transparent, width: 2)),
         ),
         child: Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: selected ? p.fg : p.fg3),
         ),
       ),

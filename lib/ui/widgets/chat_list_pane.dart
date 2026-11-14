@@ -361,31 +361,36 @@ class ChatRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    if (chat.isGroup) ...[
-                      TalerIcon(TalerIcons.users, size: 14, color: p.fg3, strokeWidth: 2),
-                      const SizedBox(width: 6),
-                    ],
-                    if (chat.isChannel) ...[
-                      TalerIcon(TalerIcons.megaphone, size: 14, color: p.fg3, strokeWidth: 2),
-                      const SizedBox(width: 6),
-                    ],
-                    Flexible(
-                      child: Text(
-                        chat.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: p.fg),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          if (chat.isGroup) ...[
+                            TalerIcon(TalerIcons.users, size: 14, color: p.fg3, strokeWidth: 2),
+                            const SizedBox(width: 6),
+                          ],
+                          if (chat.isChannel) ...[
+                            TalerIcon(TalerIcons.megaphone, size: 14, color: p.fg3, strokeWidth: 2),
+                            const SizedBox(width: 6),
+                          ],
+                          Flexible(
+                            child: Text(
+                              chat.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: p.fg),
+                            ),
+                          ),
+                          if (chat.isOfficial) ...[
+                            const SizedBox(width: 4),
+                            TalerIcon(TalerIcons.badgeCheck, size: 16, color: p.accent, strokeWidth: 2),
+                          ],
+                          if (chat.isMuted) ...[
+                            const SizedBox(width: 4),
+                            TalerIcon(TalerIcons.bellOff, size: 14, color: p.fg3, strokeWidth: 2),
+                          ],
+                        ],
                       ),
                     ),
-                    if (chat.isOfficial) ...[
-                      const SizedBox(width: 4),
-                      TalerIcon(TalerIcons.badgeCheck, size: 16, color: p.accent, strokeWidth: 2),
-                    ],
-                    if (chat.isMuted) ...[
-                      const SizedBox(width: 4),
-                      TalerIcon(TalerIcons.bellOff, size: 14, color: p.fg3, strokeWidth: 2),
-                    ],
-                    const Spacer(),
                     const SizedBox(width: 8),
                     Text(
                       ChatTokens.listTime(chat.lastMessageTime),

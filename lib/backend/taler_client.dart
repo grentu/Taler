@@ -1752,6 +1752,7 @@ class TalerClient extends ChangeNotifier {
       t.cancel();
     }
     _typingClearTimers.clear();
+    unawaited(store.flush());
     unawaited(session.dispose());
     super.dispose();
   }

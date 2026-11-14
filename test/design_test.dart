@@ -56,5 +56,8 @@ void main() {
     await tester.tap(find.byTooltip('Закрыть'));
     await tester.pumpAndSettle();
     expect(find.text('Группа'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
   });
 }
