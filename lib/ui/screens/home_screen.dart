@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -7,11 +5,13 @@ import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../../core/transport/taler_session.dart';
 import '../theme/taler_theme.dart';
+import '../widgets/taler_logo.dart';
 import 'chat_screen.dart';
 import 'privacy_shield_screen.dart';
 import 'profile_settings_screen.dart';
 
-/// Главный адаптивный экран Taler: плавающий сайдбар на ПК и пилюльный док на телефоне.
+/// Главный адаптивный экран Taler в стиле Telegram Desktop (3 колонки)
+/// и Telegram Mobile.
 class HomeScreen extends StatefulWidget {
   final TalerClient client;
   final ThemeMode themeMode;
@@ -29,10 +29,17 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final _searchCtrl = TextEditingController();
   int _navIndex = 0;
   String _selectedFolderId = 'all';
   String _searchQuery = '';
   int? _selectedChatId;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,160 +52,134 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.client.spoofingService,
       ]),
       builder: (context, _) {
-        final isWide = MediaQuery.sizeOf(context).width >= 860;
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final isWide = screenWidth >= 820;
         final blockedCount = widget.client.privacySettings.blockedPacketsCount;
+        final totalUnread = widget.client.chats.fold<int>(
+          0,
+          (sum, c) => sum + c.unreadCount,
+        );
+        final ghost = widget.client.privacySettings.ghostModeOnline;
 
         if (isWide) {
           return Scaffold(
             backgroundColor: p.bg,
             body: Row(
               children: [
-                _DesktopSidebar(
+                _TelegramDesktopRail(
                   selectedIndex: _navIndex,
                   blockedCount: blockedCount,
-                  isDemo: widget.client.isDemoMode,
+                  unreadCount: totalUnread,
+                  ghostMode: ghost,
+                  isDark: Theme.of(context).brightness == Brightness.dark,
                   connectionState: widget.client.connectionState,
-                  spoofLabel: widget.client.spoofingService.activeProfile.label,
-                  spoofId: widget.client.spoofingService.activeProfile.deviceId,
+                  isDemo: widget.client.isDemoMode,
                   onSelect: (idx) => setState(() => _navIndex = idx),
+                  onToggleGhost: () {
+                    widget.client.privacySettings.setGhostModeOnline(!ghost);
+                    widget.client.session.sendPing();
+                  },
+                  onToggleTheme: () {
+                    final next =
+                        Theme.of(context).brightness == Brightness.dark
+                            ? ThemeMode.light
+                            : ThemeMode.dark;
+                    widget.onThemeModeChanged(next);
+                  },
+                  onLogout: () => widget.client.logout(),
                 ),
+                VerticalDivider(width: 1, thickness: 1, color: p.line),
                 Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 160),
-                    switchInCurve: TalerTheme.easeOutCurve,
-                    child: KeyedSubtree(
-                      key: ValueKey('desktop_tab_$_navIndex'),
-                      child: switch (_navIndex) {
-                        0 => _buildSplitChatsLayout(context, p),
-                        1 => PrivacyShieldScreen(client: widget.client),
-                        _ => ProfileSettingsScreen(
-                            client: widget.client,
-                            themeMode: widget.themeMode,
-                            onThemeModeChanged: widget.onThemeModeChanged,
-                          ),
-                      },
-                    ),
-                  ),
+                  child: switch (_navIndex) {
+                    0 => _buildDesktopChatsLayout(context, p),
+                    1 => PrivacyShieldScreen(client: widget.client),
+                    _ => ProfileSettingsScreen(
+                        client: widget.client,
+                        themeMode: widget.themeMode,
+                        onThemeModeChanged: widget.onThemeModeChanged,
+                      ),
+                  },
                 ),
               ],
             ),
           );
         }
 
-        // Мобильная адаптация (Android / iOS): контент + плавающий пилюльный док
+        // Мобильная адаптация (< 820px): классический Telegram iOS/Android
         return Scaffold(
-          backgroundColor: p.bg,
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 160),
-                  switchInCurve: TalerTheme.easeOutCurve,
-                  child: KeyedSubtree(
-                    key: ValueKey('mobile_tab_$_navIndex'),
-                    child: switch (_navIndex) {
-                      0 => _buildChatListPane(context, p, isWide: false),
-                      1 => PrivacyShieldScreen(client: widget.client),
-                      _ => ProfileSettingsScreen(
-                          client: widget.client,
-                          themeMode: widget.themeMode,
-                          onThemeModeChanged: widget.onThemeModeChanged,
-                        ),
-                    },
-                  ),
-                ),
+          backgroundColor: p.bg2,
+          body: switch (_navIndex) {
+            0 => _buildChatListColumn(context, p, isWide: false),
+            1 => PrivacyShieldScreen(client: widget.client),
+            _ => ProfileSettingsScreen(
+                client: widget.client,
+                themeMode: widget.themeMode,
+                onThemeModeChanged: widget.onThemeModeChanged,
               ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 0,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Center(
-                      child: _MobilePillDock(
-                        selectedIndex: _navIndex,
-                        blockedCount: blockedCount,
-                        onSelect: (idx) => setState(() => _navIndex = idx),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          },
+          bottomNavigationBar: _TelegramMobileBottomBar(
+            selectedIndex: _navIndex,
+            unreadCount: totalUnread,
+            blockedCount: blockedCount,
+            onSelect: (idx) => setState(() => _navIndex = idx),
           ),
         );
       },
     );
   }
 
-  Widget _buildSplitChatsLayout(BuildContext context, TalerPalette p) {
+  Widget _buildDesktopChatsLayout(BuildContext context, TalerPalette p) {
     final chats = widget.client.chats;
     TalerChat? selectedChat;
     if (_selectedChatId != null) {
       selectedChat = chats.where((c) => c.id == _selectedChatId).firstOrNull;
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          decoration: BoxDecoration(
-            color: p.bg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: p.line),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 332,
-                child: _buildChatListPane(context, p, isWide: true),
-              ),
-              VerticalDivider(width: 1, color: p.line),
-              Expanded(
-                child: selectedChat != null
-                    ? ChatScreen(
-                        key: ValueKey(selectedChat.id),
-                        client: widget.client,
-                        chat: selectedChat,
-                      )
-                    : Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.chat_bubble_outline_rounded,
-                              size: 24,
-                              color: p.fg3,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Выберите диалог',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                color: p.fg,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Телеметрия и баннеры отключены на транспортном уровне',
-                              style: TextStyle(fontSize: 13, color: p.fg3),
-                            ),
-                          ],
+    return Row(
+      children: [
+        SizedBox(
+          width: 340,
+          child: _buildChatListColumn(context, p, isWide: true),
+        ),
+        VerticalDivider(width: 1, thickness: 1, color: p.line),
+        Expanded(
+          child: selectedChat != null
+              ? ChatScreen(
+                  key: ValueKey(selectedChat.id),
+                  client: widget.client,
+                  chat: selectedChat,
+                )
+              : TelegramChatBackground(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.isDark
+                            ? const Color(0xCC17212B)
+                            : const Color(0xD9FFFFFF),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: p.line),
+                      ),
+                      child: Text(
+                        'Выберите чат для начала общения',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w500,
+                          color: p.fg,
                         ),
                       ),
-              ),
-            ],
-          ),
+                    ),
+                  ),
+                ),
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildChatListPane(
+  Widget _buildChatListColumn(
     BuildContext context,
     TalerPalette p, {
     required bool isWide,
@@ -221,294 +202,326 @@ class _HomeScreenState extends State<HomeScreen> {
       return true;
     }).toList();
 
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          // Верхняя планка высотой 56px — единый ритм на всех экранах
-          Container(
-            height: 56,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Text(
-                  isWide ? 'Диалоги' : 'Taler',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.3,
-                    color: p.fg,
-                  ),
+    return Container(
+      color: p.bg2,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // Шапка списка чатов + pill-поиск
+            if (!isWide)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 12, 6),
+                child: Row(
+                  children: [
+                    const TalerLogo(size: 32),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Taler',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                          color: p.fg,
+                        ),
+                      ),
+                    ),
+                    _ConnectionStatusChip(
+                      isDemo: widget.client.isDemoMode,
+                      state: widget.client.connectionState,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '${filteredChats.length}',
-                  style: TalerTheme.monoStyle(size: 12, color: p.fg3),
-                ),
-                const Spacer(),
-                if (!isWide) ...[
-                  _ConnectionPill(
-                    isDemo: widget.client.isDemoMode,
-                    state: widget.client.connectionState,
-                  ),
-                  const SizedBox(width: 8),
-                  _ShieldCounterButton(
-                    count: widget.client.privacySettings.blockedPacketsCount,
-                    onTap: () => setState(() => _navIndex = 1),
+              ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                12,
+                isWide ? 10 : 4,
+                12,
+                folders.length > 1 ? 4 : 10,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 38,
+                      child: TextField(
+                        controller: _searchCtrl,
+                        onChanged: (v) =>
+                            setState(() => _searchQuery = v.trim()),
+                        style: TextStyle(fontSize: 13.5, color: p.fg),
+                        decoration: InputDecoration(
+                          hintText: 'Поиск',
+                          hintStyle: TextStyle(fontSize: 13.5, color: p.fg2),
+                          filled: true,
+                          fillColor: p.bg3,
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                            color: p.fg2,
+                          ),
+                          prefixIconConstraints: const BoxConstraints(
+                            minWidth: 38,
+                            minHeight: 38,
+                          ),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: Icon(
+                                    Icons.close_rounded,
+                                    size: 16,
+                                    color: p.fg2,
+                                  ),
+                                  onPressed: () {
+                                    _searchCtrl.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(color: p.accent, width: 1.4),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
 
-          // Поле поиска (ровно 36px)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: SizedBox(
-              height: 36,
-              child: TextField(
-                onChanged: (v) => setState(() => _searchQuery = v.trim()),
-                style: TextStyle(fontSize: 13, color: p.fg),
-                decoration: InputDecoration(
-                  hintText: 'Поиск',
-                  prefixIcon: Icon(Icons.search_rounded, size: 17, color: p.fg3),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
+            // Вкладки папок с синей полоской Telegram
+            if (folders.length > 1)
+              SizedBox(
+                height: 40,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  itemCount: folders.length,
+                  itemBuilder: (context, index) {
+                    final f = folders[index];
+                    final selected = f.id == _selectedFolderId;
+                    return _TelegramFolderTab(
+                      label: f.title,
+                      selected: selected,
+                      onTap: () => setState(() => _selectedFolderId = f.id),
+                    );
+                  },
                 ),
               ),
-            ),
-          ),
 
-          // Полоска папок
-          if (folders.length > 1)
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                itemCount: folders.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 6),
-                itemBuilder: (context, index) {
-                  final f = folders[index];
-                  final selected = f.id == _selectedFolderId;
-                  return _FolderPill(
-                    label: f.title,
-                    selected: selected,
-                    onTap: () => setState(() => _selectedFolderId = f.id),
-                  );
-                },
-              ),
-            ),
+            Divider(height: 1, thickness: 1, color: p.line),
 
-          Divider(height: 1, color: p.line),
-
-          // Список чатов
-          Expanded(
-            child: filteredChats.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inbox_outlined, size: 24, color: p.fg3),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Чатов не найдено',
-                          style: TextStyle(fontSize: 13, color: p.fg3),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(
-                      8,
-                      8,
-                      8,
-                      isWide ? 12 : 92,
-                    ),
-                    itemCount: filteredChats.length,
-                    itemBuilder: (context, index) {
-                      final chat = filteredChats[index];
-                      final isSelected = isWide && _selectedChatId == chat.id;
-                      return _ChatRow(
-                        chat: chat,
-                        selected: isSelected,
-                        onTap: () {
-                          if (isWide) {
-                            setState(() => _selectedChatId = chat.id);
-                          } else {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => Scaffold(
-                                  backgroundColor: p.bg,
-                                  body: SafeArea(
-                                    child: ChatScreen(
+            // Список чатов (высота строки 72px)
+            Expanded(
+              child: filteredChats.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 28,
+                            color: p.fg3,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Чатов не найдено',
+                            style: TextStyle(fontSize: 13.5, color: p.fg2),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: filteredChats.length,
+                      separatorBuilder: (_, idx) {
+                        final prev = filteredChats[idx];
+                        final next = filteredChats[idx + 1];
+                        if (isWide &&
+                            (_selectedChatId == prev.id ||
+                                _selectedChatId == next.id)) {
+                          return const SizedBox.shrink();
+                        }
+                        return Divider(
+                          height: 1,
+                          thickness: 0.7,
+                          indent: 76,
+                          color: p.line,
+                        );
+                      },
+                      itemBuilder: (context, index) {
+                        final chat = filteredChats[index];
+                        final isSelected = isWide && _selectedChatId == chat.id;
+                        final myId = widget.client.currentUser?.id ?? 1;
+                        return _TelegramChatTile(
+                          chat: chat,
+                          selected: isSelected,
+                          lastMsgIsMine: chat.lastMessageSenderId == myId,
+                          onTap: () {
+                            if (isWide) {
+                              setState(() => _selectedChatId = chat.id);
+                            } else {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => Scaffold(
+                                    backgroundColor: p.bg,
+                                    body: ChatScreen(
                                       client: widget.client,
                                       chat: chat,
                                       showBackButton: true,
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }
-                        },
-                      );
-                    },
-                  ),
-          ),
-        ],
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _DesktopSidebar extends StatelessWidget {
+class _TelegramDesktopRail extends StatelessWidget {
   final int selectedIndex;
   final int blockedCount;
-  final bool isDemo;
+  final int unreadCount;
+  final bool ghostMode;
+  final bool isDark;
   final TalerConnectionState connectionState;
-  final String spoofLabel;
-  final String spoofId;
+  final bool isDemo;
   final ValueChanged<int> onSelect;
+  final VoidCallback onToggleGhost;
+  final VoidCallback onToggleTheme;
+  final VoidCallback onLogout;
 
-  const _DesktopSidebar({
+  const _TelegramDesktopRail({
     required this.selectedIndex,
     required this.blockedCount,
-    required this.isDemo,
+    required this.unreadCount,
+    required this.ghostMode,
+    required this.isDark,
     required this.connectionState,
-    required this.spoofLabel,
-    required this.spoofId,
+    required this.isDemo,
     required this.onSelect,
+    required this.onToggleGhost,
+    required this.onToggleTheme,
+    required this.onLogout,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    const rowHeight = 36.0;
-    const rowGap = 4.0;
-    const stride = rowHeight + rowGap;
+    final statusColor = isDemo
+        ? p.accent
+        : switch (connectionState) {
+            TalerConnectionState.online => p.statusLive,
+            TalerConnectionState.connecting ||
+            TalerConnectionState.connected =>
+              p.warning,
+            TalerConnectionState.disconnected => p.danger,
+          };
 
     return Container(
-      width: 236,
-      margin: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: p.bg2,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: p.line),
-      ),
+      width: 72,
+      color: p.isDark ? p.bg : const Color(0xFFE7EDF3),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            height: 56,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
+          Tooltip(
+            message: isDemo
+                ? 'Taler · Демо-режим'
+                : 'Taler · ${connectionState.name}',
+            child: Stack(
+              clipBehavior: Clip.none,
               children: [
-                Text(
-                  'Taler',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.3,
-                    color: p.fg,
-                  ),
-                ),
-                const Spacer(),
-                _ConnectionPill(isDemo: isDemo, state: connectionState),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: p.line),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: SizedBox(
-              height: stride * 3 - rowGap,
-              child: Stack(
-                children: [
-                  AnimatedPositioned(
-                    duration: TalerTheme.pillDuration,
-                    curve: TalerTheme.springCurve,
-                    top: selectedIndex * stride,
-                    left: 0,
-                    right: 0,
-                    height: rowHeight,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: p.surface2,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: p.line2),
+                const TalerLogo(size: 38),
+                Positioned(
+                  right: -1,
+                  bottom: -1,
+                  child: Container(
+                    width: 11,
+                    height: 11,
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: p.isDark ? p.bg : const Color(0xFFE7EDF3),
+                        width: 2,
                       ),
                     ),
                   ),
-                  Column(
-                    children: [
-                      _SidebarNavRow(
-                        icon: Icons.chat_bubble_outline_rounded,
-                        label: 'Чаты',
-                        selected: selectedIndex == 0,
-                        onTap: () => onSelect(0),
-                      ),
-                      const SizedBox(height: rowGap),
-                      _SidebarNavRow(
-                        icon: Icons.shield_outlined,
-                        label: 'Taler Shield',
-                        badge: '$blockedCount',
-                        selected: selectedIndex == 1,
-                        onTap: () => onSelect(1),
-                      ),
-                      const SizedBox(height: rowGap),
-                      _SidebarNavRow(
-                        icon: Icons.tune_rounded,
-                        label: 'Настройки',
-                        selected: selectedIndex == 2,
-                        onTap: () => onSelect(2),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 18),
+          _RailNavItem(
+            icon: Icons.chat_bubble_rounded,
+            inactiveIcon: Icons.chat_bubble_outline_rounded,
+            label: 'Чаты',
+            badge: unreadCount > 0 ? '$unreadCount' : null,
+            selected: selectedIndex == 0,
+            onTap: () => onSelect(0),
+          ),
+          const SizedBox(height: 6),
+          _RailNavItem(
+            icon: Icons.shield_rounded,
+            inactiveIcon: Icons.shield_outlined,
+            label: 'Taler Shield',
+            badge: '$blockedCount',
+            selected: selectedIndex == 1,
+            onTap: () => onSelect(1),
+          ),
+          const SizedBox(height: 6),
+          _RailNavItem(
+            icon: Icons.settings_rounded,
+            inactiveIcon: Icons.settings_outlined,
+            label: 'Настройки',
+            selected: selectedIndex == 2,
+            onTap: () => onSelect(2),
           ),
           const Spacer(),
-          Divider(height: 1, color: p.line),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    TalerStatusDot(color: p.statusLive, size: 6),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        spoofLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: p.fg2,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  spoofId,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TalerTheme.monoStyle(size: 11, color: p.fg3),
-                ),
-              ],
-            ),
+          TalerIconButton(
+            icon: ghostMode
+                ? Icons.visibility_off_rounded
+                : Icons.visibility_off_outlined,
+            tooltip: ghostMode
+                ? 'Призрак включён (онлайн скрыт)'
+                : 'Включить режим Призрака',
+            color: ghostMode ? p.statusLive : p.fg2,
+            backgroundColor:
+                ghostMode ? p.statusLiveSurface : Colors.transparent,
+            onPressed: onToggleGhost,
+          ),
+          const SizedBox(height: 6),
+          TalerIconButton(
+            icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            tooltip: isDark ? 'Светлая тема' : 'Ночная тема',
+            onPressed: onToggleTheme,
+          ),
+          const SizedBox(height: 6),
+          TalerIconButton(
+            icon: Icons.logout_rounded,
+            tooltip: 'Выйти из аккаунта',
+            onPressed: onLogout,
           ),
         ],
       ),
@@ -516,15 +529,17 @@ class _DesktopSidebar extends StatelessWidget {
   }
 }
 
-class _SidebarNavRow extends StatefulWidget {
+class _RailNavItem extends StatefulWidget {
   final IconData icon;
+  final IconData inactiveIcon;
   final String label;
   final String? badge;
   final bool selected;
   final VoidCallback onTap;
 
-  const _SidebarNavRow({
+  const _RailNavItem({
     required this.icon,
+    required this.inactiveIcon,
     required this.label,
     this.badge,
     required this.selected,
@@ -532,20 +547,20 @@ class _SidebarNavRow extends StatefulWidget {
   });
 
   @override
-  State<_SidebarNavRow> createState() => _SidebarNavRowState();
+  State<_RailNavItem> createState() => _RailNavItemState();
 }
 
-class _SidebarNavRowState extends State<_SidebarNavRow> {
+class _RailNavItemState extends State<_RailNavItem> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final fg = widget.selected
-        ? p.fg
+        ? p.accent
         : _hovered
-            ? p.fg2
-            : p.fg3;
+            ? p.fg
+            : p.fg2;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -555,36 +570,66 @@ class _SidebarNavRowState extends State<_SidebarNavRow> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
+          width: 62,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? p.accent.withValues(alpha: 0.14)
+                : _hovered
+                    ? p.fg2.withValues(alpha: 0.08)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 20,
-                child: Icon(widget.icon, size: 17, color: fg),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        widget.selected ? FontWeight.w500 : FontWeight.w400,
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    widget.selected ? widget.icon : widget.inactiveIcon,
+                    size: 22,
                     color: fg,
                   ),
+                  if (widget.badge != null)
+                    Positioned(
+                      right: -12,
+                      top: -5,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: widget.selected ? p.accent : p.accentMuted,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          widget.badge!,
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Text(
+                widget.label,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 1.15,
+                  fontWeight:
+                      widget.selected ? FontWeight.w600 : FontWeight.w500,
+                  color: fg,
                 ),
               ),
-              if (widget.badge != null)
-                Text(
-                  widget.badge!,
-                  style: TalerTheme.monoStyle(
-                    size: 11,
-                    color: widget.selected ? p.fg : p.fg3,
-                  ),
-                ),
             ],
           ),
         ),
@@ -593,13 +638,15 @@ class _SidebarNavRowState extends State<_SidebarNavRow> {
   }
 }
 
-class _MobilePillDock extends StatelessWidget {
+class _TelegramMobileBottomBar extends StatelessWidget {
   final int selectedIndex;
+  final int unreadCount;
   final int blockedCount;
   final ValueChanged<int> onSelect;
 
-  const _MobilePillDock({
+  const _TelegramMobileBottomBar({
     required this.selectedIndex,
+    required this.unreadCount,
     required this.blockedCount,
     required this.onSelect,
   });
@@ -607,77 +654,41 @@ class _MobilePillDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: p.glass,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: p.line2),
-              boxShadow: [
-                BoxShadow(
-                  color: p.isDark
-                      ? const Color(0x66000000)
-                      : const Color(0x18000000),
-                  blurRadius: 20,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final slotWidth = constraints.maxWidth / 3;
-                return Stack(
-                  children: [
-                    AnimatedPositioned(
-                      duration: TalerTheme.pillDuration,
-                      curve: TalerTheme.springCurve,
-                      left: selectedIndex * slotWidth,
-                      top: 0,
-                      bottom: 0,
-                      width: slotWidth,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: p.surface2,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: p.line2),
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        _DockItem(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          label: 'Чаты',
-                          selected: selectedIndex == 0,
-                          onTap: () => onSelect(0),
-                        ),
-                        _DockItem(
-                          icon: Icons.shield_outlined,
-                          label: 'Taler Shield',
-                          badge: '$blockedCount',
-                          selected: selectedIndex == 1,
-                          onTap: () => onSelect(1),
-                        ),
-                        _DockItem(
-                          icon: Icons.tune_rounded,
-                          label: 'Настройки',
-                          selected: selectedIndex == 2,
-                          onTap: () => onSelect(2),
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
-            ),
+    return Container(
+      decoration: BoxDecoration(
+        color: p.bg2,
+        border: Border(top: BorderSide(color: p.line)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 58,
+          child: Row(
+            children: [
+              _MobileTabButton(
+                icon: Icons.chat_bubble_rounded,
+                inactiveIcon: Icons.chat_bubble_outline_rounded,
+                label: 'Чаты',
+                badge: unreadCount > 0 ? '$unreadCount' : null,
+                selected: selectedIndex == 0,
+                onTap: () => onSelect(0),
+              ),
+              _MobileTabButton(
+                icon: Icons.shield_rounded,
+                inactiveIcon: Icons.shield_outlined,
+                label: 'Taler Shield',
+                badge: '$blockedCount',
+                selected: selectedIndex == 1,
+                onTap: () => onSelect(1),
+              ),
+              _MobileTabButton(
+                icon: Icons.settings_rounded,
+                inactiveIcon: Icons.settings_outlined,
+                label: 'Настройки',
+                selected: selectedIndex == 2,
+                onTap: () => onSelect(2),
+              ),
+            ],
           ),
         ),
       ),
@@ -685,15 +696,17 @@ class _MobilePillDock extends StatelessWidget {
   }
 }
 
-class _DockItem extends StatelessWidget {
+class _MobileTabButton extends StatelessWidget {
   final IconData icon;
+  final IconData inactiveIcon;
   final String label;
   final String? badge;
   final bool selected;
   final VoidCallback onTap;
 
-  const _DockItem({
+  const _MobileTabButton({
     required this.icon,
+    required this.inactiveIcon,
     required this.label,
     this.badge,
     required this.selected,
@@ -703,115 +716,54 @@ class _DockItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final fg = selected ? p.fg : p.fg3;
+    final fg = selected ? p.accent : p.fg2;
 
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
               children: [
-                Icon(icon, size: 16, color: fg),
-                const SizedBox(width: 5),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-                      color: fg,
+                Icon(selected ? icon : inactiveIcon, size: 22, color: fg),
+                if (badge != null)
+                  Positioned(
+                    right: -14,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.accent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        badge!,
+                        style: const TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                if (badge != null) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    badge!,
-                    style: TalerTheme.monoStyle(size: 10.5, color: fg),
-                  ),
-                ],
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectionPill extends StatelessWidget {
-  final bool isDemo;
-  final TalerConnectionState state;
-
-  const _ConnectionPill({required this.isDemo, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = TalerTheme.paletteOf(context);
-    final (label, dotColor) = isDemo
-        ? ('Демо', p.fg2)
-        : switch (state) {
-            TalerConnectionState.online => ('Online', p.statusLive),
-            TalerConnectionState.connecting ||
-            TalerConnectionState.connected =>
-              ('Сеть', p.warning),
-            TalerConnectionState.disconnected => ('Офлайн', p.danger),
-          };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: p.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TalerStatusDot(color: dotColor, size: 6),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TalerTheme.monoStyle(size: 11, color: p.fg2),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ShieldCounterButton extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-
-  const _ShieldCounterButton({required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = TalerTheme.paletteOf(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: p.surface,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: p.line),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TalerStatusDot(color: p.statusLive, size: 6),
-            const SizedBox(width: 6),
+            const SizedBox(height: 3),
             Text(
-              '$count',
-              style: TalerTheme.monoStyle(size: 11, color: p.fg),
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: fg,
+              ),
             ),
           ],
         ),
@@ -820,59 +772,112 @@ class _ShieldCounterButton extends StatelessWidget {
   }
 }
 
-class _FolderPill extends StatefulWidget {
+class _ConnectionStatusChip extends StatelessWidget {
+  final bool isDemo;
+  final TalerConnectionState state;
+
+  const _ConnectionStatusChip({required this.isDemo, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final (label, dotColor) = isDemo
+        ? ('Демо', p.accent)
+        : switch (state) {
+            TalerConnectionState.online => ('Online', p.statusLive),
+            TalerConnectionState.connecting ||
+            TalerConnectionState.connected =>
+              ('Сеть...', p.warning),
+            TalerConnectionState.disconnected => ('Офлайн', p.fg3),
+          };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: p.bg3,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TalerStatusDot(color: dotColor, size: 6),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: p.fg2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TelegramFolderTab extends StatefulWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _FolderPill({
+  const _TelegramFolderTab({
     required this.label,
     required this.selected,
     required this.onTap,
   });
 
   @override
-  State<_FolderPill> createState() => _FolderPillState();
+  State<_TelegramFolderTab> createState() => _TelegramFolderTabState();
 }
 
-class _FolderPillState extends State<_FolderPill> {
+class _TelegramFolderTabState extends State<_TelegramFolderTab> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final bg = widget.selected
-        ? p.solid
+    final fg = widget.selected
+        ? p.accent
         : _hovered
-            ? p.surface2
-            : p.surface;
-    final fg = widget.selected ? p.onSolid : p.fg2;
-    final border = widget.selected ? p.solid : p.line;
+            ? p.fg
+            : p.fg2;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: TalerTheme.fastDuration,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: border),
-          ),
-          child: Center(
-            child: Text(
-              widget.label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight:
-                    widget.selected ? FontWeight.w500 : FontWeight.w400,
-                color: fg,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const SizedBox(height: 3),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight:
+                      widget.selected ? FontWeight.w600 : FontWeight.w500,
+                  color: fg,
+                ),
               ),
-            ),
+              AnimatedContainer(
+                duration: TalerTheme.fastDuration,
+                curve: TalerTheme.easeOutCurve,
+                height: 3,
+                width: widget.selected ? 26 : 0,
+                decoration: BoxDecoration(
+                  color: p.accent,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(3),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -880,40 +885,52 @@ class _FolderPillState extends State<_FolderPill> {
   }
 }
 
-class _ChatRow extends StatefulWidget {
+class _TelegramChatTile extends StatefulWidget {
   final TalerChat chat;
   final bool selected;
+  final bool lastMsgIsMine;
   final VoidCallback onTap;
 
-  const _ChatRow({
+  const _TelegramChatTile({
     required this.chat,
     required this.selected,
+    required this.lastMsgIsMine,
     required this.onTap,
   });
 
   @override
-  State<_ChatRow> createState() => _ChatRowState();
+  State<_TelegramChatTile> createState() => _TelegramChatTileState();
 }
 
-class _ChatRowState extends State<_ChatRow> {
+class _TelegramChatTileState extends State<_TelegramChatTile> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final chat = widget.chat;
+    final sel = widget.selected;
     final timeStr = chat.lastMessageTime != null
         ? DateFormat('HH:mm').format(
             DateTime.fromMillisecondsSinceEpoch(chat.lastMessageTime!),
           )
         : '';
 
-    final bg = widget.selected
-        ? p.surface2
+    final bg = sel
+        ? p.surfaceHigh
         : _hovered
-            ? p.surface
+            ? p.surface.withValues(alpha: 0.7)
             : Colors.transparent;
-    final border = widget.selected ? p.line2 : Colors.transparent;
+
+    final titleColor = sel ? Colors.white : p.fg;
+    final timeColor = sel ? Colors.white.withValues(alpha: 0.85) : p.fg2;
+    final previewColor = sel
+        ? Colors.white.withValues(alpha: 0.88)
+        : chat.typingLabel != null
+            ? p.accent
+            : chat.lastMessageDeletedByPeer
+                ? p.warning
+                : p.fg2;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -924,50 +941,17 @@ class _ChatRowState extends State<_ChatRow> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: TalerTheme.fastDuration,
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: border),
-          ),
+          height: 72,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          color: bg,
           child: Row(
             children: [
-              Stack(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: p.surface2,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: p.line2),
-                    ),
-                    child: Text(
-                      chat.initials,
-                      style: TextStyle(
-                        color: p.fg,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  if (chat.isOnline)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: p.statusLive,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: p.bg, width: 2),
-                        ),
-                      ),
-                    ),
-                ],
+              TalerAvatar(
+                seedId: chat.peerId ?? chat.id,
+                initials: chat.initials,
+                size: 50,
+                isOnline: chat.isOnline,
+                onlineBorderColor: sel ? p.surfaceHigh : p.bg2,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -977,42 +961,81 @@ class _ChatRowState extends State<_ChatRow> {
                   children: [
                     Row(
                       children: [
-                        if (chat.isPinned)
+                        if (chat.isChannel)
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
                             child: Icon(
-                              Icons.push_pin_outlined,
-                              size: 13,
-                              color: p.fg3,
+                              Icons.campaign_rounded,
+                              size: 16,
+                              color: sel ? Colors.white : p.fg2,
+                            ),
+                          )
+                        else if (chat.isGroup)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Icon(
+                              Icons.group_rounded,
+                              size: 15,
+                              color: sel ? Colors.white : p.fg2,
                             ),
                           ),
                         Expanded(
-                          child: Text(
-                            chat.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                              color: p.fg,
-                            ),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  chat.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14.5,
+                                    color: titleColor,
+                                  ),
+                                ),
+                              ),
+                              if (chat.isOfficial) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.verified_rounded,
+                                  size: 15,
+                                  color: sel ? Colors.white : p.accent,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
+                        if (widget.lastMsgIsMine && timeStr.isNotEmpty) ...[
+                          Icon(
+                            Icons.done_all_rounded,
+                            size: 15,
+                            color: sel ? Colors.white : p.accent,
+                          ),
+                          const SizedBox(width: 3),
+                        ],
                         Text(
                           timeStr,
-                          style: TalerTheme.monoStyle(size: 11, color: p.fg3),
+                          style: TalerTheme.tabularStyle(
+                            size: 12,
+                            color: timeColor,
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         if (chat.lastMessageDeletedByPeer &&
-                            chat.typingLabel == null) ...[
-                          TalerStatusDot(color: p.warning, size: 6),
-                          const SizedBox(width: 6),
-                        ],
+                            chat.typingLabel == null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Icon(
+                              Icons.shield_outlined,
+                              size: 14,
+                              color: sel ? Colors.white : p.warning,
+                            ),
+                          ),
                         Expanded(
                           child: Text(
                             chat.typingLabel ??
@@ -1022,15 +1045,22 @@ class _ChatRowState extends State<_ChatRow> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 12.5,
-                              color: chat.typingLabel != null
-                                  ? p.statusLive
-                                  : chat.lastMessageDeletedByPeer
-                                      ? p.warning
-                                      : p.fg2,
+                              fontSize: 13.5,
+                              color: previewColor,
                             ),
                           ),
                         ),
+                        if (chat.isPinned && chat.unreadCount == 0)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Icon(
+                              Icons.push_pin_rounded,
+                              size: 15,
+                              color: sel
+                                  ? Colors.white.withValues(alpha: 0.75)
+                                  : p.fg3,
+                            ),
+                          ),
                         if (chat.unreadCount > 0)
                           Container(
                             margin: const EdgeInsets.only(left: 8),
@@ -1039,15 +1069,19 @@ class _ChatRowState extends State<_ChatRow> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: p.solid,
-                              borderRadius: BorderRadius.circular(999),
+                              color: sel
+                                  ? Colors.white
+                                  : chat.isMuted
+                                      ? p.fg3
+                                      : p.accent,
+                              borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               '${chat.unreadCount}',
-                              style: TalerTheme.monoStyle(
-                                size: 11,
-                                weight: FontWeight.w500,
-                                color: p.onSolid,
+                              style: TalerTheme.tabularStyle(
+                                size: 11.5,
+                                weight: FontWeight.w700,
+                                color: sel ? p.surfaceHigh : Colors.white,
                               ),
                             ),
                           ),

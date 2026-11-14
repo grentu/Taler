@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taler/core/privacy/privacy_firewall.dart';
 import 'package:taler/core/privacy/privacy_settings.dart';
+import 'package:taler/core/privacy/spoof_profile.dart';
+import 'package:taler/core/privacy/spoofing_service.dart';
 import 'package:taler/core/protocol/lz4.dart';
 import 'package:taler/core/protocol/msgpack.dart';
 import 'package:taler/core/protocol/opcode.dart';
@@ -88,6 +90,41 @@ void main() {
       expect(decoded.opcode, Opcode.msgSend);
       expect(decoded.payloadAsMap?['chatId'], 777001);
       expect(decoded.payloadAsMap?['text'], 'Сообщение без LOG и DEBUG');
+    });
+
+    test('TalerPacketReceiver reassembles concatenated and 2-byte fragmented frames', () {
+      final f1 = TalerFraming.encode(
+        cmd: CmdType.request,
+        seq: 1,
+        opcode: Opcode.ping,
+        payload: const <String, dynamic>{'interactive': false},
+      );
+      final f2 = TalerFraming.encode(
+        cmd: CmdType.ok,
+        seq: 2,
+        opcode: Opcode.sessionInit,
+        payload: const <String, dynamic>{'callsSeed': 'seed123'},
+      );
+
+      final receiverConcat = TalerPacketReceiver();
+      final combined = Uint8List.fromList([...f1, ...f2]);
+      final outConcat = receiverConcat.feed(combined);
+      expect(outConcat.length, 2);
+      expect(outConcat[0].seq, 1);
+      expect(outConcat[0].opcode, Opcode.ping);
+      expect(outConcat[1].seq, 2);
+      expect(outConcat[1].opcode, Opcode.sessionInit);
+      expect(outConcat[1].payloadAsMap?['callsSeed'], 'seed123');
+
+      final receiverFrag = TalerPacketReceiver();
+      final reassembled = <TalerPacket>[];
+      for (var i = 0; i < f2.length; i += 2) {
+        final end = (i + 2 <= f2.length) ? i + 2 : f2.length;
+        reassembled.addAll(receiverFrag.feed(f2.sublist(i, end)));
+      }
+      expect(reassembled.length, 1);
+      expect(reassembled.first.seq, 2);
+      expect(reassembled.first.payloadAsMap?['callsSeed'], 'seed123');
     });
   });
 
@@ -230,6 +267,70 @@ void main() {
         antiDeleteEnabled: false,
       );
       expect(store.getMessages(chatId).any((m) => m.id == 'm2'), isFalse);
+    });
+  });
+
+  group('SpoofProfile & PrivacySettings', () {
+    test('toHandshakeUserAgent normalizes ANDROID/IOS presets and respects forceWeb', () {
+      const androidProfile = SpoofProfile(
+        presetId: 'pixel_9',
+        label: 'Pixel 9 Pro',
+        deviceType: 'ANDROID',
+        pushDeviceType: 'GCM',
+        deviceName: 'Google Pixel 9 Pro',
+        osVersion: 'Android 15',
+        screen: '1280x2856',
+        timezone: 'Europe/Moscow',
+        locale: 'ru',
+        userAgent: 'Mozilla/5.0',
+        appVersion: '25.8.0',
+        buildNumber: 250800,
+        arch: 'arm64-v8a',
+        deviceId: 'dev-1',
+        instanceId: 'inst-1',
+        clientSessionId: 101,
+      );
+
+      final iosPreset = SpoofingService.presets.firstWhere(
+        (p) => p.deviceType == 'IOS',
+      );
+      final iosProfile = SpoofProfile(
+        presetId: iosPreset.id,
+        label: iosPreset.label,
+        deviceType: iosPreset.deviceType,
+        pushDeviceType: iosPreset.pushDeviceType,
+        deviceName: iosPreset.deviceName,
+        osVersion: iosPreset.osVersion,
+        screen: iosPreset.screen,
+        timezone: iosPreset.timezone,
+        locale: iosPreset.locale,
+        userAgent: iosPreset.userAgent,
+        appVersion: iosPreset.appVersion,
+        buildNumber: iosPreset.buildNumber,
+        arch: 'arm64',
+        deviceId: 'dev-2',
+        instanceId: 'inst-2',
+        clientSessionId: 102,
+      );
+
+      for (final profile in [androidProfile, iosProfile]) {
+        final ua = profile.toHandshakeUserAgent();
+        expect(ua['deviceType'], 'ANDROID');
+        expect(ua['pushDeviceType'], 'GCM');
+        expect(ua.containsKey('headerUserAgent'), isFalse);
+        expect(ua.containsKey('isPwa'), isFalse);
+      }
+
+      final webUa = androidProfile.toHandshakeUserAgent(forceWeb: true);
+      expect(webUa['deviceType'], 'WEB');
+      expect(webUa['pushDeviceType'], 'WEBPUSH');
+      expect(webUa['headerUserAgent'], androidProfile.userAgent);
+      expect(webUa['isPwa'], isTrue);
+
+      final webPayload = androidProfile.toSessionInitPayload(forceWeb: true);
+      expect((webPayload['userAgent'] as Map)['deviceType'], 'WEB');
+      final nativePayload = iosProfile.toSessionInitPayload();
+      expect((nativePayload['userAgent'] as Map)['deviceType'], 'ANDROID');
     });
   });
 

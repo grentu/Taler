@@ -1,12 +1,37 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// Распаковщик LZ4-блоков для сжатых кадров протокола MAX (`compressionRatio > 0`).
 abstract class Lz4Block {
-  /// Распаковывает [source] в буфер размером не более [maxOutputSize] байт.
-  static Uint8List decompress(Uint8List source, int maxOutputSize) {
-    final output = Uint8List(maxOutputSize);
+  /// Максимальный допустимый размер распакованного пакета (32 МБ).
+  static const int defaultMaxOutputSize = 32 * 1024 * 1024;
+
+  /// Распаковывает [source] в динамически расширяемый буфер с защитным
+  /// лимитом [maxOutputSize] байт.
+  static Uint8List decompress(
+    Uint8List source, [
+    int maxOutputSize = defaultMaxOutputSize,
+  ]) {
+    var capacity = math.min(maxOutputSize, math.max(1024, source.length * 4));
+    var output = Uint8List(capacity);
     var input = 0;
     var written = 0;
+
+    void ensureCapacity(int additional) {
+      final needed = written + additional;
+      if (needed > maxOutputSize) {
+        throw const FormatException('Lz4Block: превышен лимит распаковки');
+      }
+      if (needed <= capacity) return;
+      var nextCap = capacity;
+      while (nextCap < needed) {
+        nextCap = math.min(maxOutputSize, nextCap * 2);
+      }
+      final next = Uint8List(nextCap);
+      next.setRange(0, written, output);
+      output = next;
+      capacity = nextCap;
+    }
 
     while (input < source.length) {
       final token = source[input++];
@@ -20,16 +45,20 @@ abstract class Lz4Block {
         );
       }
 
-      if (written + literalLength > output.length) {
-        throw const FormatException('Lz4Block: литералы не помещаются');
+      if (input + literalLength > source.length) {
+        throw const FormatException('Lz4Block: неожиданный конец литералов');
       }
-      output.setRange(
-        written,
-        written + literalLength,
-        Uint8List.sublistView(source, input, input + literalLength),
-      );
-      written += literalLength;
-      input += literalLength;
+
+      if (literalLength > 0) {
+        ensureCapacity(literalLength);
+        output.setRange(
+          written,
+          written + literalLength,
+          Uint8List.sublistView(source, input, input + literalLength),
+        );
+        written += literalLength;
+        input += literalLength;
+      }
 
       if (input >= source.length) break;
       if (input + 2 > source.length) {
@@ -52,17 +81,14 @@ abstract class Lz4Block {
       }
       matchLength += 4;
 
-      if (written + matchLength > output.length) {
-        throw const FormatException('Lz4Block: совпадение не помещается');
-      }
-
+      ensureCapacity(matchLength);
       var from = written - offset;
       for (var i = 0; i < matchLength; i++) {
         output[written++] = output[from++];
       }
     }
 
-    return Uint8List.sublistView(output, 0, written);
+    return Uint8List.fromList(Uint8List.sublistView(output, 0, written));
   }
 
   static int _readLengthExtension(

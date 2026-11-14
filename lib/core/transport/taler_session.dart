@@ -4,23 +4,30 @@ import 'dart:typed_data';
 
 import '../privacy/privacy_firewall.dart';
 import '../privacy/privacy_settings.dart';
+import '../privacy/spoof_profile.dart';
 import '../privacy/spoofing_service.dart';
 import '../protocol/opcode.dart';
 import '../protocol/packet.dart';
 
 enum TalerConnectionState { disconnected, connecting, connected, online }
 
-/// Транспортный уровень MAX поверх WebSocket.
+/// Транспортный уровень MAX.
 ///
 /// Обеспечивает:
-/// - подключение к `wss://api.oneme.ru/websocket` с подменой `User-Agent`;
-/// - бинарный хендшейк `Opcode.sessionInit (6)` с виртуальным профилем устройства;
+/// - основное подключение по прямому бинарному TLS-сокету к `api2.oneme.ru:443`
+///   (с резервным хостом `api.oneme.ru:443` и поддержкой сертификатов Минцифры)
+///   и автоматическим фоллбэком на `wss://api.oneme.ru/websocket` в WEB-режиме;
+/// - потоковую сборку бинарных кадров через [TalerPacketReceiver];
+/// - хендшейк `Opcode.sessionInit (6)` с виртуальным профилем устройства;
 /// - строгую фильтрацию всех пакетов через [PrivacyFirewall];
 /// - поддержание сессии (ping/pong) с учётом флага невидимки [PrivacySettings.ghostModeOnline];
 /// - авто-реконнект с экспоненциальной задержкой.
 class TalerSession {
-  static const String endpoint = 'wss://api.oneme.ru/websocket';
-  static const String origin = 'https://web.max.ru';
+  static const List<String> tlsHosts = ['api2.oneme.ru', 'api.oneme.ru'];
+  static const int tlsPort = 443;
+  static const String wsEndpoint = 'wss://api.oneme.ru/websocket';
+  static const String wsOrigin = 'https://web.max.ru';
+  static const Duration connectTimeout = Duration(seconds: 12);
   static const Duration requestTimeout = Duration(seconds: 30);
   static const Duration pingInterval = Duration(seconds: 25);
 
@@ -28,8 +35,11 @@ class TalerSession {
   final PrivacySettings privacySettings;
   final SpoofingService spoofingService;
 
-  WebSocket? _socket;
+  SecureSocket? _tlsSocket;
+  WebSocket? _wsSocket;
   StreamSubscription<dynamic>? _socketSub;
+  final TalerPacketReceiver _receiver = TalerPacketReceiver();
+
   Timer? _pingTimer;
   Timer? _reconnectTimer;
 
@@ -41,6 +51,7 @@ class TalerSession {
   int _seq = 0;
   int _reconnectAttempt = 0;
   bool _autoReconnect = false;
+  bool _isAttemptingConnect = false;
   bool _disposed = false;
   int? _callsSeed;
   String? _activeDeviceId;
@@ -58,76 +69,139 @@ class TalerSession {
   int? get callsSeed => _callsSeed;
   String? get activeDeviceId => _activeDeviceId;
   bool get isOnline => _state == TalerConnectionState.online;
+  bool get _hasSocket => _tlsSocket != null || _wsSocket != null;
 
   /// Устанавливает соединение с сервером MAX и выполняет хендшейк `SESSION_INIT`.
   Future<Map<String, dynamic>> connect({bool enableReconnect = true}) async {
     if (_disposed) {
       throw StateError('TalerSession уже уничтожена');
     }
-    if (_state == TalerConnectionState.online && _socket != null) {
+    if (_state == TalerConnectionState.online && _hasSocket) {
       return const {};
     }
 
     _autoReconnect = enableReconnect;
+    _isAttemptingConnect = true;
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _setState(TalerConnectionState.connecting);
 
-    final profile = spoofingService.activeProfile;
-    _activeDeviceId = profile.deviceId;
+    final active = spoofingService.activeProfile;
+    _activeDeviceId = active.deviceId;
 
-    // Даже при отключённом выборе кастомного профиля Taler использует
-    // обезличенный профиль, чтобы никогда не передавать данные реального железа.
-    final userAgentHeader = profile.userAgent;
-    final handshakeUserAgent = privacySettings.spoofingEnabled
-        ? profile.toHandshakeUserAgent()
+    // Даже при выключенном ручном спуфинге Taler использует обезличенный
+    // профиль, чтобы никогда не передавать данные реального железа.
+    final SpoofProfile effectiveProfile = privacySettings.spoofingEnabled
+        ? active
         : SpoofingService.buildFromPreset(
-            SpoofingService.presets.last,
-            deviceId: profile.deviceId,
-            instanceId: profile.instanceId,
-          ).toHandshakeUserAgent();
+            SpoofingService.presets.first,
+            deviceId: active.deviceId,
+            instanceId: active.instanceId,
+            clientSessionId: active.clientSessionId,
+          );
+
+    Object? lastError;
 
     try {
-      final socket = await WebSocket.connect(
-        endpoint,
-        headers: <String, Object>{
-          'Origin': origin,
-          'User-Agent': userAgentHeader,
-        },
-      ).timeout(const Duration(seconds: 20));
-
-      _socket = socket;
-      _setState(TalerConnectionState.connected);
-
-      _socketSub = socket.listen(
-        _onFrame,
-        onError: (Object error) => _handleDrop('Ошибка сокета: $error'),
-        onDone: () => _handleDrop('Соединение закрыто сервером'),
-        cancelOnError: true,
-      );
-
-      final handshakePacket = await request(
-        Opcode.sessionInit,
-        <String, Object?>{
-          'userAgent': handshakeUserAgent,
-          'deviceId': profile.deviceId,
-        },
-      );
-
-      final payload = handshakePacket.payloadAsMap ?? const <String, dynamic>{};
-      final rawSeed = payload['callsSeed'] ?? payload['seed'];
-      if (rawSeed is num) {
-        _callsSeed = rawSeed.toInt();
+      // 1. Основной транспорт: прямой бинарный TLS-сокет (выдаёт callsSeed).
+      for (final host in tlsHosts) {
+        try {
+          return await _connectViaTls(host, effectiveProfile);
+        } catch (e) {
+          lastError = e;
+          await _cleanupSocketOnly();
+        }
       }
 
-      _reconnectAttempt = 0;
-      _setState(TalerConnectionState.online);
-      _startPingLoop();
-      return payload;
-    } catch (e) {
-      await _cleanupSocketOnly();
-      _setState(TalerConnectionState.disconnected);
-      rethrow;
+      // 2. Резервный транспорт: WebSocket в принудительном режиме deviceType=WEB
+      // (wss://api.oneme.ru/websocket принимает только WEB и отклоняет ANDROID).
+      try {
+        return await _connectViaWebSocket(effectiveProfile);
+      } catch (e) {
+        lastError = e;
+        await _cleanupSocketOnly();
+      }
+    } finally {
+      _isAttemptingConnect = false;
     }
+
+    _setState(TalerConnectionState.disconnected);
+    throw lastError;
+  }
+
+  Future<Map<String, dynamic>> _connectViaTls(
+    String host,
+    SpoofProfile profile,
+  ) async {
+    final socket = await SecureSocket.connect(
+      host,
+      tlsPort,
+      timeout: connectTimeout,
+      // Допускаем корневой и промежуточный сертификаты Минцифры для *.oneme.ru.
+      onBadCertificate: (X509Certificate cert) =>
+          host == 'api2.oneme.ru' || host == 'api.oneme.ru',
+    );
+
+    _tlsSocket = socket;
+    _receiver.reset();
+    _setState(TalerConnectionState.connected);
+
+    _socketSub = socket.listen(
+      _onTlsChunk,
+      onError: (Object error) => _handleDrop('Ошибка TLS-сокета: $error'),
+      onDone: () => _handleDrop('Соединение закрыто сервером'),
+      cancelOnError: true,
+    );
+
+    final handshakePacket = await request(
+      Opcode.sessionInit,
+      profile.toSessionInitPayload(forceWeb: false),
+    );
+    return _finalizeHandshake(handshakePacket);
+  }
+
+  Future<Map<String, dynamic>> _connectViaWebSocket(SpoofProfile profile) async {
+    final socket = await WebSocket.connect(
+      wsEndpoint,
+      headers: <String, Object>{
+        'Origin': wsOrigin,
+        'User-Agent': profile.userAgent,
+      },
+    ).timeout(connectTimeout);
+
+    _wsSocket = socket;
+    _receiver.reset();
+    _setState(TalerConnectionState.connected);
+
+    _socketSub = socket.listen(
+      _onWsFrame,
+      onError: (Object error) => _handleDrop('Ошибка WebSocket: $error'),
+      onDone: () => _handleDrop('Соединение закрыто сервером'),
+      cancelOnError: true,
+    );
+
+    final handshakePacket = await request(
+      Opcode.sessionInit,
+      profile.toSessionInitPayload(forceWeb: true),
+    );
+    return _finalizeHandshake(handshakePacket);
+  }
+
+  Map<String, dynamic> _finalizeHandshake(TalerPacket handshakePacket) {
+    final payload = handshakePacket.payloadAsMap ?? const <String, dynamic>{};
+    final rawSeed = payload['callsSeed'] ?? payload['seed'];
+    if (rawSeed is num) {
+      _callsSeed = rawSeed.toInt();
+    } else {
+      _callsSeed = null;
+    }
+
+    _reconnectAttempt = 0;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _setState(TalerConnectionState.online);
+    _startPingLoop();
+    return payload;
   }
 
   /// Отправляет запрос с проверкой через [PrivacyFirewall].
@@ -136,7 +210,7 @@ class TalerSession {
     Object? payload, {
     bool throwOnError = true,
   }) {
-    final nextSeq = _seq + 1;
+    final nextSeq = (_seq % 32000) + 1;
     final decision = firewall.inspectOutgoing(opcode, payload, seq: nextSeq);
     if (!decision.allowed) {
       return Future<TalerPacket>.value(
@@ -149,8 +223,7 @@ class TalerSession {
       );
     }
 
-    final socket = _socket;
-    if (socket == null) {
+    if (!_hasSocket) {
       return Future<TalerPacket>.error(
         const TalerPacketException('Нет подключения к серверу MAX'),
       );
@@ -167,7 +240,7 @@ class TalerSession {
       opcode: opcode,
       payload: payload,
     );
-    socket.add(encoded);
+    _writeRaw(encoded);
 
     return completer.future.timeout(
       requestTimeout,
@@ -198,15 +271,35 @@ class TalerSession {
     } catch (_) {}
   }
 
-  void _onFrame(dynamic raw) {
-    if (raw is! List<int>) return;
-    final TalerPacket frame;
-    try {
-      frame = TalerFraming.decode(Uint8List.fromList(raw));
-    } catch (_) {
+  void _writeRaw(Uint8List bytes) {
+    final tls = _tlsSocket;
+    if (tls != null) {
+      tls.add(bytes);
       return;
     }
+    _wsSocket?.add(bytes);
+  }
 
+  void _onTlsChunk(Uint8List chunk) {
+    try {
+      final packets = _receiver.feed(chunk);
+      for (final packet in packets) {
+        _dispatchPacket(packet);
+      }
+    } catch (_) {
+      // Игнорируем единичный битый фрагмент или сбрасываем переполненный буфер.
+    }
+  }
+
+  void _onWsFrame(dynamic raw) {
+    if (raw is! List<int>) return;
+    try {
+      final frame = TalerFraming.decode(Uint8List.fromList(raw));
+      _dispatchPacket(frame);
+    } catch (_) {}
+  }
+
+  void _dispatchPacket(TalerPacket frame) {
     final allowed = firewall.inspectIncoming(
       frame.opcode,
       frame.payload,
@@ -216,7 +309,7 @@ class TalerSession {
 
     if (frame.cmd == CmdType.request) {
       if (frame.opcode == Opcode.ping) {
-        _socket?.add(
+        _writeRaw(
           TalerFraming.encode(
             cmd: CmdType.ok,
             seq: frame.seq,
@@ -245,6 +338,7 @@ class TalerSession {
   void _handleDrop(String reason) {
     _cleanupSocketOnly();
     _failPending(TalerPacketException(reason));
+    if (_isAttemptingConnect) return;
     if (_state != TalerConnectionState.disconnected) {
       _setState(TalerConnectionState.disconnected);
     }
@@ -286,10 +380,16 @@ class TalerSession {
     _pingTimer = null;
     await _socketSub?.cancel();
     _socketSub = null;
+    _receiver.reset();
     try {
-      await _socket?.close();
+      await _tlsSocket?.close();
     } catch (_) {}
-    _socket = null;
+    _tlsSocket?.destroy();
+    _tlsSocket = null;
+    try {
+      await _wsSocket?.close();
+    } catch (_) {}
+    _wsSocket = null;
   }
 
   Future<void> disconnect() async {

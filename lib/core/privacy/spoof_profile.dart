@@ -76,27 +76,56 @@ class SpoofProfile {
 
   /// Формирует объект `userAgent` для `Opcode.sessionInit (6)` без утечки
   /// реальных параметров устройства пользователя.
-  Map<String, Object?> toHandshakeUserAgent() {
+  ///
+  /// На нативном TLS-сокете сервер MAX возвращает `callsSeed` только для
+  /// не-WEB профилей с `deviceType: 'ANDROID'`, поэтому любые не-WEB пресеты
+  /// (включая iOS и Desktop) на проводе представляются как `ANDROID`/`GCM`.
+  /// При передаче [forceWeb] (резервный WebSocket-шлюз) используется формат `WEB`.
+  Map<String, Object?> toHandshakeUserAgent({bool forceWeb = false}) {
     final shortLocale = locale.split(RegExp(r'[-_]')).first;
-    final map = <String, Object?>{
-      'deviceType': deviceType,
-      'pushDeviceType': pushDeviceType,
+    final useWeb = forceWeb || deviceType == 'WEB';
+
+    if (useWeb) {
+      return <String, Object?>{
+        'deviceType': 'WEB',
+        'pushDeviceType': 'WEBPUSH',
+        'locale': shortLocale,
+        'deviceLocale': shortLocale,
+        'osVersion': deviceType == 'WEB' ? osVersion : 'Windows',
+        'deviceName': deviceType == 'WEB' ? deviceName : 'Chrome',
+        'headerUserAgent': userAgent,
+        'isPwa': true,
+        'appVersion': deviceType == 'WEB' ? appVersion : '26.8.8',
+        'screen': screen,
+        'timezone': timezone,
+      };
+    }
+
+    return <String, Object?>{
+      'deviceType': 'ANDROID',
+      'pushDeviceType': 'GCM',
       'locale': shortLocale,
       'deviceLocale': shortLocale,
       'osVersion': osVersion,
       'deviceName': deviceName,
-      'headerUserAgent': userAgent,
       'appVersion': appVersion,
       'screen': screen,
       'timezone': timezone,
+      'arch': arch.isEmpty ? 'arm64-v8a' : arch,
+      'buildNumber': buildNumber == 0 ? 6779 : buildNumber,
     };
-    if (deviceType == 'WEB') {
-      map['isPwa'] = true;
-    } else {
-      map['arch'] = arch;
-      map['buildNumber'] = buildNumber;
-    }
-    return map;
+  }
+
+  /// Формирует полный payload для `Opcode.sessionInit (6)` поверх TLS или WebSocket.
+  Map<String, Object?> toSessionInitPayload({bool forceWeb = false}) {
+    final ua = toHandshakeUserAgent(forceWeb: forceWeb);
+    final isWeb = ua['deviceType'] == 'WEB';
+    return <String, Object?>{
+      if (!isWeb && instanceId.isNotEmpty) 'mt_instanceid': instanceId,
+      'userAgent': ua,
+      if (!isWeb && clientSessionId != 0) 'clientSessionId': clientSessionId,
+      'deviceId': deviceId,
+    };
   }
 
   Map<String, dynamic> toJson() => {

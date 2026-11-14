@@ -101,7 +101,7 @@ abstract class TalerFraming {
 
     var body = Uint8List.sublistView(frame, headerSize, headerSize + length);
     if (compressionRatio > 0) {
-      body = Lz4Block.decompress(body, length * compressionRatio * 16);
+      body = Lz4Block.decompress(body);
     }
 
     return TalerPacket(
@@ -112,6 +112,76 @@ abstract class TalerFraming {
       payload: TalerMsgpack.decode(body),
     );
   }
+
+  /// Возвращает ожидаемый полный размер кадра (заголовок + тело) в начале [buffer]
+  /// или `null`, если в буфере ещё меньше [headerSize] байт.
+  static int? packetTotalLength(Uint8List buffer, [int offset = 0]) {
+    if (buffer.length - offset < headerSize) return null;
+    final length = (buffer[offset + 7] << 16) |
+        (buffer[offset + 8] << 8) |
+        buffer[offset + 9];
+    return headerSize + length;
+  }
+}
+
+/// Потоковый сборщик бинарных кадров протокола MAX поверх TCP/TLS-сокета.
+///
+/// TCP-сокет может доставлять данные произвольными чанками: несколько кадров
+/// подряд в одном буфере или один кадр, разбитый на несколько фрагментов.
+class TalerPacketReceiver {
+  static const int maxBufferSize = Lz4Block.defaultMaxOutputSize;
+
+  final List<int> _buffer = <int>[];
+
+  int get bufferedLength => _buffer.length;
+
+  /// Добавляет очередной входящий фрагмент байтов [chunk] и возвращает
+  /// все полностью собранные и декодированные пакеты [TalerPacket].
+  List<TalerPacket> feed(List<int> chunk) {
+    if (chunk.isNotEmpty) {
+      _buffer.addAll(chunk);
+    }
+
+    if (_buffer.length > maxBufferSize) {
+      final overflow = _buffer.length;
+      reset();
+      throw FormatException(
+        'TalerPacketReceiver: переполнение буфера ($overflow байт)',
+      );
+    }
+
+    final packets = <TalerPacket>[];
+    var consumed = 0;
+
+    try {
+      while (_buffer.length - consumed >= TalerFraming.headerSize) {
+        final length = (_buffer[consumed + 7] << 16) |
+            (_buffer[consumed + 8] << 8) |
+            _buffer[consumed + 9];
+        final totalLen = TalerFraming.headerSize + length;
+
+        if (_buffer.length - consumed < totalLen) {
+          break;
+        }
+
+        final frameBytes = Uint8List.fromList(
+          _buffer.sublist(consumed, consumed + totalLen),
+        );
+        consumed += totalLen;
+        packets.add(TalerFraming.decode(frameBytes));
+      }
+    } finally {
+      if (consumed >= _buffer.length) {
+        _buffer.clear();
+      } else if (consumed > 0) {
+        _buffer.removeRange(0, consumed);
+      }
+    }
+
+    return packets;
+  }
+
+  void reset() => _buffer.clear();
 }
 
 /// Исключение протокольного уровня MAX.
