@@ -10,8 +10,7 @@ import 'chat_screen.dart';
 import 'privacy_shield_screen.dart';
 import 'profile_settings_screen.dart';
 
-/// Главный адаптивный экран Taler в стиле Telegram Desktop (3 колонки)
-/// и Telegram Mobile.
+/// Главный адаптивный экран Taler в тёмном обсидианово-графитовом стиле (3 колонки на ПК).
 class HomeScreen extends StatefulWidget {
   final TalerClient client;
   final ThemeMode themeMode;
@@ -49,7 +48,6 @@ class _HomeScreenState extends State<HomeScreen> {
       listenable: Listenable.merge([
         widget.client,
         widget.client.privacySettings,
-        widget.client.spoofingService,
       ]),
       builder: (context, _) {
         final screenWidth = MediaQuery.sizeOf(context).width;
@@ -66,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: p.bg,
             body: Row(
               children: [
-                _TelegramDesktopRail(
+                _ObsidianDesktopRail(
                   selectedIndex: _navIndex,
                   blockedCount: blockedCount,
                   unreadCount: totalUnread,
@@ -105,7 +103,6 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // Мобильная адаптация (< 820px): классический Telegram iOS/Android
         return Scaffold(
           backgroundColor: p.bg2,
           body: switch (_navIndex) {
@@ -117,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onThemeModeChanged: widget.onThemeModeChanged,
               ),
           },
-          bottomNavigationBar: _TelegramMobileBottomBar(
+          bottomNavigationBar: _ObsidianMobileBottomBar(
             selectedIndex: _navIndex,
             unreadCount: totalUnread,
             blockedCount: blockedCount,
@@ -138,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Row(
       children: [
         SizedBox(
-          width: 340,
+          width: 312,
           child: _buildChatListColumn(context, p, isWide: true),
         ),
         VerticalDivider(width: 1, thickness: 1, color: p.line),
@@ -153,23 +150,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
+                        horizontal: 16,
+                        vertical: 9,
                       ),
                       decoration: BoxDecoration(
-                        color: p.isDark
-                            ? const Color(0xCC17212B)
-                            : const Color(0xD9FFFFFF),
+                        color: p.bg2,
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: p.line),
+                        border: Border.all(color: p.line2),
                       ),
-                      child: Text(
-                        'Выберите чат для начала общения',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                          color: p.fg,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TalerStatusDot(
+                            color: widget.client.isDemoMode
+                                ? p.accent
+                                : p.statusLive,
+                            size: 6,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Выберите чат для начала общения',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: p.fg2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -184,11 +191,12 @@ class _HomeScreenState extends State<HomeScreen> {
     TalerPalette p, {
     required bool isWide,
   }) {
+    final allChats = widget.client.chats;
     final folders = widget.client.folders;
     final selectedFolder =
         folders.where((f) => f.id == _selectedFolderId).firstOrNull;
 
-    final filteredChats = widget.client.chats.where((chat) {
+    final filteredChats = allChats.where((chat) {
       if (selectedFolder != null && !selectedFolder.isAllChats) {
         if (!selectedFolder.chatIds.contains(chat.id)) return false;
       }
@@ -202,25 +210,27 @@ class _HomeScreenState extends State<HomeScreen> {
       return true;
     }).toList();
 
+    final blockedCount = widget.client.privacySettings.blockedPacketsCount;
+    final ghost = widget.client.privacySettings.ghostModeOnline;
+
     return Container(
       color: p.bg2,
       child: SafeArea(
         bottom: false,
         child: Column(
           children: [
-            // Шапка списка чатов + pill-поиск
             if (!isWide)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 12, 6),
+                padding: const EdgeInsets.fromLTRB(14, 10, 12, 4),
                 child: Row(
                   children: [
-                    const TalerLogo(size: 32),
+                    const TalerLogo(size: 30),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         'Taler',
                         style: TextStyle(
-                          fontSize: 19,
+                          fontSize: 18,
                           fontWeight: FontWeight.w600,
                           letterSpacing: -0.3,
                           color: p.fg,
@@ -234,18 +244,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+
+            // Строка поиска (капсула в стиле референса)
             Padding(
               padding: EdgeInsets.fromLTRB(
-                12,
-                isWide ? 10 : 4,
-                12,
-                folders.length > 1 ? 4 : 10,
+                10,
+                isWide ? 10 : 6,
+                10,
+                folders.length > 1 ? 6 : 10,
               ),
               child: Row(
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: 38,
+                      height: 36,
                       child: TextField(
                         controller: _searchCtrl,
                         onChanged: (v) =>
@@ -253,23 +265,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(fontSize: 13.5, color: p.fg),
                         decoration: InputDecoration(
                           hintText: 'Поиск',
-                          hintStyle: TextStyle(fontSize: 13.5, color: p.fg2),
+                          hintStyle: TextStyle(fontSize: 13, color: p.fg3),
                           filled: true,
                           fillColor: p.bg3,
                           prefixIcon: Icon(
                             Icons.search_rounded,
-                            size: 18,
-                            color: p.fg2,
+                            size: 17,
+                            color: p.fg3,
                           ),
                           prefixIconConstraints: const BoxConstraints(
-                            minWidth: 38,
-                            minHeight: 38,
+                            minWidth: 36,
+                            minHeight: 36,
                           ),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
                                   icon: Icon(
                                     Icons.close_rounded,
-                                    size: 16,
+                                    size: 15,
                                     color: p.fg2,
                                   ),
                                   onPressed: () {
@@ -279,42 +291,55 @@ class _HomeScreenState extends State<HomeScreen> {
                                 )
                               : null,
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
+                            horizontal: 12,
+                            vertical: 6,
                           ),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            borderSide: BorderSide.none,
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide(color: p.line),
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            borderSide: BorderSide.none,
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide(color: p.line),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            borderSide: BorderSide(color: p.accent, width: 1.4),
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide(color: p.line2),
                           ),
                         ),
                       ),
                     ),
                   ),
+                  if (isWide) ...[
+                    const SizedBox(width: 8),
+                    _ConnectionStatusChip(
+                      isDemo: widget.client.isDemoMode,
+                      state: widget.client.connectionState,
+                    ),
+                  ],
                 ],
               ),
             ),
 
-            // Вкладки папок с синей полоской Telegram
+            // Горизонтальные вкладки папок со счётчиками в пилюлях (как на референсе)
             if (folders.length > 1)
               SizedBox(
-                height: 40,
+                height: 36,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   itemCount: folders.length,
                   itemBuilder: (context, index) {
                     final f = folders[index];
+                    final count = f.isAllChats
+                        ? allChats.length
+                        : allChats
+                            .where((c) => f.chatIds.contains(c.id))
+                            .length;
                     final selected = f.id == _selectedFolderId;
-                    return _TelegramFolderTab(
+                    return _FolderTabPill(
                       label: f.title,
+                      count: count,
                       selected: selected,
                       onTap: () => setState(() => _selectedFolderId = f.id),
                     );
@@ -324,7 +349,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
             Divider(height: 1, thickness: 1, color: p.line),
 
-            // Список чатов (высота строки 72px)
+            // Компактная строка статуса защиты (по аналогии с Archived Chats на референсе)
+            _ShieldQuickRow(
+              blockedCount: blockedCount,
+              ghost: ghost,
+              onTap: () => setState(() => _navIndex = 1),
+            ),
+            Divider(height: 1, thickness: 0.7, indent: 64, color: p.line),
+
+            // Плотный список чатов (64px строка)
             Expanded(
               child: filteredChats.isEmpty
                   ? Center(
@@ -333,40 +366,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Icon(
                             Icons.chat_bubble_outline_rounded,
-                            size: 28,
+                            size: 26,
                             color: p.fg3,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Чатов не найдено',
-                            style: TextStyle(fontSize: 13.5, color: p.fg2),
+                            style: TextStyle(fontSize: 13, color: p.fg2),
                           ),
                         ],
                       ),
                     )
-                  : ListView.separated(
+                  : ListView.builder(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       itemCount: filteredChats.length,
-                      separatorBuilder: (_, idx) {
-                        final prev = filteredChats[idx];
-                        final next = filteredChats[idx + 1];
-                        if (isWide &&
-                            (_selectedChatId == prev.id ||
-                                _selectedChatId == next.id)) {
-                          return const SizedBox.shrink();
-                        }
-                        return Divider(
-                          height: 1,
-                          thickness: 0.7,
-                          indent: 76,
-                          color: p.line,
-                        );
-                      },
                       itemBuilder: (context, index) {
                         final chat = filteredChats[index];
                         final isSelected = isWide && _selectedChatId == chat.id;
                         final myId = widget.client.currentUser?.id ?? 1;
-                        return _TelegramChatTile(
+                        return _ObsidianChatTile(
                           chat: chat,
                           selected: isSelected,
                           lastMsgIsMine: chat.lastMessageSenderId == myId,
@@ -399,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _TelegramDesktopRail extends StatelessWidget {
+class _ObsidianDesktopRail extends StatelessWidget {
   final int selectedIndex;
   final int blockedCount;
   final int unreadCount;
@@ -412,7 +430,7 @@ class _TelegramDesktopRail extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onLogout;
 
-  const _TelegramDesktopRail({
+  const _ObsidianDesktopRail({
     required this.selectedIndex,
     required this.blockedCount,
     required this.unreadCount,
@@ -440,8 +458,8 @@ class _TelegramDesktopRail extends StatelessWidget {
           };
 
     return Container(
-      width: 72,
-      color: p.isDark ? p.bg : const Color(0xFFE7EDF3),
+      width: 68,
+      color: p.bg,
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Column(
         children: [
@@ -452,27 +470,24 @@ class _TelegramDesktopRail extends StatelessWidget {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                const TalerLogo(size: 38),
+                const TalerLogo(size: 36),
                 Positioned(
                   right: -1,
                   bottom: -1,
                   child: Container(
-                    width: 11,
-                    height: 11,
+                    width: 10,
+                    height: 10,
                     decoration: BoxDecoration(
                       color: statusColor,
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: p.isDark ? p.bg : const Color(0xFFE7EDF3),
-                        width: 2,
-                      ),
+                      border: Border.all(color: p.bg, width: 2),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _RailNavItem(
             icon: Icons.chat_bubble_rounded,
             inactiveIcon: Icons.chat_bubble_outline_rounded,
@@ -486,7 +501,7 @@ class _TelegramDesktopRail extends StatelessWidget {
             icon: Icons.shield_rounded,
             inactiveIcon: Icons.shield_outlined,
             label: 'Taler Shield',
-            badge: '$blockedCount',
+            badge: blockedCount > 0 ? '$blockedCount' : null,
             selected: selectedIndex == 1,
             onTap: () => onSelect(1),
           ),
@@ -557,7 +572,7 @@ class _RailNavItemState extends State<_RailNavItem> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final fg = widget.selected
-        ? p.accent
+        ? p.fg
         : _hovered
             ? p.fg
             : p.fg2;
@@ -570,15 +585,18 @@ class _RailNavItemState extends State<_RailNavItem> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Container(
-          width: 62,
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          width: 56,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 3),
           decoration: BoxDecoration(
             color: widget.selected
-                ? p.accent.withValues(alpha: 0.14)
+                ? p.surfaceHigh
                 : _hovered
-                    ? p.fg2.withValues(alpha: 0.08)
+                    ? p.surface
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
+            border: widget.selected
+                ? Border.all(color: p.line2)
+                : Border.all(color: Colors.transparent),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -588,7 +606,7 @@ class _RailNavItemState extends State<_RailNavItem> {
                 children: [
                   Icon(
                     widget.selected ? widget.icon : widget.inactiveIcon,
-                    size: 22,
+                    size: 20,
                     color: fg,
                   ),
                   if (widget.badge != null)
@@ -601,14 +619,14 @@ class _RailNavItemState extends State<_RailNavItem> {
                           vertical: 1,
                         ),
                         decoration: BoxDecoration(
-                          color: widget.selected ? p.accent : p.accentMuted,
+                          color: widget.selected ? p.bubbleOut : p.surface3,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           widget.badge!,
-                          style: const TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
+                          style: TalerTheme.tabularStyle(
+                            size: 9.5,
+                            weight: FontWeight.w700,
                             color: Colors.white,
                           ),
                         ),
@@ -616,14 +634,14 @@ class _RailNavItemState extends State<_RailNavItem> {
                     ),
                 ],
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 4),
               Text(
                 widget.label,
                 maxLines: 2,
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 9.5,
                   height: 1.15,
                   fontWeight:
                       widget.selected ? FontWeight.w600 : FontWeight.w500,
@@ -638,13 +656,13 @@ class _RailNavItemState extends State<_RailNavItem> {
   }
 }
 
-class _TelegramMobileBottomBar extends StatelessWidget {
+class _ObsidianMobileBottomBar extends StatelessWidget {
   final int selectedIndex;
   final int unreadCount;
   final int blockedCount;
   final ValueChanged<int> onSelect;
 
-  const _TelegramMobileBottomBar({
+  const _ObsidianMobileBottomBar({
     required this.selectedIndex,
     required this.unreadCount,
     required this.blockedCount,
@@ -662,7 +680,7 @@ class _TelegramMobileBottomBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 58,
+          height: 56,
           child: Row(
             children: [
               _MobileTabButton(
@@ -677,7 +695,7 @@ class _TelegramMobileBottomBar extends StatelessWidget {
                 icon: Icons.shield_rounded,
                 inactiveIcon: Icons.shield_outlined,
                 label: 'Taler Shield',
-                badge: '$blockedCount',
+                badge: blockedCount > 0 ? '$blockedCount' : null,
                 selected: selectedIndex == 1,
                 onTap: () => onSelect(1),
               ),
@@ -716,7 +734,7 @@ class _MobileTabButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final fg = selected ? p.accent : p.fg2;
+    final fg = selected ? p.fg : p.fg2;
 
     return Expanded(
       child: GestureDetector(
@@ -728,10 +746,14 @@ class _MobileTabButton extends StatelessWidget {
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(selected ? icon : inactiveIcon, size: 22, color: fg),
+                Icon(
+                  selected ? icon : inactiveIcon,
+                  size: 21,
+                  color: selected ? p.accent : p.fg2,
+                ),
                 if (badge != null)
                   Positioned(
-                    right: -14,
+                    right: -13,
                     top: -4,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -739,14 +761,14 @@ class _MobileTabButton extends StatelessWidget {
                         vertical: 1,
                       ),
                       decoration: BoxDecoration(
-                        color: p.accent,
+                        color: p.bubbleOut,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         badge!,
-                        style: const TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
+                        style: TalerTheme.tabularStyle(
+                          size: 9.5,
+                          weight: FontWeight.w700,
                           color: Colors.white,
                         ),
                       ),
@@ -787,25 +809,26 @@ class _ConnectionStatusChip extends StatelessWidget {
             TalerConnectionState.online => ('Online', p.statusLive),
             TalerConnectionState.connecting ||
             TalerConnectionState.connected =>
-              ('Сеть...', p.warning),
+              ('Сеть', p.warning),
             TalerConnectionState.disconnected => ('Офлайн', p.fg3),
           };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: p.bg3,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: p.line),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           TalerStatusDot(color: dotColor, size: 6),
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
           Text(
             label,
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
               color: p.fg2,
             ),
@@ -816,29 +839,31 @@ class _ConnectionStatusChip extends StatelessWidget {
   }
 }
 
-class _TelegramFolderTab extends StatefulWidget {
+class _FolderTabPill extends StatefulWidget {
   final String label;
+  final int count;
   final bool selected;
   final VoidCallback onTap;
 
-  const _TelegramFolderTab({
+  const _FolderTabPill({
     required this.label,
+    required this.count,
     required this.selected,
     required this.onTap,
   });
 
   @override
-  State<_TelegramFolderTab> createState() => _TelegramFolderTabState();
+  State<_FolderTabPill> createState() => _FolderTabPillState();
 }
 
-class _TelegramFolderTabState extends State<_TelegramFolderTab> {
+class _FolderTabPillState extends State<_FolderTabPill> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final fg = widget.selected
-        ? p.accent
+        ? p.fg
         : _hovered
             ? p.fg
             : p.fg2;
@@ -851,25 +876,49 @@ class _TelegramFolderTabState extends State<_TelegramFolderTab> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const SizedBox(height: 3),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight:
-                      widget.selected ? FontWeight.w600 : FontWeight.w500,
-                  color: fg,
-                ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          widget.selected ? FontWeight.w600 : FontWeight.w500,
+                      color: fg,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: widget.selected ? p.bubbleOut : p.bg3,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${widget.count}',
+                      style: TalerTheme.tabularStyle(
+                        size: 10.5,
+                        weight: FontWeight.w600,
+                        color: widget.selected ? Colors.white : p.fg2,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               AnimatedContainer(
                 duration: TalerTheme.fastDuration,
                 curve: TalerTheme.easeOutCurve,
-                height: 3,
-                width: widget.selected ? 26 : 0,
+                height: 2.5,
+                width: widget.selected ? 28 : 0,
                 decoration: BoxDecoration(
                   color: p.accent,
                   borderRadius: const BorderRadius.vertical(
@@ -885,13 +934,99 @@ class _TelegramFolderTabState extends State<_TelegramFolderTab> {
   }
 }
 
-class _TelegramChatTile extends StatefulWidget {
+class _ShieldQuickRow extends StatefulWidget {
+  final int blockedCount;
+  final bool ghost;
+  final VoidCallback onTap;
+
+  const _ShieldQuickRow({
+    required this.blockedCount,
+    required this.ghost,
+    required this.onTap,
+  });
+
+  @override
+  State<_ShieldQuickRow> createState() => _ShieldQuickRowState();
+}
+
+class _ShieldQuickRowState extends State<_ShieldQuickRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: Container(
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          color: _hovered ? p.surface : Colors.transparent,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.bg3,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: p.line),
+                ),
+                child: Icon(
+                  Icons.shield_outlined,
+                  size: 19,
+                  color: p.fg2,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Taler Shield · Защита активна',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: p.fg,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Перехвачено: ${widget.blockedCount} · Призрак ${widget.ghost ? "вкл" : "выкл"}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TalerTheme.tabularStyle(
+                        size: 12,
+                        color: p.fg3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ObsidianChatTile extends StatefulWidget {
   final TalerChat chat;
   final bool selected;
   final bool lastMsgIsMine;
   final VoidCallback onTap;
 
-  const _TelegramChatTile({
+  const _ObsidianChatTile({
     required this.chat,
     required this.selected,
     required this.lastMsgIsMine,
@@ -899,10 +1034,10 @@ class _TelegramChatTile extends StatefulWidget {
   });
 
   @override
-  State<_TelegramChatTile> createState() => _TelegramChatTileState();
+  State<_ObsidianChatTile> createState() => _ObsidianChatTileState();
 }
 
-class _TelegramChatTileState extends State<_TelegramChatTile> {
+class _ObsidianChatTileState extends State<_ObsidianChatTile> {
   bool _hovered = false;
 
   @override
@@ -919,18 +1054,14 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
     final bg = sel
         ? p.surfaceHigh
         : _hovered
-            ? p.surface.withValues(alpha: 0.7)
+            ? p.surface
             : Colors.transparent;
 
-    final titleColor = sel ? Colors.white : p.fg;
-    final timeColor = sel ? Colors.white.withValues(alpha: 0.85) : p.fg2;
-    final previewColor = sel
-        ? Colors.white.withValues(alpha: 0.88)
-        : chat.typingLabel != null
-            ? p.accent
-            : chat.lastMessageDeletedByPeer
-                ? p.warning
-                : p.fg2;
+    final previewColor = chat.typingLabel != null
+        ? p.accent
+        : chat.lastMessageDeletedByPeer
+            ? p.warning
+            : p.fg2;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -939,21 +1070,24 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: TalerTheme.fastDuration,
-          height: 72,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          color: bg,
+        child: Container(
+          height: 64,
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(10),
+          ),
           child: Row(
             children: [
               TalerAvatar(
                 seedId: chat.peerId ?? chat.id,
                 initials: chat.initials,
-                size: 50,
+                size: 46,
                 isOnline: chat.isOnline,
                 onlineBorderColor: sel ? p.surfaceHigh : p.bg2,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -965,18 +1099,18 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
                             child: Icon(
-                              Icons.campaign_rounded,
-                              size: 16,
-                              color: sel ? Colors.white : p.fg2,
+                              Icons.campaign_outlined,
+                              size: 15,
+                              color: p.fg2,
                             ),
                           )
                         else if (chat.isGroup)
                           Padding(
                             padding: const EdgeInsets.only(right: 4),
                             child: Icon(
-                              Icons.group_rounded,
-                              size: 15,
-                              color: sel ? Colors.white : p.fg2,
+                              Icons.group_outlined,
+                              size: 14,
+                              color: p.fg2,
                             ),
                           ),
                         Expanded(
@@ -989,17 +1123,25 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w600,
-                                    fontSize: 14.5,
-                                    color: titleColor,
+                                    fontSize: 13.5,
+                                    color: p.fg,
                                   ),
                                 ),
                               ),
+                              if (chat.isMuted) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.volume_off_rounded,
+                                  size: 13,
+                                  color: p.fg3,
+                                ),
+                              ],
                               if (chat.isOfficial) ...[
                                 const SizedBox(width: 4),
                                 Icon(
                                   Icons.verified_rounded,
-                                  size: 15,
-                                  color: sel ? Colors.white : p.accent,
+                                  size: 14,
+                                  color: p.accent,
                                 ),
                               ],
                             ],
@@ -1009,21 +1151,21 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                         if (widget.lastMsgIsMine && timeStr.isNotEmpty) ...[
                           Icon(
                             Icons.done_all_rounded,
-                            size: 15,
-                            color: sel ? Colors.white : p.accent,
+                            size: 14,
+                            color: p.accent,
                           ),
                           const SizedBox(width: 3),
                         ],
                         Text(
                           timeStr,
                           style: TalerTheme.tabularStyle(
-                            size: 12,
-                            color: timeColor,
+                            size: 11.5,
+                            color: p.fg3,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
                         if (chat.lastMessageDeletedByPeer &&
@@ -1032,8 +1174,8 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                             padding: const EdgeInsets.only(right: 4),
                             child: Icon(
                               Icons.shield_outlined,
-                              size: 14,
-                              color: sel ? Colors.white : p.warning,
+                              size: 13,
+                              color: p.warning,
                             ),
                           ),
                         Expanded(
@@ -1045,7 +1187,7 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 13.5,
+                              fontSize: 12.5,
                               color: previewColor,
                             ),
                           ),
@@ -1055,10 +1197,8 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                             padding: const EdgeInsets.only(left: 6),
                             child: Icon(
                               Icons.push_pin_rounded,
-                              size: 15,
-                              color: sel
-                                  ? Colors.white.withValues(alpha: 0.75)
-                                  : p.fg3,
+                              size: 14,
+                              color: p.fg3,
                             ),
                           ),
                         if (chat.unreadCount > 0)
@@ -1069,19 +1209,15 @@ class _TelegramChatTileState extends State<_TelegramChatTile> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: sel
-                                  ? Colors.white
-                                  : chat.isMuted
-                                      ? p.fg3
-                                      : p.accent,
-                              borderRadius: BorderRadius.circular(12),
+                              color: chat.isMuted ? p.surface3 : p.bubbleOut,
+                              borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
                               '${chat.unreadCount}',
                               style: TalerTheme.tabularStyle(
-                                size: 11.5,
+                                size: 11,
                                 weight: FontWeight.w700,
-                                color: sel ? p.surfaceHigh : Colors.white,
+                                color: Colors.white,
                               ),
                             ),
                           ),

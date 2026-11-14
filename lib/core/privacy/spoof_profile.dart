@@ -83,14 +83,14 @@ class SpoofProfile {
   /// При передаче [forceWeb] (резервный WebSocket-шлюз) используется формат `WEB`.
   Map<String, Object?> toHandshakeUserAgent({bool forceWeb = false}) {
     final shortLocale = locale.split(RegExp(r'[-_]')).first;
-    final useWeb = forceWeb || deviceType == 'WEB';
+    final effectiveLocale = shortLocale.isNotEmpty ? shortLocale : 'ru';
 
-    if (useWeb) {
+    if (forceWeb) {
       return <String, Object?>{
         'deviceType': 'WEB',
         'pushDeviceType': 'WEBPUSH',
-        'locale': shortLocale,
-        'deviceLocale': shortLocale,
+        'locale': effectiveLocale,
+        'deviceLocale': effectiveLocale,
         'osVersion': deviceType == 'WEB' ? osVersion : 'Windows',
         'deviceName': deviceType == 'WEB' ? deviceName : 'Chrome',
         'headerUserAgent': userAgent,
@@ -104,15 +104,21 @@ class SpoofProfile {
     return <String, Object?>{
       'deviceType': 'ANDROID',
       'pushDeviceType': 'GCM',
-      'locale': shortLocale,
-      'deviceLocale': shortLocale,
-      'osVersion': osVersion,
-      'deviceName': deviceName,
-      'appVersion': appVersion,
-      'screen': screen,
-      'timezone': timezone,
-      'arch': arch.isEmpty ? 'arm64-v8a' : arch,
-      'buildNumber': buildNumber == 0 ? 6779 : buildNumber,
+      'appVersion': '26.23.2',
+      'buildNumber': 6779,
+      'osVersion': osVersion.startsWith('Android') ? osVersion : 'Android 15',
+      'deviceName': (deviceType == 'ANDROID' && deviceName.isNotEmpty)
+          ? deviceName
+          : 'Google Pixel 9 Pro',
+      'locale': effectiveLocale,
+      'deviceLocale': effectiveLocale,
+      'deviceId': deviceId,
+      'screen': (deviceType == 'ANDROID' && screen.contains('dpi'))
+          ? screen
+          : '480dpi 1080x2400',
+      'timezone': timezone.isNotEmpty ? timezone : 'Europe/Moscow',
+      'arch': 'arm64-v8a',
+      if (instanceId.isNotEmpty) 'mt_instanceid': instanceId,
     };
   }
 

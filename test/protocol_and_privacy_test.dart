@@ -209,6 +209,19 @@ void main() {
 
       expect(settings.blockedPacketsCount, greaterThanOrEqualTo(7));
       expect(auditLog.entries, isNotEmpty);
+
+      for (var i = 0; i < 65; i++) {
+        firewall.inspectIncoming(
+          Opcode.msgSend,
+          <String, dynamic>{
+            'chats': List<Map<String, dynamic>>.generate(
+              20,
+              (j) => <String, dynamic>{'id': j, 'title': 'chat-$j'},
+            ),
+          },
+        );
+      }
+      expect(auditLog.entries.length, lessThanOrEqualTo(60));
     });
   });
 
@@ -266,6 +279,7 @@ void main() {
         const <String>['m2'],
         antiDeleteEnabled: false,
       );
+      await store.flush();
       expect(store.getMessages(chatId).any((m) => m.id == 'm2'), isFalse);
     });
   });
@@ -353,5 +367,8 @@ void main() {
 
     expect(find.text('Чаты'), findsOneWidget);
     expect(find.text('Taler Shield'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
   });
 }

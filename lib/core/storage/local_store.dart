@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,6 +24,10 @@ class LocalStore {
   final Map<int, TalerContact> _contacts = {};
   final List<TalerFolder> _folders = [];
   final Map<int, List<TalerMessage>> _messages = {};
+
+  Timer? _chatsSaveTimer;
+  Timer? _contactsSaveTimer;
+  final Map<int, Timer> _msgSaveTimers = {};
 
   String? get authToken => _authToken;
   int? get accountId => _accountId;
@@ -111,10 +116,7 @@ class LocalStore {
     for (final c in items) {
       _contacts[c.id] = c;
     }
-    await _prefs?.setString(
-      _kContacts,
-      jsonEncode(_contacts.values.map((c) => c.toJson()).toList()),
-    );
+    _scheduleContactsPersist();
   }
 
   Future<void> saveFolders(List<TalerFolder> folders) async {
@@ -282,6 +284,15 @@ class LocalStore {
   }
 
   Future<void> clearAccountData() async {
+    _chatsSaveTimer?.cancel();
+    _chatsSaveTimer = null;
+    _contactsSaveTimer?.cancel();
+    _contactsSaveTimer = null;
+    for (final t in _msgSaveTimers.values) {
+      t.cancel();
+    }
+    _msgSaveTimers.clear();
+
     final chatIds = _chats.keys.toList();
     _authToken = null;
     _accountId = null;
@@ -302,14 +313,67 @@ class LocalStore {
     }
   }
 
+  /// Немедленно сбрасывает отложенные буферы чатов, контактов и сообщений на диск.
+  Future<void> flush() async {
+    _chatsSaveTimer?.cancel();
+    _chatsSaveTimer = null;
+    _contactsSaveTimer?.cancel();
+    _contactsSaveTimer = null;
+    final pendingChatIds = _msgSaveTimers.keys.toList();
+    for (final t in _msgSaveTimers.values) {
+      t.cancel();
+    }
+    _msgSaveTimers.clear();
+
+    await _writeChatsNow();
+    await _writeContactsNow();
+    for (final id in pendingChatIds) {
+      await _writeMessagesNow(id);
+    }
+  }
+
   Future<void> _persistChats() async {
+    if (_prefs == null) return;
+    _chatsSaveTimer?.cancel();
+    _chatsSaveTimer = Timer(const Duration(milliseconds: 350), () {
+      _chatsSaveTimer = null;
+      _writeChatsNow();
+    });
+  }
+
+  void _scheduleContactsPersist() {
+    if (_prefs == null) return;
+    _contactsSaveTimer?.cancel();
+    _contactsSaveTimer = Timer(const Duration(milliseconds: 350), () {
+      _contactsSaveTimer = null;
+      _writeContactsNow();
+    });
+  }
+
+  Future<void> _persistMessages(int chatId) async {
+    if (_prefs == null) return;
+    _msgSaveTimers[chatId]?.cancel();
+    _msgSaveTimers[chatId] = Timer(const Duration(milliseconds: 350), () {
+      _msgSaveTimers.remove(chatId);
+      _writeMessagesNow(chatId);
+    });
+  }
+
+  Future<void> _writeChatsNow() async {
     await _prefs?.setString(
       _kChats,
       jsonEncode(_chats.values.map((c) => c.toJson()).toList()),
     );
   }
 
-  Future<void> _persistMessages(int chatId) async {
+  Future<void> _writeContactsNow() async {
+    await _prefs?.setString(
+      _kContacts,
+      jsonEncode(_contacts.values.map((c) => c.toJson()).toList()),
+    );
+  }
+
+  Future<void> _writeMessagesNow(int chatId) async {
     final list = _messages[chatId];
     if (list == null) return;
     final trimmed =

@@ -69,6 +69,10 @@ class TalerClient extends ChangeNotifier {
   TalerConnectionState _connectionState = TalerConnectionState.disconnected;
   List<TalerActiveSession> _activeSessions = const [];
   final Map<int, Timer> _typingClearTimers = {};
+  List<TalerChat>? _cachedSortedChats;
+  int _otpSessionEpoch = -1;
+  String? _lastOtpPhone;
+  String? _lastTempToken;
 
   TalerClient({
     required this.privacySettings,
@@ -106,8 +110,17 @@ class TalerClient extends ChangeNotifier {
   TalerUserProfile? get currentUser => store.profile;
   List<TalerFolder> get folders => store.folders;
   List<TalerActiveSession> get activeSessions => _activeSessions;
+  String? get lastTempToken => _lastTempToken;
+
+  @override
+  void notifyListeners() {
+    _cachedSortedChats = null;
+    super.notifyListeners();
+  }
 
   List<TalerChat> get chats {
+    final cached = _cachedSortedChats;
+    if (cached != null) return cached;
     final list = store.chats.values.toList()
       ..sort((a, b) {
         final ap = a.favIndex > 0 ? 0 : 1;
@@ -118,7 +131,9 @@ class TalerClient extends ChangeNotifier {
         }
         return (b.lastMessageTime ?? 0).compareTo(a.lastMessageTime ?? 0);
       });
-    return list;
+    final frozen = List<TalerChat>.unmodifiable(list);
+    _cachedSortedChats = frozen;
+    return frozen;
   }
 
   List<TalerMessage> messagesForChat(int chatId) => store.getMessages(chatId);
@@ -174,34 +189,64 @@ class TalerClient extends ChangeNotifier {
   }
 
   /// Запрос SMS/OTP кода авторизации (`Opcode.authRequest`).
-  Future<String> requestOtp(String phone) async {
+  Future<String> requestOtp(String phone, {bool isResend = false}) async {
     _setBusy(true);
     try {
-      await _ensureSessionOnline();
-      final digits = phone.replaceAll(RegExp(r'\D'), '');
-      final normalized = '+$digits';
-
-      final payload = <String, dynamic>{
-        'phone': normalized,
-        'type': 'START_AUTH',
-        'language': 'ru',
-      };
-      final seed = session.callsSeed;
-      final deviceId = session.activeDeviceId;
-      if (seed != null && deviceId != null) {
-        payload['mode'] = ChatCacheFingerprint.compute(seed, deviceId);
-      }
-
-      final packet = await session.request(Opcode.authRequest, payload);
-      final data = packet.payloadAsMap ?? const {};
-      final token = data['token'] as String?;
-      if (token == null || token.isEmpty) {
-        throw const TalerPacketException('Сервер не вернул временный токен OTP');
-      }
-      return token;
+      return await _requestOtpInternal(phone, isResend: isResend);
     } finally {
       _setBusy(false);
     }
+  }
+
+  /// Повторный запрос SMS-кода для активного номера (`type: 'RESEND'`).
+  Future<String> resendOtp([String? phone]) {
+    final target = (phone != null && phone.trim().isNotEmpty)
+        ? phone
+        : (_lastOtpPhone ?? '');
+    return requestOtp(target, isResend: true);
+  }
+
+  Future<String> _requestOtpInternal(
+    String phone, {
+    required bool isResend,
+  }) async {
+    if (!session.isOnline || session.callsSeed == null) {
+      await session.connect(
+        forceReconnect: session.isOnline && session.callsSeed == null,
+      );
+    }
+
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      throw const TalerPacketException('Укажите номер телефона');
+    }
+    final normalized = '+$digits';
+    final shortLocale =
+        spoofingService.activeProfile.locale.split(RegExp(r'[-_]')).first;
+
+    final payload = <String, dynamic>{
+      'phone': normalized,
+      'type': isResend ? 'RESEND' : 'START_AUTH',
+      'language': shortLocale.isNotEmpty ? shortLocale : 'ru',
+    };
+    final seed = session.callsSeed;
+    final deviceId =
+        session.activeDeviceId ?? spoofingService.activeProfile.deviceId;
+    if (seed != null && deviceId.isNotEmpty) {
+      payload['mode'] = ChatCacheFingerprint.compute(seed, deviceId);
+    }
+
+    final packet = await session.request(Opcode.authRequest, payload);
+    final data = packet.payloadAsMap ?? const {};
+    final token = data['token'] as String?;
+    if (token == null || token.isEmpty) {
+      throw const TalerPacketException('Сервер не вернул временный токен OTP');
+    }
+
+    _otpSessionEpoch = session.sessionEpoch;
+    _lastOtpPhone = normalized;
+    _lastTempToken = token;
+    return token;
   }
 
   /// Проверка OTP-кода (`Opcode.auth`).
@@ -209,11 +254,43 @@ class TalerClient extends ChangeNotifier {
     _setBusy(true);
     try {
       await _ensureSessionOnline();
-      final packet = await session.request(Opcode.auth, {
-        'token': tempToken,
-        'verifyCode': code.trim(),
-        'authTokenType': 'CHECK_CODE',
-      });
+      if (_otpSessionEpoch != -1 &&
+          session.sessionEpoch != _otpSessionEpoch) {
+        if (_lastOtpPhone != null && _lastOtpPhone!.isNotEmpty) {
+          await _requestOtpInternal(_lastOtpPhone!, isResend: false);
+        }
+        throw const TalerPacketException(
+          'Соединение обновилось — мы автоматически отправили новый SMS-код, введите его.',
+          code: 'session.stale',
+        );
+      }
+
+      final digitsOnly = code.replaceAll(RegExp(r'\D'), '');
+      final cleanCode = digitsOnly.isNotEmpty ? digitsOnly : code.trim();
+      final activeToken =
+          tempToken.isNotEmpty ? tempToken : (_lastTempToken ?? '');
+
+      final TalerPacket packet;
+      try {
+        packet = await session.request(Opcode.auth, {
+          'token': activeToken,
+          'verifyCode': cleanCode,
+          'authTokenType': 'CHECK_CODE',
+        });
+      } on TalerPacketException catch (e) {
+        final rawCode = e.code?.toLowerCase() ?? '';
+        final rawMsg = e.message.toLowerCase();
+        if (rawCode.contains('code.attempt.limit') ||
+            rawMsg.contains('expired') ||
+            rawMsg.contains('attempt')) {
+          throw const TalerPacketException(
+            'Срок действия кода истёк или превышен лимит попыток. Нажмите «Отправить новый код».',
+            code: 'error.code.attempt.limit',
+          );
+        }
+        rethrow;
+      }
+
       final data = packet.payloadAsMap ?? const {};
 
       final challenge = data['passwordChallenge'];
@@ -725,6 +802,26 @@ class TalerClient extends ChangeNotifier {
           'chatId': chatId,
           'messageId': msgIdNum,
           'mark': markTime,
+        },
+        throwOnError: false,
+      );
+    }
+  }
+
+  /// Переключает звук уведомлений для чата [chatId].
+  Future<void> toggleChatMute(int chatId) async {
+    final chat = store.chats[chatId];
+    if (chat == null) return;
+    final nextMuted = !chat.isMuted;
+    await store.saveChats([chat.copyWith(isMuted: nextMuted)]);
+    notifyListeners();
+
+    if (!_isDemoMode && session.isOnline) {
+      await session.request(
+        Opcode.chatPersonalConfig,
+        {
+          'chatId': chatId,
+          'dontDisturbUntil': nextMuted ? -1 : 0,
         },
         throwOnError: false,
       );

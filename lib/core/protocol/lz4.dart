@@ -1,18 +1,29 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// Распаковщик LZ4-блоков для сжатых кадров протокола MAX (`compressionRatio > 0`).
+/// Распаковщик LZ4-блоков и LZ4-фреймов для сжатых кадров протокола MAX (`compressionRatio > 0`).
 abstract class Lz4Block {
-  /// Максимальный допустимый размер распакованного пакета (32 МБ).
-  static const int defaultMaxOutputSize = 32 * 1024 * 1024;
+  /// Максимальный допустимый размер распакованного пакета (8 МБ).
+  static const int defaultMaxOutputSize = 8 * 1024 * 1024;
 
-  /// Распаковывает [source] в динамически расширяемый буфер с защитным
-  /// лимитом [maxOutputSize] байт.
+  /// Распаковывает [source] (сырой LZ4 block или LZ4 frame с magic `04 22 4D 18`)
+  /// в динамически расширяемый буфер с защитным лимитом [maxOutputSize] байт.
   static Uint8List decompress(
     Uint8List source, [
     int maxOutputSize = defaultMaxOutputSize,
   ]) {
-    var capacity = math.min(maxOutputSize, math.max(1024, source.length * 4));
+    if (source.isEmpty) return Uint8List(0);
+
+    // Проверка на стандартный заголовок LZ4 Frame (magic 0x184D2204 LE).
+    if (source.length >= 7 &&
+        source[0] == 0x04 &&
+        source[1] == 0x22 &&
+        source[2] == 0x4D &&
+        source[3] == 0x18) {
+      return _decompressFrame(source, maxOutputSize);
+    }
+
+    var capacity = math.min(maxOutputSize, math.max(256, source.length * 3));
     var output = Uint8List(capacity);
     var input = 0;
     var written = 0;
@@ -108,5 +119,45 @@ abstract class Lz4Block {
     }
     set(cursor);
     return extra;
+  }
+
+  static Uint8List _decompressFrame(Uint8List source, int maxOutputSize) {
+    final flg = source[4];
+    final hasContentSize = (flg & 0x08) != 0;
+    final hasDictId = (flg & 0x01) != 0;
+    var offset = 6; // magic(4) + FLG(1) + BD(1)
+    if (hasContentSize) offset += 8;
+    if (hasDictId) offset += 4;
+    offset += 1; // HC byte
+
+    final out = BytesBuilder(copy: false);
+    var totalLen = 0;
+    while (offset + 4 <= source.length) {
+      final rawSize = source[offset] |
+          (source[offset + 1] << 8) |
+          (source[offset + 2] << 16) |
+          (source[offset + 3] << 24);
+      offset += 4;
+      if (rawSize == 0) break; // EndMark
+      final uncompressed = (rawSize & 0x80000000) != 0;
+      final blockSize = rawSize & 0x7FFFFFFF;
+      if (offset + blockSize > source.length) {
+        throw const FormatException('Lz4Frame: обрыв блока данных');
+      }
+      final blockBytes = Uint8List.sublistView(source, offset, offset + blockSize);
+      offset += blockSize;
+      final chunk = uncompressed
+          ? blockBytes
+          : decompress(blockBytes, maxOutputSize - totalLen);
+      totalLen += chunk.length;
+      if (totalLen > maxOutputSize) {
+        throw const FormatException('Lz4Frame: превышен лимит распаковки');
+      }
+      out.add(chunk);
+      if ((flg & 0x10) != 0 && offset + 4 <= source.length) {
+        offset += 4; // block checksum
+      }
+    }
+    return out.takeBytes();
   }
 }

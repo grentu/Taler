@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'lz4.dart';
@@ -126,62 +127,123 @@ abstract class TalerFraming {
 
 /// Потоковый сборщик бинарных кадров протокола MAX поверх TCP/TLS-сокета.
 ///
-/// TCP-сокет может доставлять данные произвольными чанками: несколько кадров
-/// подряд в одном буфере или один кадр, разбитый на несколько фрагментов.
+/// Использует плоский [Uint8List] без боксирования целых и копирования на
+/// каждом фрагменте. Поддерживает извлечение сырых фреймов через [feedFrames].
 class TalerPacketReceiver {
   static const int maxBufferSize = Lz4Block.defaultMaxOutputSize;
+  static const int _initialCapacity = 4096;
 
-  final List<int> _buffer = <int>[];
+  Uint8List _buffer = Uint8List(_initialCapacity);
+  int _readOffset = 0;
+  int _writeOffset = 0;
 
-  int get bufferedLength => _buffer.length;
+  int get bufferedLength => _writeOffset - _readOffset;
 
-  /// Добавляет очередной входящий фрагмент байтов [chunk] и возвращает
-  /// все полностью собранные и декодированные пакеты [TalerPacket].
-  List<TalerPacket> feed(List<int> chunk) {
+  /// Добавляет фрагмент байтов [chunk] и возвращает все полностью
+  /// собранные сырые кадры `Uint8List`.
+  List<Uint8List> feedFrames(List<int> chunk) {
     if (chunk.isNotEmpty) {
-      _buffer.addAll(chunk);
-    }
-
-    if (_buffer.length > maxBufferSize) {
-      final overflow = _buffer.length;
-      reset();
-      throw FormatException(
-        'TalerPacketReceiver: переполнение буфера ($overflow байт)',
-      );
-    }
-
-    final packets = <TalerPacket>[];
-    var consumed = 0;
-
-    try {
-      while (_buffer.length - consumed >= TalerFraming.headerSize) {
-        final length = (_buffer[consumed + 7] << 16) |
-            (_buffer[consumed + 8] << 8) |
-            _buffer[consumed + 9];
-        final totalLen = TalerFraming.headerSize + length;
-
-        if (_buffer.length - consumed < totalLen) {
-          break;
-        }
-
-        final frameBytes = Uint8List.fromList(
-          _buffer.sublist(consumed, consumed + totalLen),
+      final incomingLen = chunk.length;
+      if (bufferedLength + incomingLen > maxBufferSize) {
+        final overflow = bufferedLength + incomingLen;
+        reset();
+        throw FormatException(
+          'TalerPacketReceiver: переполнение буфера ($overflow байт)',
         );
-        consumed += totalLen;
-        packets.add(TalerFraming.decode(frameBytes));
       }
-    } finally {
-      if (consumed >= _buffer.length) {
-        _buffer.clear();
-      } else if (consumed > 0) {
-        _buffer.removeRange(0, consumed);
+
+      if (_writeOffset + incomingLen > _buffer.length) {
+        if (_readOffset > 0 &&
+            (_buffer.length - bufferedLength) >= incomingLen) {
+          _compact();
+        } else {
+          final needed = bufferedLength + incomingLen;
+          var nextCap = _buffer.length;
+          while (nextCap < needed) {
+            nextCap = math.min(maxBufferSize, nextCap * 2);
+          }
+          final next = Uint8List(nextCap);
+          if (bufferedLength > 0) {
+            next.setRange(0, bufferedLength, _buffer, _readOffset);
+          }
+          _buffer = next;
+          _writeOffset = bufferedLength;
+          _readOffset = 0;
+        }
       }
+
+      _buffer.setRange(_writeOffset, _writeOffset + incomingLen, chunk);
+      _writeOffset += incomingLen;
     }
 
+    final frames = <Uint8List>[];
+    while (bufferedLength >= TalerFraming.headerSize) {
+      final length = (_buffer[_readOffset + 7] << 16) |
+          (_buffer[_readOffset + 8] << 8) |
+          _buffer[_readOffset + 9];
+      final totalLen = TalerFraming.headerSize + length;
+
+      if (totalLen < TalerFraming.headerSize || totalLen > maxBufferSize) {
+        reset();
+        throw FormatException(
+          'TalerPacketReceiver: некорректная длина кадра ($length)',
+        );
+      }
+
+      if (bufferedLength < totalLen) {
+        break;
+      }
+
+      final frameBytes = Uint8List(totalLen);
+      frameBytes.setRange(0, totalLen, _buffer, _readOffset);
+      frames.add(frameBytes);
+      _readOffset += totalLen;
+    }
+
+    if (_readOffset >= _writeOffset) {
+      _readOffset = 0;
+      _writeOffset = 0;
+      if (_buffer.length > 65536) {
+        _buffer = Uint8List(_initialCapacity);
+      }
+    } else if (_readOffset >= 2048) {
+      _compact();
+    }
+
+    return frames;
+  }
+
+  /// Добавляет фрагмент байтов [chunk] и декодирует все готовые пакеты.
+  List<TalerPacket> feed(List<int> chunk) {
+    final frames = feedFrames(chunk);
+    if (frames.isEmpty) return const [];
+    final packets = <TalerPacket>[];
+    for (final raw in frames) {
+      try {
+        packets.add(TalerFraming.decode(raw));
+      } catch (_) {
+        // Изолируем ошибку декодирования отдельного кадра.
+      }
+    }
     return packets;
   }
 
-  void reset() => _buffer.clear();
+  void _compact() {
+    final len = bufferedLength;
+    if (len > 0 && _readOffset > 0) {
+      _buffer.setRange(0, len, _buffer, _readOffset);
+    }
+    _readOffset = 0;
+    _writeOffset = len;
+  }
+
+  void reset() {
+    _readOffset = 0;
+    _writeOffset = 0;
+    if (_buffer.length > 65536) {
+      _buffer = Uint8List(_initialCapacity);
+    }
+  }
 }
 
 /// Исключение протокольного уровня MAX.

@@ -149,7 +149,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             border: Border.all(color: p.line),
                           ),
                           child: Text(
-                            'v1.0.2',
+                            'v1.0.3',
                             style: TalerTheme.monoStyle(
                               size: 11.5,
                               weight: FontWeight.w600,
@@ -312,7 +312,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Ночная палитра Telegram Night Blue или светлая Classic Day',
+                        'Тёмная тема Obsidian или светлая Alabaster',
                         style: TextStyle(fontSize: 12, color: p.fg2),
                       ),
                     ],
@@ -503,7 +503,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Taler v1.0.2 — открытый клиент мессенджера MAX с нулевой телеметрией',
+                      'Taler v1.0.3 — открытый клиент мессенджера MAX с нулевой телеметрией',
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,

@@ -11,10 +11,23 @@ import 'spoof_profile.dart';
 /// Taler никогда не читает реальный серийный номер, IMEI, IDFV, Android ID
 /// или имя хоста пользователя — вместо этого используется виртуальный профиль.
 class SpoofingService extends ChangeNotifier {
-  static const _kActiveProfile = 'taler_spoof_active_profile_v1';
+  static const _kActiveProfile = 'taler_spoof_active_profile_v2';
   static final Random _rng = Random.secure();
 
   static const List<DevicePreset> presets = [
+    DevicePreset(
+      id: 'pixel_9_pro',
+      label: 'Google Pixel 9 Pro',
+      deviceType: 'ANDROID',
+      pushDeviceType: 'GCM',
+      deviceName: 'Google Pixel 9 Pro',
+      osVersion: 'Android 15',
+      screen: '480dpi 1080x2400',
+      timezone: 'Europe/Moscow',
+      locale: 'ru',
+      userAgent:
+          'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    ),
     DevicePreset(
       id: 'galaxy_s24_ultra',
       label: 'Samsung Galaxy S24 Ultra',
@@ -22,24 +35,11 @@ class SpoofingService extends ChangeNotifier {
       pushDeviceType: 'GCM',
       deviceName: 'Samsung Galaxy S24 Ultra',
       osVersion: 'Android 14',
-      screen: 'xxhdpi 450dpi 1440x3120',
+      screen: '480dpi 1440x3120',
       timezone: 'Europe/Berlin',
-      locale: 'de-DE',
+      locale: 'ru',
       userAgent:
           'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
-    ),
-    DevicePreset(
-      id: 'pixel_8_pro',
-      label: 'Google Pixel 8 Pro',
-      deviceType: 'ANDROID',
-      pushDeviceType: 'GCM',
-      deviceName: 'Google Pixel 8 Pro',
-      osVersion: 'Android 14',
-      screen: 'xxhdpi 430dpi 1344x2992',
-      timezone: 'America/New_York',
-      locale: 'en-US',
-      userAgent:
-          'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
     ),
     DevicePreset(
       id: 'oneplus_12',
@@ -48,9 +48,9 @@ class SpoofingService extends ChangeNotifier {
       pushDeviceType: 'GCM',
       deviceName: 'OnePlus 12',
       osVersion: 'Android 14',
-      screen: 'xxhdpi 450dpi 1440x3168',
+      screen: '480dpi 1440x3168',
       timezone: 'Europe/London',
-      locale: 'en-GB',
+      locale: 'ru',
       userAgent:
           'Mozilla/5.0 (Linux; Android 14; CPH2521) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
     ),
@@ -63,7 +63,7 @@ class SpoofingService extends ChangeNotifier {
       osVersion: 'iOS 18.1',
       screen: '1206x2622',
       timezone: 'Europe/Amsterdam',
-      locale: 'en-US',
+      locale: 'ru',
       arch: 'arm64',
       userAgent:
           'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
@@ -77,7 +77,7 @@ class SpoofingService extends ChangeNotifier {
       osVersion: 'macOS 14.5',
       screen: '2560x1600',
       timezone: 'Europe/Paris',
-      locale: 'fr-FR',
+      locale: 'ru',
       appVersion: '26.8.8',
       arch: 'arm64',
       userAgent:
@@ -92,7 +92,7 @@ class SpoofingService extends ChangeNotifier {
       osVersion: 'Linux',
       screen: '1920x1080',
       timezone: 'Europe/Moscow',
-      locale: 'ru-RU',
+      locale: 'ru',
       appVersion: '26.8.8',
       arch: 'x86_64',
       userAgent:
@@ -101,7 +101,7 @@ class SpoofingService extends ChangeNotifier {
   ];
 
   SharedPreferences? _prefs;
-  SpoofProfile _activeProfile = buildFromPreset(presets.last);
+  SpoofProfile _activeProfile = buildFromPreset(presets.first);
 
   SpoofProfile get activeProfile => _activeProfile;
 
@@ -111,9 +111,12 @@ class SpoofingService extends ChangeNotifier {
     if (raw != null && raw.isNotEmpty) {
       try {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
-        _activeProfile = SpoofProfile.fromJson(decoded);
-        notifyListeners();
-        return;
+        final loaded = SpoofProfile.fromJson(decoded);
+        if (loaded.deviceType == 'ANDROID' || loaded.deviceType == 'IOS') {
+          _activeProfile = loaded;
+          notifyListeners();
+          return;
+        }
       } catch (_) {}
     }
     _activeProfile = buildFromPreset(presets.first);
@@ -146,11 +149,15 @@ class SpoofingService extends ChangeNotifier {
     await _save();
   }
 
-  /// Выбирает случайный пресет и генерирует свежие идентификаторы.
+  /// Выбирает случайный Android-пресет и генерирует свежие идентификаторы.
   Future<void> randomizeAll() async {
-    final candidates =
-        presets.where((p) => p.id != _activeProfile.presetId).toList();
-    final chosen = candidates[_rng.nextInt(candidates.length)];
+    final androidPresets =
+        presets.where((p) => p.deviceType == 'ANDROID').toList();
+    final candidates = androidPresets
+        .where((p) => p.id != _activeProfile.presetId)
+        .toList();
+    final pool = candidates.isNotEmpty ? candidates : androidPresets;
+    final chosen = pool[_rng.nextInt(pool.length)];
     _activeProfile = buildFromPreset(chosen);
     notifyListeners();
     await _save();

@@ -1,8 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
-/// Палитра дизайн-системы Taler в стиле Telegram (Night Blue и Classic Day).
+/// Палитра дизайн-системы Taler в обсидианово-графитовом стиле (Obsidian Monochrome + Muted Indigo).
 class TalerPalette {
   final Brightness brightness;
   final Color bg;
@@ -75,36 +76,36 @@ class TalerPalette {
   bool get isDark => brightness == Brightness.dark;
 
   static const List<(Color, Color)> _avatarGradients = [
-    (Color(0xFFFF885E), Color(0xFFD45246)), // Coral Red
-    (Color(0xFFFEBB5B), Color(0xFFF68136)), // Amber Orange
-    (Color(0xFFB694F9), Color(0xFF6C61DF)), // Royal Violet
-    (Color(0xFF9AD164), Color(0xFF46BA43)), // Emerald Green
-    (Color(0xFF53EDCE), Color(0xFF28A8A8)), // Teal Cyan
-    (Color(0xFF5CAFFA), Color(0xFF408ACF)), // Sky Blue
-    (Color(0xFFFF8AAC), Color(0xFFD95574)), // Rose Pink
+    (Color(0xFF8B84E2), Color(0xFF5E58B0)), // Slate Indigo
+    (Color(0xFFE07A5F), Color(0xFFB5543D)), // Muted Terracotta
+    (Color(0xFF52A88B), Color(0xFF337C64)), // Sage Emerald
+    (Color(0xFF6B8FB8), Color(0xFF47688F)), // Steel Blue
+    (Color(0xFFD49B54), Color(0xFFA77434)), // Warm Ochre
+    (Color(0xFFC46D8E), Color(0xFF964A67)), // Dusty Rose
+    (Color(0xFF7B818E), Color(0xFF525763)), // Graphite Pewter
   ];
 
   static const List<Color> _peerColorsDark = [
-    Color(0xFFFF8A65),
-    Color(0xFFFFB74D),
-    Color(0xFFB39DDB),
-    Color(0xFF81C784),
-    Color(0xFF4DD0E1),
-    Color(0xFF64B5F6),
-    Color(0xFFF48FB1),
+    Color(0xFFABA6F2),
+    Color(0xFFEF9A7F),
+    Color(0xFF74C6A8),
+    Color(0xFF8FB4DE),
+    Color(0xFFE5B87A),
+    Color(0xFFDF92AF),
+    Color(0xFFB2B7C4),
   ];
 
   static const List<Color> _peerColorsLight = [
-    Color(0xFFCC5049),
-    Color(0xFFD67722),
-    Color(0xFF6F62D2),
-    Color(0xFF3E9D3B),
-    Color(0xFF1D9999),
-    Color(0xFF3581C9),
-    Color(0xFFC94B69),
+    Color(0xFF5B54AD),
+    Color(0xFFBA5136),
+    Color(0xFF2D7D61),
+    Color(0xFF3E6896),
+    Color(0xFFA96E24),
+    Color(0xFFA4486A),
+    Color(0xFF565B68),
   ];
 
-  /// Возвращает классический 2-цветный градиент аватарки Telegram по `id.abs() % 7`.
+  /// Возвращает спокойную 2-цветную градиентную аватарку по `id.abs() % 7`.
   static List<Color> avatarGradientForId(int id) {
     final pair = _avatarGradients[id.abs() % _avatarGradients.length];
     return [pair.$1, pair.$2];
@@ -117,13 +118,13 @@ class TalerPalette {
   }
 }
 
-/// Тема оформления и UI-примитивы Taler в стиле Telegram.
+/// Тема оформления и тактильные UI-примитивы Taler (Monochrome Tactile UI + Obsidian Indigo).
 class TalerTheme {
-  static const Color telegramBlue = Color(0xFF2AABEE);
-  static const Color telegramBlueDeep = Color(0xFF229ED9);
-  static const Color shieldGreen = Color(0xFF4ECC5E);
-  static const Color warningAmber = Color(0xFFF5A623);
-  static const Color dangerRed = Color(0xFFE55353);
+  static const Color obsidianIndigo = Color(0xFF7C76D6);
+  static const Color bubbleIndigo = Color(0xFF6862B8);
+  static const Color shieldGreen = Color(0xFF30A46C);
+  static const Color warningAmber = Color(0xFFE5A000);
+  static const Color dangerRed = Color(0xFFE5484D);
 
   static const Curve springCurve = Cubic(0.32, 0.72, 0, 1);
   static const Curve easeOutCurve = Cubic(0.16, 1, 0.3, 1);
@@ -132,72 +133,72 @@ class TalerTheme {
 
   static const TalerPalette darkPalette = TalerPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF0E1621),
-    settingsBg: Color(0xFF0E1621),
-    bg2: Color(0xFF17212B),
-    bg3: Color(0xFF242F3D),
-    surfaceHigh: Color(0xFF2B5278),
-    bubbleOut: Color(0xFF2B5278),
-    bubbleIn: Color(0xFF182533),
-    bubbleOutText: Color(0xFFF5F5F5),
-    bubbleInText: Color(0xFFF5F5F5),
-    accent: Color(0xFF2AABEE),
-    accentMuted: Color(0xFF5288C1),
-    fg: Color(0xFFF5F5F5),
-    fg2: Color(0xFF7F91A4),
-    fg3: Color(0xFF5D6E80),
-    fg4: Color(0x407F91A4),
-    surface: Color(0xFF1E2C3A),
-    surface2: Color(0xFF242F3D),
-    surface3: Color(0xFF2F3E4F),
-    line: Color(0xFF101921),
-    line2: Color(0x1CFFFFFF),
-    solid: Color(0xFF2AABEE),
-    onSolid: Color(0xFFFFFFFF),
-    glass: Color(0xEB17212B),
+    bg: Color(0xFF0A0A0C),
+    settingsBg: Color(0xFF0A0A0C),
+    bg2: Color(0xFF121216),
+    bg3: Color(0xFF1A1A20),
+    surfaceHigh: Color(0xFF23232C),
+    bubbleOut: bubbleIndigo,
+    bubbleIn: Color(0xFF1C1C22),
+    bubbleOutText: Color(0xFFF5F5F7),
+    bubbleInText: Color(0xFFF2F2F4),
+    accent: obsidianIndigo,
+    accentMuted: Color(0xFF4E4A8A),
+    fg: Color(0xFFF2F2F0),
+    fg2: Color(0xFF9A9AA4),
+    fg3: Color(0xFF63636E),
+    fg4: Color(0x389A9AA4),
+    surface: Color(0xFF17171C),
+    surface2: Color(0xFF1F1F26),
+    surface3: Color(0xFF2A2A34),
+    line: Color(0x14FFFFFF),
+    line2: Color(0x22FFFFFF),
+    solid: Color(0xFFF2F2F0),
+    onSolid: Color(0xFF0A0A0C),
+    glass: Color(0xE6121216),
     statusLive: shieldGreen,
-    statusLiveSurface: Color(0x1F4ECC5E),
+    statusLiveSurface: Color(0x1F30A46C),
     warning: warningAmber,
-    warningSurface: Color(0x21F5A623),
-    warningLine: Color(0x52F5A623),
+    warningSurface: Color(0x1FE5A000),
+    warningLine: Color(0x4DE5A000),
     danger: dangerRed,
-    dangerSurface: Color(0x21E55353),
-    dangerLine: Color(0x52E55353),
+    dangerSurface: Color(0x1FE5484D),
+    dangerLine: Color(0x4DE5484D),
   );
 
   static const TalerPalette lightPalette = TalerPalette(
     brightness: Brightness.light,
-    bg: Color(0xFFD6E3EE),
-    settingsBg: Color(0xFFF1F3F6),
-    bg2: Color(0xFFFFFFFF),
-    bg3: Color(0xFFF1F3F6),
-    surfaceHigh: Color(0xFF419FD9),
-    bubbleOut: Color(0xFFEFFDDE),
+    bg: Color(0xFFF1F1F3),
+    settingsBg: Color(0xFFF1F1F3),
+    bg2: Color(0xFFFAFAFB),
+    bg3: Color(0xFFEAEAEF),
+    surfaceHigh: Color(0xFFE4E3F5),
+    bubbleOut: bubbleIndigo,
     bubbleIn: Color(0xFFFFFFFF),
-    bubbleOutText: Color(0xFF111111),
-    bubbleInText: Color(0xFF111111),
-    accent: Color(0xFF3390EC),
-    accentMuted: Color(0xFF3390EC),
-    fg: Color(0xFF111111),
-    fg2: Color(0xFF707579),
-    fg3: Color(0xFF8E959B),
-    fg4: Color(0x40707579),
-    surface: Color(0xFFF4F6F8),
-    surface2: Color(0xFFEBEEF2),
-    surface3: Color(0xFFDFE4EA),
-    line: Color(0xFFE4E8EC),
-    line2: Color(0x1F000000),
-    solid: Color(0xFF3390EC),
+    bubbleOutText: Color(0xFFFFFFFF),
+    bubbleInText: Color(0xFF111113),
+    accent: Color(0xFF5E58B0),
+    accentMuted: Color(0xFF8882D0),
+    fg: Color(0xFF111113),
+    fg2: Color(0xFF60606C),
+    fg3: Color(0xFF8C8C98),
+    fg4: Color(0x3860606C),
+    surface: Color(0xFFEFEFF2),
+    surface2: Color(0xFFE5E5EA),
+    surface3: Color(0xFFD9D9E0),
+    line: Color(0x14000000),
+    line2: Color(0x22000000),
+    solid: Color(0xFF111113),
     onSolid: Color(0xFFFFFFFF),
-    glass: Color(0xF5FFFFFF),
-    statusLive: shieldGreen,
-    statusLiveSurface: Color(0x1A4ECC5E),
-    warning: Color(0xFFCC8400),
-    warningSurface: Color(0x1EF5A623),
-    warningLine: Color(0x4DCC8400),
-    danger: Color(0xFFD93C3C),
-    dangerSurface: Color(0x1EE55353),
-    dangerLine: Color(0x4DD93C3C),
+    glass: Color(0xEBFAFAFB),
+    statusLive: Color(0xFF288E5B),
+    statusLiveSurface: Color(0x1A288E5B),
+    warning: Color(0xFFC28200),
+    warningSurface: Color(0x1AE5A000),
+    warningLine: Color(0x4DC28200),
+    danger: Color(0xFFD63B40),
+    dangerSurface: Color(0x1AE5484D),
+    dangerLine: Color(0x4DD63B40),
   );
 
   static TalerPalette paletteOf(BuildContext context) {
@@ -245,9 +246,9 @@ class TalerTheme {
     final scheme = ColorScheme(
       brightness: p.brightness,
       primary: p.accent,
-      onPrimary: p.onSolid,
+      onPrimary: Colors.white,
       secondary: p.accentMuted,
-      onSecondary: p.onSolid,
+      onSecondary: Colors.white,
       error: p.danger,
       onError: Colors.white,
       surface: p.bg2,
@@ -315,11 +316,11 @@ class TalerTheme {
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return Colors.white;
-          return p.isDark ? const Color(0xFF7F91A4) : Colors.white;
+          return p.isDark ? p.fg2 : Colors.white;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return p.accent;
-          return p.isDark ? p.bg3 : const Color(0xFFC4C9D0);
+          return p.isDark ? p.surface3 : const Color(0xFFC8C8D0);
         }),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
         trackOutlineWidth: const WidgetStatePropertyAll(0),
@@ -336,24 +337,24 @@ class TalerTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: p.bg3,
-        labelStyle: TextStyle(color: p.fg2, fontSize: 13.5),
+        labelStyle: TextStyle(color: p.fg2, fontSize: 13),
         hintStyle: TextStyle(color: p.fg3, fontSize: 13.5),
         prefixIconColor: p.fg2,
         suffixIconColor: p.fg2,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: p.line2),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: p.line),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: p.line2),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: p.line),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: p.accent, width: 1.6),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: p.line2, width: 1.4),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: p.danger),
         ),
         contentPadding: const EdgeInsets.symmetric(
@@ -363,29 +364,29 @@ class TalerTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: p.accent,
+          backgroundColor: p.solid,
           foregroundColor: p.onSolid,
           elevation: 0,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: p.accent,
+          foregroundColor: p.fg,
           side: BorderSide(color: p.line2),
           textStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13.5),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: p.accent,
-          textStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13.5),
+          foregroundColor: p.fg2,
+          textStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
@@ -395,7 +396,7 @@ class TalerTheme {
   }
 }
 
-/// Круглая градиентная аватарка в стиле Telegram (7 классических палитр по ID).
+/// Круглая аватарка пользователя или чата с мягкой палитрой по ID.
 class TalerAvatar extends StatelessWidget {
   final int seedId;
   final String initials;
@@ -419,7 +420,7 @@ class TalerAvatar extends StatelessWidget {
     final p = TalerTheme.paletteOf(context);
     final colors = TalerPalette.avatarGradientForId(seedId);
     final textSize = fontSize ?? (size * 0.34).clamp(11.0, 22.0);
-    final dotSize = (size * 0.25).clamp(10.0, 14.0);
+    final dotSize = (size * 0.24).clamp(9.0, 13.0);
 
     return SizedBox(
       width: size,
@@ -438,6 +439,7 @@ class TalerAvatar extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: colors,
               ),
+              border: Border.all(color: p.line, width: 0.7),
             ),
             child: Text(
               initials.isEmpty ? 'T' : initials,
@@ -461,7 +463,7 @@ class TalerAvatar extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: onlineBorderColor ?? p.bg2,
-                    width: 2.2,
+                    width: 2,
                   ),
                 ),
               ),
@@ -472,39 +474,41 @@ class TalerAvatar extends StatelessWidget {
   }
 }
 
-/// Скруглённый цветной квадратный значок настройки в стиле Telegram (30x30).
+/// Монохромный тактильный бокс для иконки настройки без цветной заливки.
 class TelegramIconBadge extends StatelessWidget {
   final IconData icon;
-  final Color color;
+  final Color? color;
   final double size;
 
   const TelegramIconBadge({
     super.key,
     required this.icon,
-    required this.color,
+    this.color,
     this.size = 30,
   });
 
   @override
   Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(size * 0.27),
+        color: p.bg3,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: p.line2),
       ),
       child: Icon(
         icon,
-        size: size * 0.58,
-        color: Colors.white,
+        size: size * 0.54,
+        color: p.fg2,
       ),
     );
   }
 }
 
-/// Миниатюрная точка состояния.
+/// Миниатюрная точка состояния без свечения и теней.
 class TalerStatusDot extends StatelessWidget {
   final Color color;
   final double size;
@@ -528,7 +532,7 @@ class TalerStatusDot extends StatelessWidget {
   }
 }
 
-/// Лёгкий векторный паттерн фона чата в духе Telegram Wallpaper.
+/// Сверхлёгкий статический точечный холст чата в стиле Hoplite (нулевая нагрузка на CPU).
 class TelegramChatBackground extends StatelessWidget {
   final Widget child;
 
@@ -539,100 +543,55 @@ class TelegramChatBackground extends StatelessWidget {
     final p = TalerTheme.paletteOf(context);
     return Container(
       color: p.bg,
-      child: CustomPaint(
-        painter: _TelegramPatternPainter(isDark: p.isDark),
-        child: child,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: CustomPaint(
+              isComplex: true,
+              willChange: false,
+              painter: _DotMatrixPainter(isDark: p.isDark),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }
 }
 
-class _TelegramPatternPainter extends CustomPainter {
+class _DotMatrixPainter extends CustomPainter {
   final bool isDark;
 
-  const _TelegramPatternPainter({required this.isDark});
+  const _DotMatrixPainter({required this.isDark});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final strokeColor = isDark
-        ? const Color(0x0AFFFFFF)
-        : const Color(0x0F537B9E);
-
+    final dotColor =
+        isDark ? const Color(0x0BFFFFFF) : const Color(0x10000000);
     final paint = Paint()
-      ..color = strokeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+      ..color = dotColor
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
 
-    const tileW = 140.0;
-    const tileH = 140.0;
-    final cols = (size.width / tileW).ceil() + 1;
-    final rows = (size.height / tileH).ceil() + 1;
+    const step = 32.0;
+    final cols = math.min(96, (size.width / step).ceil() + 1);
+    final rows = math.min(64, (size.height / step).ceil() + 1);
+    final points = <Offset>[];
 
     for (var r = 0; r < rows; r++) {
+      final y = r * step + 16;
+      final rowOffset = r.isOdd ? step * 0.5 : 0.0;
       for (var c = 0; c < cols; c++) {
-        final ox = c * tileW + (r.isOdd ? 46.0 : 0.0);
-        final oy = r * tileH;
-        final kind = (r * 3 + c) % 4;
-        switch (kind) {
-          case 0:
-            // Бумажный самолётик
-            final path = Path()
-              ..moveTo(ox + 18, oy + 32)
-              ..lineTo(ox + 42, oy + 20)
-              ..lineTo(ox + 34, oy + 42)
-              ..lineTo(ox + 28, oy + 34)
-              ..close();
-            canvas.drawPath(path, paint);
-            canvas.drawLine(
-              Offset(ox + 28, oy + 34),
-              Offset(ox + 42, oy + 20),
-              paint,
-            );
-          case 1:
-            // Щит приватности
-            final shield = Path()
-              ..moveTo(ox + 82, oy + 26)
-              ..lineTo(ox + 94, oy + 30)
-              ..lineTo(ox + 94, oy + 40)
-              ..quadraticBezierTo(ox + 94, oy + 50, ox + 82, oy + 55)
-              ..quadraticBezierTo(ox + 70, oy + 50, ox + 70, oy + 40)
-              ..lineTo(ox + 70, oy + 30)
-              ..close();
-            canvas.drawPath(shield, paint);
-          case 2:
-            // Замок шифрования
-            canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                Rect.fromLTWH(ox + 24, oy + 86, 18, 14),
-                const Radius.circular(3.5),
-              ),
-              paint,
-            );
-            canvas.drawArc(
-              Rect.fromLTWH(ox + 27, oy + 78, 12, 14),
-              math.pi,
-              math.pi,
-              false,
-              paint,
-            );
-          default:
-            // Облачко диалога
-            canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                Rect.fromLTWH(ox + 74, oy + 82, 24, 16),
-                const Radius.circular(6),
-              ),
-              paint,
-            );
-        }
+        points.add(Offset(c * step + rowOffset + 12, y));
       }
     }
+
+    canvas.drawPoints(ui.PointMode.points, points, paint);
   }
 
   @override
-  bool shouldRepaint(covariant _TelegramPatternPainter oldDelegate) =>
+  bool shouldRepaint(covariant _DotMatrixPainter oldDelegate) =>
       oldDelegate.isDark != isDark;
 }
 
@@ -651,7 +610,7 @@ class TalerSegment<T> {
   });
 }
 
-/// Сегментированный переключатель со скользящей пилюлей в стиле Telegram.
+/// Тактильный сегментированный переключатель со скользящей пилюлей.
 class TalerSlidingPillSwitch<T> extends StatelessWidget {
   final List<TalerSegment<T>> items;
   final T value;
@@ -675,14 +634,14 @@ class TalerSlidingPillSwitch<T> extends StatelessWidget {
           0,
           items.isEmpty ? 0 : items.length - 1,
         );
-    final outerRadius = pillShape ? 999.0 : 12.0;
-    final innerRadius = pillShape ? 999.0 : 9.0;
+    final outerRadius = pillShape ? 999.0 : 10.0;
+    final innerRadius = pillShape ? 999.0 : 7.0;
 
     return Container(
       height: height + 6,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: p.isDark ? p.bg : p.surface2,
+        color: p.isDark ? p.bg : p.bg3,
         borderRadius: BorderRadius.circular(outerRadius),
         border: Border.all(color: p.line),
       ),
@@ -702,17 +661,9 @@ class TalerSlidingPillSwitch<T> extends StatelessWidget {
                 width: slotWidth,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: p.isDark ? p.bg3 : p.bg2,
+                    color: p.isDark ? p.surfaceHigh : p.bg2,
                     borderRadius: BorderRadius.circular(innerRadius),
-                    boxShadow: p.isDark
-                        ? null
-                        : const [
-                            BoxShadow(
-                              color: Color(0x14000000),
-                              blurRadius: 4,
-                              offset: Offset(0, 1),
-                            ),
-                          ],
+                    border: Border.all(color: p.line2),
                   ),
                 ),
               ),
@@ -760,7 +711,7 @@ class _SegmentItemState<T> extends State<_SegmentItem<T>> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final fg = widget.selected
-        ? (p.isDark ? p.fg : p.accent)
+        ? p.fg
         : _hovered
             ? p.fg
             : p.fg2;
@@ -818,7 +769,7 @@ class _SegmentItemState<T> extends State<_SegmentItem<T>> {
 
 enum TalerButtonVariant { primary, keycap, danger }
 
-/// Аккуратная кнопка в стиле Telegram (с акцентом `#2AABEE` для `primary`).
+/// Тактильная кнопка в стиле Monochrome Tactile UI (инвертированная `solid` для `primary`).
 class TalerTactileButton extends StatefulWidget {
   final String label;
   final IconData? icon;
@@ -851,21 +802,21 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final enabled = widget.onPressed != null && !widget.loading;
-    final height = widget.compact ? 32.0 : 44.0;
-    final radius = widget.pill ? 999.0 : (widget.compact ? 8.0 : 12.0);
+    final height = widget.compact ? 32.0 : 42.0;
+    final radius = widget.pill ? 999.0 : (widget.compact ? 8.0 : 10.0);
 
     final (bg, fg, border) = switch (widget.variant) {
       TalerButtonVariant.primary => (
           enabled
-              ? (_hovered ? p.accent.withValues(alpha: 0.88) : p.accent)
+              ? (_hovered ? p.solid.withValues(alpha: 0.9) : p.solid)
               : p.surface2,
-          enabled ? Colors.white : p.fg3,
+          enabled ? p.onSolid : p.fg3,
           Colors.transparent,
         ),
       TalerButtonVariant.keycap => (
-          _hovered && enabled ? p.bg3 : p.surface,
-          enabled ? p.accent : p.fg3,
-          p.line,
+          _hovered && enabled ? p.surfaceHigh : p.bg3,
+          enabled ? p.fg : p.fg3,
+          p.line2,
         ),
       TalerButtonVariant.danger => (
           _hovered && enabled
@@ -886,7 +837,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: enabled ? widget.onPressed : null,
         child: AnimatedScale(
-          scale: _pressed ? 0.98 : 1.0,
+          scale: _pressed ? 0.985 : 1.0,
           duration: const Duration(milliseconds: 90),
           curve: TalerTheme.easeOutCurve,
           child: AnimatedContainer(
@@ -894,7 +845,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
             curve: TalerTheme.easeOutCurve,
             height: height,
             padding: EdgeInsets.symmetric(
-              horizontal: widget.compact ? 12 : 18,
+              horizontal: widget.compact ? 12 : 16,
             ),
             decoration: BoxDecoration(
               color: bg,
@@ -906,8 +857,8 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
             child: Center(
               child: widget.loading
                   ? SizedBox(
-                      width: 18,
-                      height: 18,
+                      width: 17,
+                      height: 17,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: fg,
@@ -919,7 +870,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
                         if (widget.icon != null) ...[
                           Icon(
                             widget.icon,
-                            size: widget.compact ? 15 : 18,
+                            size: widget.compact ? 15 : 17,
                             color: fg,
                           ),
                           const SizedBox(width: 8),
@@ -930,7 +881,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: widget.compact ? 12.5 : 14,
+                              fontSize: widget.compact ? 12.5 : 13.5,
                               fontWeight: FontWeight.w600,
                               color: fg,
                             ),
@@ -946,7 +897,7 @@ class _TalerTactileButtonState extends State<TalerTactileButton> {
   }
 }
 
-/// Кнопка с одной иконкой в стиле Telegram header/composer buttons.
+/// Компактная кнопка с одной иконкой в шапке и панели ввода.
 class TalerIconButton extends StatefulWidget {
   final IconData icon;
   final String? tooltip;
@@ -962,8 +913,8 @@ class TalerIconButton extends StatefulWidget {
     required this.icon,
     this.tooltip,
     required this.onPressed,
-    this.size = 38,
-    this.iconSize = 20,
+    this.size = 36,
+    this.iconSize = 19,
     this.color,
     this.backgroundColor,
     this.circle = true,
@@ -981,10 +932,10 @@ class _TalerIconButtonState extends State<TalerIconButton> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final enabled = widget.onPressed != null;
-    final radius = widget.circle ? 999.0 : 10.0;
+    final radius = widget.circle ? 999.0 : 9.0;
     final bg = widget.backgroundColor ??
         (_hovered && enabled
-            ? p.fg2.withValues(alpha: 0.14)
+            ? p.surfaceHigh.withValues(alpha: 0.75)
             : Colors.transparent);
     final fg = widget.color ?? (enabled ? (_hovered ? p.fg : p.fg2) : p.fg4);
 
@@ -999,7 +950,7 @@ class _TalerIconButtonState extends State<TalerIconButton> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: enabled ? widget.onPressed : null,
         child: AnimatedScale(
-          scale: _pressed ? 0.92 : 1.0,
+          scale: _pressed ? 0.94 : 1.0,
           duration: const Duration(milliseconds: 90),
           child: AnimatedContainer(
             duration: TalerTheme.fastDuration,
@@ -1027,7 +978,7 @@ class _TalerIconButtonState extends State<TalerIconButton> {
   }
 }
 
-/// Сгруппированная карточка секции настроек в стиле Telegram Settings (синий заголовок + карточка `#17212B`).
+/// Секционная карточка настроек в стиле Monochrome Tactile UI (`1px solid line`, `p.bg2`).
 class TalerTableShell extends StatelessWidget {
   final String? title;
   final Widget? titleLeading;
@@ -1055,7 +1006,7 @@ class TalerTableShell extends StatelessWidget {
       children: [
         if (hasHeader)
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 4, 8),
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
             child: Row(
               children: [
                 if (titleLeading != null) ...[
@@ -1067,9 +1018,9 @@ class TalerTableShell extends StatelessWidget {
                     child: Text(
                       title!,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w600,
-                        color: p.accent,
+                        color: p.fg2,
                       ),
                     ),
                   )

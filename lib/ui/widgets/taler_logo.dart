@@ -2,9 +2,8 @@ import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 
-/// Векторный логотип мессенджера Taler: серебряный кант талера в градиенте
-/// Telegram Blue с геометрической монограммой «T», переходящей в крыло
-/// бумажного самолётика.
+/// Векторный логотип Taler: чеканный обсидианово-серебряный талер с
+/// геометрической монограммой «T» и акцентом щита.
 class TalerLogo extends StatelessWidget {
   final double size;
   final bool showShieldBadge;
@@ -19,7 +18,7 @@ class TalerLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final badgeSize = (size * 0.32).clamp(12.0, 28.0);
+    final badgeSize = (size * 0.30).clamp(11.0, 26.0);
 
     return SizedBox(
       width: size,
@@ -40,16 +39,16 @@ class TalerLogo extends StatelessWidget {
                 height: badgeSize,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF4ECC5E),
+                  color: const Color(0xFF30A46C),
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: Theme.of(context).scaffoldBackgroundColor,
-                    width: (size * 0.032).clamp(1.5, 3.0),
+                    width: (size * 0.032).clamp(1.5, 2.8),
                   ),
                 ),
                 child: Icon(
                   Icons.shield_rounded,
-                  size: badgeSize * 0.58,
+                  size: badgeSize * 0.56,
                   color: Colors.white,
                 ),
               ),
@@ -71,45 +70,50 @@ class _TalerLogoPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final center = Offset(s / 2, s / 2);
 
-    // 1. Внешний силуэт (круг или мягкий сквиркл) с градиентом Telegram Blue
-    final bgGradient = const LinearGradient(
+    // 1. Обсидианово-графитовая основа монеты без глянцевого свечения
+    final bgShader = const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Color(0xFF37AEE2),
-        Color(0xFF2AABEE),
-        Color(0xFF229ED9),
+        Color(0xFF1E1E26),
+        Color(0xFF101015),
       ],
-      stops: [0.0, 0.45, 1.0],
     ).createShader(rect);
 
-    final bgPaint = Paint()..shader = bgGradient;
+    final bgPaint = Paint()..shader = bgShader;
+    final borderPaint = Paint()
+      ..color = const Color(0x2EFFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (s * 0.022).clamp(1.0, 2.0);
 
     if (circular) {
-      canvas.drawCircle(center, s / 2, bgPaint);
+      canvas.drawCircle(center, s / 2 - 0.5, bgPaint);
+      canvas.drawCircle(center, s / 2 - 0.5, borderPaint);
     } else {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, Radius.circular(s * 0.28)),
-        bgPaint,
+      final rr = RRect.fromRectAndRadius(
+        rect.deflate(0.5),
+        Radius.circular(s * 0.26),
       );
+      canvas.drawRRect(rr, bgPaint);
+      canvas.drawRRect(rr, borderPaint);
     }
 
-    // 2. Тонкий внутренний кант серебряного талера + 8 монетных засечек
-    final coinRadius = s * 0.415;
+    // 2. Тонкий ободок чеканки серебряного талера + 8 засечек
+    final coinRadius = s * 0.405;
     final ringPaint = Paint()
-      ..color = const Color(0x38FFFFFF)
+      ..color = const Color(0x24FFFFFF)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = (s * 0.018).clamp(0.8, 2.0);
+      ..strokeWidth = (s * 0.014).clamp(0.7, 1.5);
     canvas.drawCircle(center, coinRadius, ringPaint);
 
     final tickPaint = Paint()
-      ..color = const Color(0x47FFFFFF)
+      ..color = const Color(0x36FFFFFF)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = (s * 0.017).clamp(0.8, 1.8);
+      ..strokeWidth = (s * 0.015).clamp(0.7, 1.6);
 
-    final tickInner = s * 0.405;
-    final tickOuter = s * 0.448;
+    final tickInner = s * 0.395;
+    final tickOuter = s * 0.435;
     for (var i = 0; i < 8; i++) {
       final angle = (math.pi / 8) + (i * math.pi / 4);
       final cosA = math.cos(angle);
@@ -121,59 +125,50 @@ class _TalerLogoPainter extends CustomPainter {
       );
     }
 
-    // 3. Геометрическая белая монограмма «T» с заострённым правым крылом-самолётиком
+    // 3. Геометрическая серебристая монограмма «T» с заострённым крылом
     final tPath = Path()
-      ..moveTo(0.24 * s, 0.35 * s)
-      ..lineTo(0.79 * s, 0.29 * s)
-      ..lineTo(0.65 * s, 0.45 * s)
+      ..moveTo(0.25 * s, 0.36 * s)
+      ..lineTo(0.77 * s, 0.30 * s)
+      ..lineTo(0.64 * s, 0.45 * s)
       ..lineTo(0.55 * s, 0.45 * s)
-      ..lineTo(0.53 * s, 0.74 * s)
-      ..quadraticBezierTo(0.48 * s, 0.765 * s, 0.43 * s, 0.74 * s)
-      ..lineTo(0.43 * s, 0.45 * s)
-      ..lineTo(0.27 * s, 0.45 * s)
+      ..lineTo(0.53 * s, 0.73 * s)
+      ..quadraticBezierTo(0.485 * s, 0.755 * s, 0.44 * s, 0.73 * s)
+      ..lineTo(0.44 * s, 0.45 * s)
+      ..lineTo(0.28 * s, 0.45 * s)
       ..close();
-
-    // Мягкая тень под белым знаком на крупных размерах
-    if (s >= 40) {
-      canvas.drawPath(
-        tPath.shift(Offset(0, s * 0.018)),
-        Paint()..color = const Color(0x280B3B5E),
-      );
-    }
 
     canvas.drawPath(
       tPath,
       Paint()
-        ..color = Colors.white
+        ..color = const Color(0xFFF2F2F0)
         ..style = PaintingStyle.fill,
     );
 
-    // 4. Двухтоновая теневая грань сгиба бумажного самолётика (#1A7DB8)
-    final foldShadowPath = Path()
+    // 4. Спокойная индиго-грань сгиба (#7C76D6)
+    final foldPath = Path()
       ..moveTo(0.46 * s, 0.45 * s)
-      ..lineTo(0.79 * s, 0.29 * s)
+      ..lineTo(0.77 * s, 0.30 * s)
       ..lineTo(0.55 * s, 0.54 * s)
       ..lineTo(0.55 * s, 0.45 * s)
       ..close();
 
     canvas.drawPath(
-      foldShadowPath,
+      foldPath,
       Paint()
-        ..color = const Color(0xCC1A7DB8)
+        ..color = const Color(0xFF7C76D6)
         ..style = PaintingStyle.fill,
     );
 
-    // Светлый подгиб крыла поверх сгиба для объёма (как у крыла Telegram)
-    final wingCreasePath = Path()
+    final creasePath = Path()
       ..moveTo(0.46 * s, 0.45 * s)
-      ..lineTo(0.79 * s, 0.29 * s)
-      ..lineTo(0.65 * s, 0.45 * s)
+      ..lineTo(0.77 * s, 0.30 * s)
+      ..lineTo(0.64 * s, 0.45 * s)
       ..close();
 
     canvas.drawPath(
-      wingCreasePath,
+      creasePath,
       Paint()
-        ..color = const Color(0xFFD5EEFC)
+        ..color = const Color(0xFFA7A2EC)
         ..style = PaintingStyle.fill,
     );
   }

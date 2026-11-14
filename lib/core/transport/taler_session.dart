@@ -29,7 +29,7 @@ class TalerSession {
   static const String wsOrigin = 'https://web.max.ru';
   static const Duration connectTimeout = Duration(seconds: 12);
   static const Duration requestTimeout = Duration(seconds: 30);
-  static const Duration pingInterval = Duration(seconds: 25);
+  static const Duration pingInterval = Duration(seconds: 10);
 
   final PrivacyFirewall firewall;
   final PrivacySettings privacySettings;
@@ -49,6 +49,7 @@ class TalerSession {
 
   TalerConnectionState _state = TalerConnectionState.disconnected;
   int _seq = 0;
+  int _sessionEpoch = 0;
   int _reconnectAttempt = 0;
   bool _autoReconnect = false;
   bool _isAttemptingConnect = false;
@@ -68,16 +69,25 @@ class TalerSession {
   Stream<TalerPacket> get pushStream => _pushController.stream;
   int? get callsSeed => _callsSeed;
   String? get activeDeviceId => _activeDeviceId;
+  int get sessionEpoch => _sessionEpoch;
   bool get isOnline => _state == TalerConnectionState.online;
   bool get _hasSocket => _tlsSocket != null || _wsSocket != null;
 
   /// Устанавливает соединение с сервером MAX и выполняет хендшейк `SESSION_INIT`.
-  Future<Map<String, dynamic>> connect({bool enableReconnect = true}) async {
+  Future<Map<String, dynamic>> connect({
+    bool enableReconnect = true,
+    bool forceReconnect = false,
+  }) async {
     if (_disposed) {
       throw StateError('TalerSession уже уничтожена');
     }
-    if (_state == TalerConnectionState.online && _hasSocket) {
+    if (!forceReconnect && _state == TalerConnectionState.online && _hasSocket) {
       return const {};
+    }
+    if (forceReconnect && _hasSocket) {
+      _failPending(const TalerPacketException('Переподключение сессии'));
+      await _cleanupSocketOnly();
+      _setState(TalerConnectionState.disconnected);
     }
 
     _autoReconnect = enableReconnect;
@@ -196,6 +206,7 @@ class TalerSession {
       _callsSeed = null;
     }
 
+    _sessionEpoch++;
     _reconnectAttempt = 0;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -209,6 +220,7 @@ class TalerSession {
     int opcode,
     Object? payload, {
     bool throwOnError = true,
+    Duration? timeout,
   }) {
     final nextSeq = (_seq % 32000) + 1;
     final decision = firewall.inspectOutgoing(opcode, payload, seq: nextSeq);
@@ -243,7 +255,7 @@ class TalerSession {
     _writeRaw(encoded);
 
     return completer.future.timeout(
-      requestTimeout,
+      timeout ?? requestTimeout,
       onTimeout: () {
         _pending.remove(seq);
         throw TalerPacketException(
@@ -267,6 +279,7 @@ class TalerSession {
         Opcode.ping,
         {'interactive': !privacySettings.ghostModeOnline},
         throwOnError: false,
+        timeout: const Duration(seconds: 8),
       );
     } catch (_) {}
   }
@@ -281,13 +294,19 @@ class TalerSession {
   }
 
   void _onTlsChunk(Uint8List chunk) {
+    final List<Uint8List> rawFrames;
     try {
-      final packets = _receiver.feed(chunk);
-      for (final packet in packets) {
-        _dispatchPacket(packet);
-      }
+      rawFrames = _receiver.feedFrames(chunk);
     } catch (_) {
-      // Игнорируем единичный битый фрагмент или сбрасываем переполненный буфер.
+      return;
+    }
+    for (final raw in rawFrames) {
+      try {
+        final packet = TalerFraming.decode(raw);
+        _dispatchPacket(packet);
+      } catch (_) {
+        // Игнорируем единичный битый кадр, не прерывая остальные в чанке.
+      }
     }
   }
 

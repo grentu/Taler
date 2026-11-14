@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
@@ -55,9 +57,12 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _twoFaHint;
   String? _registerToken;
   String? _localError;
+  int _resendSeconds = 0;
+  Timer? _resendTimer;
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _phoneCtrl.dispose();
     _otpCtrl.dispose();
     _passwordCtrl.dispose();
@@ -85,6 +90,23 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  void _startResendCooldown([int seconds = 30]) {
+    _resendTimer?.cancel();
+    setState(() => _resendSeconds = seconds);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_resendSeconds <= 1) {
+        timer.cancel();
+        setState(() => _resendSeconds = 0);
+      } else {
+        setState(() => _resendSeconds -= 1);
+      }
+    });
+  }
+
   Future<void> _submitPhone() async {
     setState(() => _localError = null);
     try {
@@ -96,12 +118,15 @@ class _AuthScreenState extends State<AuthScreen> {
             _tempToken = token;
             _phoneStep = _PhoneStep.enterOtp;
           });
+          _startResendCooldown();
         case _PhoneStep.enterOtp:
+          final token = widget.client.lastTempToken ?? _tempToken ?? '';
           final outcome = await widget.client.verifyOtp(
-            _tempToken ?? '',
+            token,
             _otpCtrl.text,
           );
           if (!mounted) return;
+          _resendTimer?.cancel();
           if (outcome.status == OtpVerifyStatus.needs2fa) {
             setState(() {
               _twoFaTrackId = outcome.trackId;
@@ -128,7 +153,34 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _localError = e.toString());
+      final latestToken = widget.client.lastTempToken;
+      setState(() {
+        if (latestToken != null && latestToken.isNotEmpty) {
+          _tempToken = latestToken;
+        }
+        _localError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _resendOtp() async {
+    setState(() => _localError = null);
+    try {
+      final token = await widget.client.resendOtp(_phoneCtrl.text);
+      if (!mounted) return;
+      setState(() {
+        _tempToken = token;
+      });
+      _startResendCooldown();
+    } catch (e) {
+      if (!mounted) return;
+      final latestToken = widget.client.lastTempToken;
+      setState(() {
+        if (latestToken != null && latestToken.isNotEmpty) {
+          _tempToken = latestToken;
+        }
+        _localError = e.toString();
+      });
     }
   }
 
@@ -249,7 +301,11 @@ class _AuthScreenState extends State<AuthScreen> {
                                   'auth_${_tab.name}_${_phoneStep.name}',
                                 ),
                                 child: switch (_tab) {
-                                  _AuthTab.phone => _buildPhoneForm(p, busy),
+                                  _AuthTab.phone => _buildPhoneForm(
+                                    p,
+                                    busy,
+                                    err,
+                                  ),
                                   _AuthTab.token => _buildTokenForm(p, busy),
                                   _AuthTab.demo => _buildDemoForm(p, busy),
                                 },
@@ -308,19 +364,29 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _buildPhoneForm(TalerPalette p, bool busy) {
+  Widget _buildPhoneForm(TalerPalette p, bool busy, String? err) {
     final ctaLabel = switch (_phoneStep) {
       _PhoneStep.enterPhone => 'Запросить код',
       _PhoneStep.enterOtp => 'Подтвердить код',
       _PhoneStep.enter2fa => 'Войти с паролем',
       _PhoneStep.enterProfile => 'Создать профиль',
     };
+    final lowerErr = (err ?? '').toLowerCase();
+    final hasExpiredErr =
+        lowerErr.contains('expired') ||
+        lowerErr.contains('attempt.limit') ||
+        lowerErr.contains('истек') ||
+        lowerErr.contains('истёк') ||
+        lowerErr.contains('устарел') ||
+        lowerErr.contains('новый код') ||
+        lowerErr.contains('повтор');
+    final canResend = !busy && (_resendSeconds == 0 || hasExpiredErr);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_phoneStep == _PhoneStep.enterPhone) ...[
-          // Выбор страны как в Telegram
+          // Выбор страны (тактильный монохром)
           PopupMenuButton<_CountryOption>(
             enabled: !busy,
             color: p.bg3,
@@ -349,22 +415,22 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
             ],
             child: Container(
-              height: 46,
+              height: 44,
               padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
                 color: p.bg3,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(11),
                 border: Border.all(color: p.line2),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.public_rounded, size: 18, color: p.accent),
+                  Icon(Icons.public_rounded, size: 17, color: p.fg2),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       '${_selectedCountry.name} (${_selectedCountry.code})',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w500,
                         color: p.fg,
                       ),
@@ -372,7 +438,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   Icon(
                     Icons.keyboard_arrow_down_rounded,
-                    size: 20,
+                    size: 18,
                     color: p.fg2,
                   ),
                 ],
@@ -417,19 +483,53 @@ class _AuthScreenState extends State<AuthScreen> {
               prefixIcon: Icon(Icons.sms_outlined, size: 18),
             ),
           ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: busy
-                  ? null
-                  : () => setState(() {
-                        _localError = null;
-                        _phoneStep = _PhoneStep.enterPhone;
-                      }),
-              icon: const Icon(Icons.arrow_back_rounded, size: 16),
-              label: const Text('Изменить номер'),
-            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: busy
+                    ? null
+                    : () {
+                        _resendTimer?.cancel();
+                        setState(() {
+                          _localError = null;
+                          _resendSeconds = 0;
+                          _otpCtrl.clear();
+                          _phoneStep = _PhoneStep.enterPhone;
+                        });
+                      },
+                style: TextButton.styleFrom(
+                  foregroundColor: p.fg2,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                ),
+                icon: const Icon(Icons.arrow_back_rounded, size: 15),
+                label: const Text(
+                  'Изменить номер',
+                  style: TextStyle(fontSize: 12.5),
+                ),
+              ),
+              const Spacer(),
+              if (hasExpiredErr)
+                TalerTactileButton(
+                  label: 'Отправить новый код',
+                  icon: Icons.refresh_rounded,
+                  compact: true,
+                  variant: TalerButtonVariant.primary,
+                  onPressed: canResend ? _resendOtp : null,
+                )
+              else
+                TalerTactileButton(
+                  label: canResend
+                      ? 'Отправить новый код'
+                      : 'Повтор через $_resendSeconds с',
+                  icon: Icons.refresh_rounded,
+                  compact: true,
+                  onPressed: canResend ? _resendOtp : null,
+                ),
+            ],
           ),
         ] else if (_phoneStep == _PhoneStep.enter2fa) ...[
           Text(
