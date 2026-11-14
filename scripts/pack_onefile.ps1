@@ -1,4 +1,4 @@
-<#
+﻿<#
   Собирает Taler-Windows-x64.exe: лаунчер (windows/onefile) и релизная папка
   Flutter в одном файле. При первом запуске лаунчер распаковывает приложение в
   %LOCALAPPDATA%\Taler\app-<build id> и запускает taler.exe.
@@ -13,10 +13,10 @@ $ErrorActionPreference = "Stop"
 
 $src = (Resolve-Path $SourceDir).Path.TrimEnd('\')
 if (-not (Test-Path (Join-Path $src "taler.exe"))) {
-    throw "В $src нет taler.exe. Сначала выполните: flutter build windows --release"
+    throw "taler.exe not found in $src. Run: flutter build windows --release"
 }
 if (-not (Test-Path $Launcher)) {
-    throw "Не найден лаунчер $Launcher. Соберите его: cmake -S windows/onefile -B build/onefile -A x64; cmake --build build/onefile --config Release"
+    throw "Launcher not found at $Launcher. Build it with cmake."
 }
 
 $outDir = Split-Path -Parent $Output
@@ -62,4 +62,4 @@ try {
 }
 
 $sizeMb = [math]::Round((Get-Item $outPath).Length / 1MB, 1)
-Write-Host (">> {0} ({1} МБ, файлов: {2}, build {3:x16})" -f $outPath, $sizeMb, $files.Count, $buildId)
+Write-Host (">> {0} ({1} MB, files: {2}, build {3:x16})" -f $outPath, $sizeMb, $files.Count, $buildId)

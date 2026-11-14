@@ -365,7 +365,13 @@ void main() {
     await tester.tap(find.text('Открыть демо'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Чаты'), findsOneWidget);
+    // Телефонная раскладка: список чатов и плавающее меню.
+    expect(find.text('Чаты'), findsWidgets);
+    expect(find.text('Елена Соколова'), findsOneWidget);
+    expect(find.text('Защита'), findsOneWidget);
+
+    await tester.tap(find.text('Защита'));
+    await tester.pumpAndSettle();
     expect(find.text('Taler Shield'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 500));
