@@ -113,7 +113,7 @@ flutter run -d windows   # или android / ios
 ### CI/CD через GitHub Actions (включая `.ipa` для iPhone)
 
 Workflow описан в [.github/workflows/build.yml](.github/workflows/build.yml) и собирает артефакты при каждом `push` / `pull_request` / теге `v*`:
-- **`build-windows`** (`windows-latest`): собирает Windows-приложение (`Taler-Windows-x64.zip`).
+- **`build-windows`** (`windows-latest`): собирает Windows-приложение (`Taler-Windows-x64.exe`).
 - **`build-android`** (`ubuntu-latest`): собирает релизные APK по ABI (`Taler-Android-arm64-v8a.apk`, `Taler-Android-armeabi-v7a.apk`).
 - **`build-ios`** (`macos-latest`): собирает неподписанный `Taler-iOS-unsigned.ipa` (для установки через AltStore / SideStore / TrollStore).
 
@@ -124,3 +124,21 @@ Workflow описан в [.github/workflows/build.yml](.github/workflows/build.y
 ## Лицензия
 
 Проект распространяется под свободной лицензией **GNU General Public License v3.0 (GPL-3.0)** — см. файл [LICENSE](LICENSE).
+
+---
+
+## Вход: ошибка «Логин ограничен. Требуется установить 2FA»
+
+Сообщение `error.profile.active.session.no2fa` приходит от сервера MAX, а не от Taler. Так бывает, когда у аккаунта уже есть активная сессия (например, на телефоне), а пароль для входа не задан: в этом случае MAX не пускает в аккаунт никакое новое устройство, и маскировка на это не влияет.
+
+1. Откройте MAX на телефоне, где вы уже вошли.
+2. В профиле найдите «Приватность» или «Безопасность» и включите «Пароль для входа». Пункт появляется, если вы вошли на телефоне больше суток назад.
+3. Вернитесь в Taler и запросите код снова. После SMS-кода Taler спросит этот пароль.
+
+На экране входа можно выключить маскировку устройства: тогда Taler подключается с постоянным ID этой установки и реальными языком и часовым поясом. Там же есть переключатель «Веб-шлюз», если прямое TLS-подключение к `api2.oneme.ru` у вас медленное или заблокировано.
+
+## Windows: один файл
+
+Сборка для Windows — это один файл `Taler-Windows-x64.exe`, без архива. При первом запуске он распаковывает приложение в `%LOCALAPPDATA%\Taler\app-<версия>` (около секунды) и дальше запускается сразу. Старые версии удаляются автоматически.
+
+Локальная сборка: `scripts/build_local.ps1` (нужны Flutter, Visual Studio с C++ и CMake).
