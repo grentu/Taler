@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="coinBg" x1="12" y1="12" x2="116" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E1E26"/>
+      <stop offset="100%" stop-color="#101015"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Obsidian coin base -->
+  <circle cx="64" cy="64" r="58" fill="url(#coinBg)" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+  <circle cx="64" cy="64" r="47.5" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+
+  <!-- 8 minted edge ticks -->
+  <g stroke="rgba(255,255,255,0.22)" stroke-width="1.6" stroke-linecap="round">
+    <line x1="107.4" y1="46.0" x2="111.8" y2="44.2"/>
+    <line x1="82.0" y1="20.6" x2="83.8" y2="16.2"/>
+    <line x1="46.0" y1="20.6" x2="44.2" y2="16.2"/>
+    <line x1="20.6" y1="46.0" x2="16.2" y2="44.2"/>
+    <line x1="20.6" y1="82.0" x2="16.2" y2="83.8"/>
+    <line x1="46.0" y1="107.4" x2="44.2" y2="111.8"/>
+    <line x1="82.0" y1="107.4" x2="83.8" y2="111.8"/>
+    <line x1="107.4" y1="82.0" x2="111.8" y2="83.8"/>
+  </g>
+
+  <!-- Monogram T -->
+  <path d="M 33.5 47.2 L 95.4 40.0 L 79.8 58.0 L 69.0 58.0 L 66.6 91.6 Q 61.2 94.6 55.8 91.6 L 55.8 58.0 L 36.6 58.0 Z" fill="#F2F2F0"/>
+
+  <!-- Indigo fold facet -->
+  <path d="M 58.2 58.0 L 95.4 40.0 L 69.0 68.8 L 69.0 58.0 Z" fill="#7C76D6"/>
+  <path d="M 58.2 58.0 L 95.4 40.0 L 79.8 58.0 Z" fill="#A7A2EC"/>
+
+  <!-- Shield badge -->
+  <circle cx="103" cy="103" r="18" fill="#30A46C" stroke="#0D1117" stroke-width="3.5"/>
+  <path d="M103 93.8 L96.2 96.8 V102.2 C96.2 106.7 99.1 110.6 103 112 C106.9 110.6 109.8 106.7 109.8 102.2 V96.8 L103 93.8 Z" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M100 102.8 L102.2 105.0 L106.4 100.6" fill="none" stroke="#FFFFFF" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
