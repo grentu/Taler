@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
@@ -34,9 +35,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static const double _dockSpace = 100;
+  final _rootFocus = FocusNode(debugLabel: 'home_root');
 
   int _tab = 0;
   int? _selectedChatId;
+
+  @override
+  void dispose() {
+    _rootFocus.dispose();
+    super.dispose();
+  }
+
+  void _releaseKeyboardFocus() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_rootFocus.canRequestFocus) {
+      _rootFocus.requestFocus();
+    }
+  }
 
   void _toggleTheme(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -44,15 +59,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openMobileChat(TalerChat chat) {
+    _releaseKeyboardFocus();
     final client = widget.client;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (ctx) => Scaffold(
-          backgroundColor: TalerTheme.paletteOf(ctx).bg2,
-          body: ChatScreen(client: client, chat: chat, showBackButton: true),
-        ),
-      ),
-    );
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (ctx) => Scaffold(
+              backgroundColor: TalerTheme.paletteOf(ctx).bg2,
+              body: ChatScreen(client: client, chat: chat, showBackButton: true),
+            ),
+          ),
+        )
+        .whenComplete(() {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _releaseKeyboardFocus();
+          });
+        });
+  }
+
+  void _selectTab(int index) {
+    _releaseKeyboardFocus();
+    setState(() => _tab = index);
   }
 
   @override
@@ -82,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   isDark: p.isDark,
                   user: client.currentUser,
                   online: online,
-                  onSelect: (i) => setState(() => _tab = i),
+                  onSelect: _selectTab,
                   onToggleTheme: () => _toggleTheme(context),
                   onLogout: () => client.logout(),
                 ),
@@ -99,40 +126,46 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         final bottom = MediaQuery.paddingOf(context).bottom;
-        return Scaffold(
-          backgroundColor: p.bg2,
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: switch (_tab) {
-                  0 => ChatListPane(
-                      client: client,
-                      compact: true,
-                      bottomInset: _dockSpace,
-                      onOpen: _openMobileChat,
-                    ),
-                  1 => Padding(
-                      padding: EdgeInsets.only(bottom: _dockSpace + bottom),
-                      child: PrivacyShieldScreen(client: client),
-                    ),
-                  _ => Padding(
-                      padding: EdgeInsets.only(bottom: _dockSpace + bottom),
-                      child: settings,
-                    ),
-                },
-              ),
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12 + bottom,
-                child: _Dock(
-                  selected: _tab,
-                  unread: unread,
-                  user: client.currentUser,
-                  onSelect: (i) => setState(() => _tab = i),
+        final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+        final listBottomInset = math.max(_dockSpace, keyboard + 12);
+        return Focus(
+          focusNode: _rootFocus,
+          child: Scaffold(
+            backgroundColor: p.bg2,
+            resizeToAvoidBottomInset: false,
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: switch (_tab) {
+                    0 => ChatListPane(
+                        client: client,
+                        compact: true,
+                        bottomInset: listBottomInset,
+                        onOpen: _openMobileChat,
+                      ),
+                    1 => Padding(
+                        padding: EdgeInsets.only(bottom: _dockSpace + bottom),
+                        child: PrivacyShieldScreen(client: client),
+                      ),
+                    _ => Padding(
+                        padding: EdgeInsets.only(bottom: _dockSpace + bottom),
+                        child: settings,
+                      ),
+                  },
                 ),
-              ),
-            ],
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 12 + bottom,
+                  child: _Dock(
+                    selected: _tab,
+                    unread: unread,
+                    user: client.currentUser,
+                    onSelect: _selectTab,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

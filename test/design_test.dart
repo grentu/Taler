@@ -60,4 +60,54 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+      'mobile: keyboard covers dock and exiting chat does not focus search',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TalerApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Демо'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Открыть демо'));
+    await tester.pumpAndSettle();
+
+    final dockLabel = find.text('Профиль');
+    expect(dockLabel, findsOneWidget);
+    final dockBottomBefore = tester.getBottomRight(dockLabel).dy;
+
+    // Opening the software keyboard must not push the bottom dock upward.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump();
+    expect(tester.getBottomRight(dockLabel).dy, dockBottomBefore);
+
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump();
+
+    // Focus search, open a chat, and pop back to HomeScreen.
+    final searchField = find.widgetWithText(TextField, 'Поиск');
+    await tester.tap(searchField);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(searchField).focusNode?.hasFocus, isTrue);
+    expect(tester.testTextInput.hasAnyClients, isTrue);
+
+    await tester.tap(find.text('Елена Соколова'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Назад'));
+    await tester.pumpAndSettle();
+
+    // Returning to HomeScreen must not focus the search field or keep IME open.
+    expect(tester.widget<TextField>(searchField).focusNode?.hasFocus, isFalse);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, isNot('EditableText'));
+    expect(tester.testTextInput.hasAnyClients, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+  });
 }

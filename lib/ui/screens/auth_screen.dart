@@ -328,6 +328,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
     return Center(
       child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.symmetric(
           horizontal: wide ? 48 : 20,
           vertical: wide ? 48 : 32,
@@ -365,6 +366,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 onChanged: busy
                     ? null
                     : (next) {
+                        FocusManager.instance.primaryFocus?.unfocus();
                         setState(() {
                           _tab = next;
                           _localError = null;
@@ -541,9 +543,10 @@ class _AuthScreenState extends State<AuthScreen> {
           TextField(
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.done,
             enabled: !busy,
-            autofocus: true,
             onSubmitted: (_) => _submitPhone(),
+            onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
             style: TalerTheme.tabularStyle(size: 15, color: p.fg),
             decoration: InputDecoration(
               hintText: '+7 999 000 00 00',
@@ -559,6 +562,8 @@ class _AuthScreenState extends State<AuthScreen> {
           TextField(
             controller: _otpCtrl,
             keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.oneTimeCode],
             enabled: !busy,
             autofocus: true,
             onSubmitted: (_) => _submitPhone(),
@@ -611,6 +616,7 @@ class _AuthScreenState extends State<AuthScreen> {
           TextField(
             controller: _passwordCtrl,
             obscureText: true,
+            textInputAction: TextInputAction.done,
             enabled: !busy,
             autofocus: true,
             onSubmitted: (_) => _submitPhone(),
@@ -626,6 +632,8 @@ class _AuthScreenState extends State<AuthScreen> {
           const _FieldLabel('Имя'),
           TextField(
             controller: _firstNameCtrl,
+            textInputAction: TextInputAction.next,
+            textCapitalization: TextCapitalization.words,
             enabled: !busy,
             autofocus: true,
           ),
@@ -633,7 +641,10 @@ class _AuthScreenState extends State<AuthScreen> {
           const _FieldLabel('Фамилия'),
           TextField(
             controller: _lastNameCtrl,
+            textInputAction: TextInputAction.done,
+            textCapitalization: TextCapitalization.words,
             enabled: !busy,
+            onSubmitted: (_) => _submitPhone(),
           ),
         ],
         const SizedBox(height: 20),

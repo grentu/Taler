@@ -43,12 +43,14 @@ class ChatListPane extends StatefulWidget {
 
 class _ChatListPaneState extends State<ChatListPane> {
   final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode(skipTraversal: true);
   String _query = '';
   String _filterId = 'all';
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -114,7 +116,13 @@ class _ChatListPaneState extends State<ChatListPane> {
               padding: EdgeInsets.fromLTRB(widget.compact ? 16 : 12, 0, widget.compact ? 16 : 12, 12),
               child: _SearchField(
                 controller: _searchCtrl,
+                focusNode: _searchFocus,
                 onChanged: (v) => setState(() => _query = v.trim()),
+                onClear: () {
+                  _searchCtrl.clear();
+                  setState(() => _query = '');
+                  _searchFocus.unfocus();
+                },
               ),
             ),
             _FolderTabs(
@@ -122,7 +130,10 @@ class _ChatListPaneState extends State<ChatListPane> {
               activeId: active.id,
               horizontalPadding: widget.compact ? 16 : 12,
               unreadIn: (f) => client.chats.where((c) => f.test(c) && c.unreadCount > 0 && !c.isMuted).length,
-              onSelect: (id) => setState(() => _filterId = id),
+              onSelect: (id) {
+                _searchFocus.unfocus();
+                setState(() => _filterId = id);
+              },
             ),
             Expanded(
               child: chats.isEmpty
@@ -133,6 +144,7 @@ class _ChatListPaneState extends State<ChatListPane> {
                       ),
                     )
                   : ListView.builder(
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: EdgeInsets.fromLTRB(
                         widget.compact ? 0 : 6,
                         6,
@@ -147,7 +159,11 @@ class _ChatListPaneState extends State<ChatListPane> {
                           chat: chat,
                           compact: widget.compact,
                           selected: !widget.compact && chat.id == widget.selectedChatId,
-                          onTap: () => widget.onOpen(chat),
+                          onTap: () {
+                            _searchFocus.unfocus();
+                            FocusManager.instance.primaryFocus?.unfocus();
+                            widget.onOpen(chat);
+                          },
                         );
                       },
                     ),
@@ -161,16 +177,23 @@ class _ChatListPaneState extends State<ChatListPane> {
 
 class _SearchField extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
 
-  const _SearchField({required this.controller, required this.onChanged});
+  const _SearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onClear,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     return Container(
       height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.only(left: 12, right: 4),
       decoration: BoxDecoration(color: p.bg3, borderRadius: BorderRadius.circular(10)),
       child: Row(
         children: [
@@ -179,7 +202,11 @@ class _SearchField extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               onChanged: onChanged,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => focusNode.unfocus(),
+              onTapOutside: (_) => focusNode.unfocus(),
               style: TextStyle(fontSize: 14, color: p.fg),
               decoration: InputDecoration(
                 hintText: 'Поиск',
@@ -193,6 +220,17 @@ class _SearchField extends StatelessWidget {
               ),
             ),
           ),
+          if (controller.text.isNotEmpty)
+            TalerIconButton(
+              icon: TalerIcons.close,
+              tooltip: 'Очистить поиск',
+              size: 28,
+              iconSize: 14,
+              color: p.fg3,
+              onPressed: onClear,
+            )
+          else
+            const SizedBox(width: 8),
         ],
       ),
     );

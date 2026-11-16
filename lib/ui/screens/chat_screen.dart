@@ -53,6 +53,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _inputFocus = FocusNode();
+  final _searchFocus = FocusNode();
 
   TalerMessage? _replyingTo;
   TalerMessage? _editingMessage;
@@ -127,6 +128,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _searchCtrl.dispose();
     _scrollCtrl.dispose();
     _inputFocus.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -237,6 +239,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!_showSearch) {
         _query = '';
         _searchCtrl.clear();
+        _searchFocus.unfocus();
+        FocusManager.instance.primaryFocus?.unfocus();
       }
     });
   }
@@ -254,53 +258,62 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openInfoPage(TalerChat chat) {
+    FocusManager.instance.primaryFocus?.unfocus();
     final client = widget.client;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (ctx) {
-          final p = TalerTheme.paletteOf(ctx);
-          return Scaffold(
-            backgroundColor: p.bg2,
-            body: SafeArea(
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 48,
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 4),
-                        TalerIconButton(
-                          icon: TalerIcons.arrowLeft,
-                          tooltip: 'Назад',
-                          iconSize: 22,
-                          color: p.accent,
-                          onPressed: () => Navigator.of(ctx).pop(),
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (ctx) {
+              final p = TalerTheme.paletteOf(ctx);
+              return Scaffold(
+                backgroundColor: p.bg2,
+                body: SafeArea(
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 48,
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 4),
+                            TalerIconButton(
+                              icon: TalerIcons.arrowLeft,
+                              tooltip: 'Назад',
+                              iconSize: 22,
+                              color: p.accent,
+                              onPressed: () => Navigator.of(ctx).pop(),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListenableBuilder(
-                      listenable: Listenable.merge([client, client.privacySettings]),
-                      builder: (ctx, _) => ChatInfoPanel(
-                        client: client,
-                        chat: client.store.chats[chat.id] ?? chat,
-                        messages: client.messagesForChat(chat.id),
-                        fullScreen: true,
-                        onSearch: () {
-                          Navigator.of(ctx).pop();
-                          _openSearch();
-                        },
                       ),
-                    ),
+                      Expanded(
+                        child: ListenableBuilder(
+                          listenable: Listenable.merge([client, client.privacySettings]),
+                          builder: (ctx, _) => ChatInfoPanel(
+                            client: client,
+                            chat: client.store.chats[chat.id] ?? chat,
+                            messages: client.messagesForChat(chat.id),
+                            fullScreen: true,
+                            onSearch: () {
+                              Navigator.of(ctx).pop();
+                              _openSearch();
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+                ),
+              );
+            },
+          ),
+        )
+        .whenComplete(() {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_showSearch) {
+              FocusManager.instance.primaryFocus?.unfocus();
+            }
+          });
+        });
   }
 
   @override
@@ -326,10 +339,20 @@ class _ChatScreenState extends State<ChatScreen> {
         );
 
         final center = ColoredBox(color: ChatTokens.chatBackground(p), child: column);
-        if (!(canDock && _showInfo)) return center;
+        final wrapped = _mobile
+            ? PopScope(
+                onPopInvokedWithResult: (didPop, _) {
+                  if (didPop) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  }
+                },
+                child: center,
+              )
+            : center;
+        if (!(canDock && _showInfo)) return wrapped;
         return Row(
           children: [
-            Expanded(child: center),
+            Expanded(child: wrapped),
             SizedBox(
               width: 340,
               child: ChatInfoPanel(
@@ -369,7 +392,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   tooltip: 'Назад',
                   iconSize: 22,
                   color: p.accent,
-                  onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
+                  onPressed: () {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                    (widget.onBack ?? () => Navigator.of(context).maybePop())();
+                  },
                 ),
                 const SizedBox(width: 2),
               ],
@@ -452,8 +478,11 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: _searchCtrl,
+                focusNode: _searchFocus,
                 autofocus: true,
+                textInputAction: TextInputAction.search,
                 onChanged: (v) => setState(() => _query = v.trim()),
+                onSubmitted: (_) => _searchFocus.unfocus(),
                 style: TextStyle(fontSize: 14, color: p.fg),
                 decoration: InputDecoration(
                   hintText: 'Поиск по переписке',
@@ -505,6 +534,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return ListView.builder(
           controller: _scrollCtrl,
           reverse: true,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.fromLTRB(side, 12, side, 12),
           itemCount: entries.length,
           itemBuilder: (context, index) {
@@ -596,30 +626,34 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _composer(TalerPalette p) {
-    final field = CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.enter): _send,
-      },
-      child: TextField(
-        controller: _inputCtrl,
-        focusNode: _inputFocus,
-        onChanged: _onTextChanged,
-        minLines: 1,
-        maxLines: 6,
-        keyboardType: TextInputType.multiline,
-        style: TextStyle(fontSize: 15, color: p.fg),
-        decoration: InputDecoration(
-          hintText: 'Сообщение',
-          hintStyle: TextStyle(fontSize: 15, color: p.fg3),
-          isDense: true,
-          filled: false,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-        ),
+    final textField = TextField(
+      controller: _inputCtrl,
+      focusNode: _inputFocus,
+      onChanged: _onTextChanged,
+      minLines: 1,
+      maxLines: 6,
+      textCapitalization: TextCapitalization.sentences,
+      keyboardType: TextInputType.multiline,
+      style: TextStyle(fontSize: 15, color: p.fg),
+      decoration: InputDecoration(
+        hintText: 'Сообщение',
+        hintStyle: TextStyle(fontSize: 15, color: p.fg3),
+        isDense: true,
+        filled: false,
+        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
       ),
     );
+    final field = _mobile
+        ? textField
+        : CallbackShortcuts(
+            bindings: <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.enter): _send,
+            },
+            child: textField,
+          );
     final box = Container(
       padding: EdgeInsets.all(_mobile ? 4 : 6),
       decoration: BoxDecoration(
@@ -738,7 +772,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   _editingMessage = null;
                   _replyingTo = msg;
                 });
-                _inputFocus.requestFocus();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _inputFocus.requestFocus();
+                });
               }),
               if (msg.text.isNotEmpty)
                 action(TalerIcons.copy, 'Копировать текст', () => Clipboard.setData(ClipboardData(text: msg.text))),
@@ -748,8 +784,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     _replyingTo = null;
                     _editingMessage = msg;
                     _inputCtrl.text = msg.text;
+                    _inputCtrl.selection = TextSelection.collapsed(
+                      offset: _inputCtrl.text.length,
+                    );
                   });
-                  _inputFocus.requestFocus();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _inputFocus.requestFocus();
+                  });
                 }),
               if (msg.isEdited) action(TalerIcons.history, 'История правок', () => _showEditHistory(msg)),
               if (widget.client.isDemoMode && !msg.deletedByPeer)

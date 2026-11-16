@@ -58,11 +58,16 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             TextField(
               controller: firstCtrl,
               autofocus: true,
+              textInputAction: TextInputAction.next,
+              textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Имя'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: lastCtrl,
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.words,
+              onSubmitted: (_) => Navigator.of(ctx).pop(true),
               decoration: const InputDecoration(labelText: 'Фамилия'),
             ),
           ],
@@ -150,7 +155,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             border: Border.all(color: p.line),
                           ),
                           child: Text(
-                            'v1.2.1',
+                            'v1.2.2',
                             style: TalerTheme.monoStyle(
                               size: 11.5,
                               weight: FontWeight.w600,
@@ -505,7 +510,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Taler v1.2.1 — открытый клиент мессенджера MAX с нулевой телеметрией',
+                      'Taler v1.2.2 — открытый клиент мессенджера MAX с нулевой телеметрией',
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,
