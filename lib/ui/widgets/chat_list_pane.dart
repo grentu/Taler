@@ -269,9 +269,12 @@ class _FolderTabs extends StatelessWidget {
       margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
       height: 40,
-      child: filters.length <= 4
-          ? Row(children: [for (final t in tabs) Expanded(child: t)])
-          : ListView(scrollDirection: Axis.horizontal, children: tabs),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: tabs.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 4),
+        itemBuilder: (_, index) => tabs[index],
+      ),
     );
   }
 }
@@ -293,21 +296,18 @@ class _FolderTab extends StatelessWidget {
       child: Stack(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Center(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: selected ? p.fg : p.fg3,
-                      ),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: selected ? p.fg : p.fg3,
                     ),
                   ),
                   if (count > 0) ...[
@@ -315,7 +315,7 @@ class _FolderTab extends StatelessWidget {
                     Container(
                       constraints: const BoxConstraints(minWidth: 18),
                       height: 18,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: selected ? p.accent : p.bg3,
@@ -323,9 +323,9 @@ class _FolderTab extends StatelessWidget {
                       ),
                       child: Text(
                         '$count',
-                        style: TalerTheme.monoStyle(
+                        style: TalerTheme.tabularStyle(
                           size: 11,
-                          weight: FontWeight.w500,
+                          weight: FontWeight.w600,
                           color: selected ? Colors.white : p.fg2,
                         ),
                       ),
@@ -432,7 +432,7 @@ class ChatRow extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       ChatTokens.listTime(chat.lastMessageTime),
-                      style: TalerTheme.monoStyle(size: 12, color: timeColor),
+                      style: TalerTheme.tabularStyle(size: 12, color: timeColor),
                     ),
                   ],
                 ),
@@ -453,7 +453,7 @@ class ChatRow extends StatelessWidget {
                         ),
                         child: Text(
                           chat.unreadCount > 999 ? '999+' : '${chat.unreadCount}',
-                          style: TalerTheme.monoStyle(size: 11, weight: FontWeight.w500, color: Colors.white),
+                          style: TalerTheme.tabularStyle(size: 11, weight: FontWeight.w600, color: Colors.white),
                         ),
                       )
                     else if (chat.isPinned)

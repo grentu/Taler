@@ -110,4 +110,39 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+      'mobile: privacy and profile tabs use clean non-debug copy and icon edit button',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(380, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TalerApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Демо'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Открыть демо'));
+    await tester.pumpAndSettle();
+
+    // Privacy Shield tab has clean consumer copy without Opcode/Wire Audit clutter.
+    await tester.tap(find.text('Защита'));
+    await tester.pumpAndSettle();
+    expect(find.text('Taler Shield'), findsOneWidget);
+    expect(find.textContaining('Opcode'), findsNothing);
+    expect(find.textContaining('Wire Audit'), findsNothing);
+
+    // Profile tab uses compact pencil icon button instead of wide 'Изменить' label.
+    await tester.tap(find.text('Профиль'));
+    await tester.pumpAndSettle();
+    expect(find.text('Активные сессии'), findsOneWidget);
+    expect(find.textContaining('Opcode'), findsNothing);
+    expect(find.byTooltip('Изменить имя'), findsOneWidget);
+    expect(find.text('Изменить'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+  });
 }

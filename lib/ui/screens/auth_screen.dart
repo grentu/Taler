@@ -504,7 +504,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       Text(
                         c.code,
-                        style: TalerTheme.monoStyle(size: 12, color: p.fg2),
+                        style: TalerTheme.tabularStyle(size: 12.5, color: p.fg2),
                       ),
                     ],
                   ),
@@ -530,7 +530,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   Text(
                     _selectedCountry.code,
-                    style: TalerTheme.monoStyle(size: 12, color: p.fg2),
+                    style: TalerTheme.tabularStyle(size: 12.5, color: p.fg2),
                   ),
                   const SizedBox(width: 8),
                   TalerIcon(TalerIcons.chevronDown, size: 16, color: p.fg3),
@@ -567,7 +567,11 @@ class _AuthScreenState extends State<AuthScreen> {
             enabled: !busy,
             autofocus: true,
             onSubmitted: (_) => _submitPhone(),
-            style: TalerTheme.monoStyle(size: 18, color: p.fg).copyWith(
+            style: TalerTheme.tabularStyle(
+              size: 18,
+              weight: FontWeight.w600,
+              color: p.fg,
+            ).copyWith(
               letterSpacing: 4,
             ),
             decoration: InputDecoration(
@@ -689,7 +693,7 @@ class _AuthScreenState extends State<AuthScreen> {
       'Примеры диалогов и групп',
       'Сохранение удалённых сообщений',
       'История правок',
-      'Журнал сетевых пакетов',
+      'Настройки приватности и маскировки',
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -758,8 +762,8 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 2),
                       Text(
                         spoofOn
-                            ? '${profile.label} · ID меняется по кнопке'
-                            : 'Постоянный ID, реальные язык и часовой пояс',
+                            ? '${profile.label} · случайный профиль'
+                            : 'Стандартный профиль устройства',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 12, color: p.fg2),
@@ -810,16 +814,11 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SpecLine(label: 'Device ID', value: profile.deviceId),
+                  _SpecLine(label: 'Устройство', value: profile.label),
                   const SizedBox(height: 6),
                   _SpecLine(
                     label: 'Язык · пояс',
                     value: '${profile.locale} · ${profile.timezone}',
-                  ),
-                  const SizedBox(height: 6),
-                  const _SpecLine(
-                    label: 'Блокируется',
-                    value: 'LOG #5 · DEBUG #2 · BANNERS #302 · SUGGEST #300',
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -885,16 +884,15 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
-/// Левая колонка на широких экранах: что это за клиент и что он блокирует.
+/// Левая колонка на широких экранах: коротко о возможностях клиента.
 class _BrandPanel extends StatelessWidget {
   const _BrandPanel();
 
-  static const _blocked = [
-    ('#5', 'LOG', 'журнал действий'),
-    ('#2', 'DEBUG', 'отладочные отчёты'),
-    ('#302', 'BANNERS_SYNC', 'рекламные баннеры'),
-    ('#300', 'CHAT_SUGGEST', 'рекомендации'),
-    ('#292', 'NOTIF_BANNERS', 'входящая реклама'),
+  static const _highlights = [
+    ('Без телеметрии', 'аналитика и отчёты об ошибках не отправляются'),
+    ('Без рекламы', 'баннеры и навязчивые рекомендации скрыты'),
+    ('Невидимка', 'статус «в сети», набор текста и прочтение под контролем'),
+    ('Маскировка', 'модель устройства и экран скрыты от сервера'),
   ];
 
   @override
@@ -950,39 +948,39 @@ class _BrandPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Служебные пакеты аналитики отбрасываются до отправки, а реальные идентификаторы устройства не читаются',
+            'Спокойный клиент MAX с защитой приватности, без лишней аналитики и рекламных блоков',
             style: TextStyle(fontSize: 15, height: 24 / 15, color: p.fg2),
           ),
-          const SizedBox(height: 40),
-          Text(
-            'Блокируется всегда',
-            style: TextStyle(fontSize: 13, color: p.fg3),
-          ),
-          const SizedBox(height: 8),
-          for (final (code, name, meaning) in _blocked)
-            SizedBox(
-              height: 32,
+          const SizedBox(height: 36),
+          for (final (title, desc) in _highlights)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      code,
-                      style: TalerTheme.monoStyle(size: 12, color: p.accent),
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: TalerIcon(TalerIcons.check, size: 15, color: p.accent),
                   ),
-                  SizedBox(
-                    width: 136,
-                    child: Text(
-                      name,
-                      style: TalerTheme.monoStyle(size: 12, color: p.fg),
-                    ),
-                  ),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      meaning,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, color: p.fg3),
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '$title — ',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                              color: p.fg,
+                            ),
+                          ),
+                          TextSpan(
+                            text: desc,
+                            style: TextStyle(fontSize: 13.5, color: p.fg3),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -991,7 +989,7 @@ class _BrandPanel extends StatelessWidget {
           const Spacer(flex: 3),
           Text(
             'Открытый исходный код · github.com/grentu/Taler',
-            style: TalerTheme.monoStyle(size: 12, color: p.fg3),
+            style: TextStyle(fontSize: 12, color: p.fg3),
           ),
         ],
     );
@@ -1146,7 +1144,11 @@ class _LoginRestrictedPanel extends StatelessWidget {
                     width: 20,
                     child: Text(
                       '${i + 1}',
-                      style: TalerTheme.monoStyle(size: 12, color: p.fg3),
+                      style: TalerTheme.tabularStyle(
+                        size: 12.5,
+                        weight: FontWeight.w600,
+                        color: p.fg3,
+                      ),
                     ),
                   ),
                   Expanded(
@@ -1256,7 +1258,7 @@ class _SpecLine extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: TalerTheme.monoStyle(size: 12, color: p.fg2),
+            style: TalerTheme.tabularStyle(size: 12.5, color: p.fg2),
           ),
         ),
       ],

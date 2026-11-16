@@ -204,7 +204,7 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
                         ),
                         subtitle: Text(
                           ChatTokens.fileSize(f.fileSize),
-                          style: TalerTheme.monoStyle(size: 12, color: p.fg3),
+                          style: TalerTheme.tabularStyle(size: 12, color: p.fg3),
                         ),
                       ),
                   ],
@@ -362,7 +362,7 @@ class _InfoRow extends StatelessWidget {
                 SelectableText(
                   value,
                   style: mono
-                      ? TalerTheme.monoStyle(size: 14, color: p.fg)
+                      ? TalerTheme.tabularStyle(size: 14, color: p.fg)
                       : TextStyle(fontSize: 14, color: p.fg),
                 ),
                 Text(label, style: TextStyle(fontSize: 12, color: p.fg3)),

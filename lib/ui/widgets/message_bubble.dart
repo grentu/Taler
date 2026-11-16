@@ -22,9 +22,8 @@ class ChatDayChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: p.surface.withValues(alpha: 0.85),
+            color: p.surface.withValues(alpha: 0.88),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: p.line),
           ),
           child: Text(
             label,
@@ -182,7 +181,11 @@ class _ReactionChip extends StatelessWidget {
             const SizedBox(width: 4),
             Text(
               '${reaction.count}',
-              style: TalerTheme.monoStyle(size: 12, color: mine ? p.accent : p.fg2),
+              style: TalerTheme.tabularStyle(
+                size: 12,
+                weight: FontWeight.w500,
+                color: mine ? p.accent : p.fg2,
+              ),
             ),
           ],
         ),
@@ -352,12 +355,12 @@ class MessageBubble extends StatelessWidget {
               TextSpan(children: [
                 TextSpan(text: m.text),
                 // Невидимое место под время, чтобы оно встало в последнюю строку.
-                WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 10, height: 12)),
+                WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 6, height: 12)),
               ]),
               style: TextStyle(fontSize: 15, height: 21 / 15, color: fg),
             ),
           ),
-          Positioned(right: 10, bottom: 6, child: meta),
+          Positioned(right: 10, bottom: 5, child: meta),
         ],
       ));
     } else if (photos.isEmpty && files.isEmpty) {
@@ -381,9 +384,7 @@ class MessageBubble extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: radius,
-          border: failed
-              ? Border.all(color: p.danger, width: 1.5)
-              : (out ? null : Border.all(color: p.line)),
+          border: failed ? Border.all(color: p.danger, width: 1.5) : null,
         ),
         child: IntrinsicWidth(
           child: Column(
@@ -422,7 +423,7 @@ class MessageMeta extends StatelessWidget {
 
   /// Примерная ширина, чтобы зарезервировать место в последней строке текста.
   double get estimatedWidth =>
-      36 + (edited ? 16 : 0) + (deleted ? 18 : 0) + (status != null ? 22 : 0);
+      32 + (edited ? 14 : 0) + (deleted ? 16 : 0) + (status != null ? 18 : 0);
 
   @override
   Widget build(BuildContext context) {
@@ -447,7 +448,7 @@ class MessageMeta extends StatelessWidget {
           ),
           const SizedBox(width: 4),
         ],
-        Text(ChatTokens.time(time), style: TalerTheme.monoStyle(size: 11, color: color)),
+        Text(ChatTokens.time(time), style: TalerTheme.tabularStyle(size: 11, color: color)),
         if (status != null) ...[
           const SizedBox(width: 4),
           if (status == 'error')
@@ -600,7 +601,7 @@ class _FileView extends StatelessWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (size.isNotEmpty) Text(size, style: TalerTheme.monoStyle(size: 12, color: metaColor)),
+                    if (size.isNotEmpty) Text(size, style: TalerTheme.tabularStyle(size: 12, color: metaColor)),
                     if (meta != null) ...[
                       const SizedBox(width: 16),
                       meta,

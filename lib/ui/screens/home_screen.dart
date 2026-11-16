@@ -143,13 +143,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         bottomInset: listBottomInset,
                         onOpen: _openMobileChat,
                       ),
-                    1 => Padding(
-                        padding: EdgeInsets.only(bottom: _dockSpace + bottom),
-                        child: PrivacyShieldScreen(client: client),
+                    1 => PrivacyShieldScreen(
+                        client: client,
+                        bottomInset: _dockSpace + bottom,
                       ),
-                    _ => Padding(
-                        padding: EdgeInsets.only(bottom: _dockSpace + bottom),
-                        child: settings,
+                    _ => ProfileSettingsScreen(
+                        client: client,
+                        themeMode: widget.themeMode,
+                        onThemeModeChanged: widget.onThemeModeChanged,
+                        bottomInset: _dockSpace + bottom,
                       ),
                   },
                 ),
@@ -342,7 +344,7 @@ class _Badge extends StatelessWidget {
       ),
       child: Text(
         count > 99 ? '99+' : '$count',
-        style: TalerTheme.monoStyle(size: 10, weight: FontWeight.w600, color: Colors.white),
+        style: TalerTheme.tabularStyle(size: 10, weight: FontWeight.w600, color: Colors.white),
       ),
     );
   }

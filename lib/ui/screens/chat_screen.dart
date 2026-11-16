@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
@@ -54,6 +55,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtrl = ScrollController();
   final _inputFocus = FocusNode();
   final _searchFocus = FocusNode();
+  final _bottomBarKey = GlobalKey();
 
   TalerMessage? _replyingTo;
   TalerMessage? _editingMessage;
@@ -61,6 +63,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showSearch = false;
   bool _wasReady = false;
   String _query = '';
+  double? _measuredBottomHeight;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get _mobile => widget.showBackButton;
@@ -316,6 +319,18 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
+  void _syncBottomHeight() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _bottomBarKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) return;
+      final h = box.size.height;
+      if (_measuredBottomHeight == null || (h - _measuredBottomHeight!).abs() > 1.0) {
+        setState(() => _measuredBottomHeight = h);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
@@ -327,18 +342,76 @@ class _ChatScreenState extends State<ChatScreen> {
         final q = _query.toLowerCase();
         final messages = q.isEmpty ? all : all.where((m) => m.text.toLowerCase().contains(q)).toList();
         final canDock = !_mobile && MediaQuery.sizeOf(context).width >= 1100;
+        final mediaPad = MediaQuery.paddingOf(context);
+        final topInset = (_mobile ? mediaPad.top + 56.0 : 60.0) + (_showSearch ? 53.0 : 0.0);
+        final fallbackBottom = (_mobile ? 62.0 + mediaPad.bottom : 74.0) +
+            ((_replyingTo != null || _editingMessage != null) ? 48.0 : 0.0);
+        final bottomInset = _measuredBottomHeight ?? fallbackBottom;
+        final glassBg = p.bg2.withValues(alpha: p.isDark ? 0.78 : 0.84);
+        final bottomGlassBg = (_mobile ? p.bg2 : ChatTokens.chatBackground(p)).withValues(
+          alpha: p.isDark ? 0.76 : 0.84,
+        );
 
-        final column = Column(
+        _syncBottomHeight();
+
+        final stack = Stack(
           children: [
-            _header(p, chat, canDock),
-            if (_showSearch) _searchBar(p),
-            Expanded(child: _messageList(p, chat, messages)),
-            if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
-            _composer(p),
+            Positioned.fill(
+              child: _messageList(
+                p,
+                chat,
+                messages,
+                topInset: topInset,
+                bottomInset: bottomInset,
+              ),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ColoredBox(
+                    color: glassBg,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _header(p, chat, canDock),
+                        if (_showSearch) _searchBar(p),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: KeyedSubtree(
+                key: _bottomBarKey,
+                child: ClipRect(
+                  child: BackdropFilter(
+                    filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                    child: ColoredBox(
+                      color: bottomGlassBg,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
+                          _composer(p),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         );
 
-        final center = ColoredBox(color: ChatTokens.chatBackground(p), child: column);
+        final center = ColoredBox(color: ChatTokens.chatBackground(p), child: stack);
         final wrapped = _mobile
             ? PopScope(
                 onPopInvokedWithResult: (didPop, _) {
@@ -375,15 +448,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final offline = !widget.client.isDemoMode && !widget.client.isSessionReady;
     final live = !offline && (chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false));
     final subtitle = offline ? 'Подключение…' : ChatTokens.chatStatus(chat);
-    return Container(
-      color: p.bg2,
-      child: SafeArea(
-        bottom: false,
-        top: _mobile,
-        child: Container(
-          height: _mobile ? 56 : 60,
-          padding: EdgeInsets.only(left: _mobile ? 4 : 20, right: 12),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
+    return SafeArea(
+      bottom: false,
+      top: _mobile,
+      child: Container(
+        height: _mobile ? 56 : 60,
+        padding: EdgeInsets.only(left: _mobile ? 4 : 20, right: 12),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
           child: Row(
             children: [
               if (_mobile) ...[
@@ -459,14 +530,13 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 
   Widget _searchBar(TalerPalette p) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-      decoration: BoxDecoration(color: p.bg2, border: Border(bottom: BorderSide(color: p.line))),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
       child: Container(
         height: 36,
         padding: const EdgeInsets.only(left: 12),
@@ -519,9 +589,18 @@ class _ChatScreenState extends State<ChatScreen> {
     return out;
   }
 
-  Widget _messageList(TalerPalette p, TalerChat chat, List<TalerMessage> messages) {
+  Widget _messageList(
+    TalerPalette p,
+    TalerChat chat,
+    List<TalerMessage> messages, {
+    required double topInset,
+    required double bottomInset,
+  }) {
     if (messages.isEmpty) {
-      return Center(child: ChatDayChip(label: _query.isEmpty ? 'Сообщений пока нет' : 'Ничего не найдено'));
+      return Padding(
+        padding: EdgeInsets.only(top: topInset, bottom: bottomInset),
+        child: Center(child: ChatDayChip(label: _query.isEmpty ? 'Сообщений пока нет' : 'Ничего не найдено')),
+      );
     }
     final myId = widget.client.currentUser?.id ?? 1;
     final entries = _entries(messages);
@@ -535,7 +614,7 @@ class _ChatScreenState extends State<ChatScreen> {
           controller: _scrollCtrl,
           reverse: true,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(side, 12, side, 12),
+          padding: EdgeInsets.fromLTRB(side, topInset + 12, side, bottomInset + 10),
           itemCount: entries.length,
           itemBuilder: (context, index) {
             final e = entries[entries.length - 1 - index];
@@ -577,7 +656,7 @@ class _ChatScreenState extends State<ChatScreen> {
         : 'Ответ ${widget.client.senderDisplayName(target.senderId, chatId: chat.id)}';
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-      decoration: BoxDecoration(color: p.bg2, border: Border(top: BorderSide(color: p.line))),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: p.line))),
       child: Row(
         children: [
           TalerIcon(editing != null ? TalerIcons.pencil : TalerIcons.reply, size: 18, color: p.accent),
@@ -687,7 +766,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     return Container(
-      color: _mobile ? p.bg2 : ChatTokens.chatBackground(p),
+      decoration: _mobile ? BoxDecoration(border: Border(top: BorderSide(color: p.line))) : null,
       padding: _mobile ? const EdgeInsets.fromLTRB(8, 6, 8, 8) : const EdgeInsets.fromLTRB(24, 0, 24, 20),
       child: SafeArea(
         top: false,
@@ -831,7 +910,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TalerTheme.monoStyle(size: 12, color: p.fg3)),
+                  Text(label, style: TalerTheme.tabularStyle(size: 12, color: p.fg3)),
                   const SizedBox(height: 4),
                   Text(text, style: TextStyle(fontSize: 14, color: p.fg)),
                 ],

@@ -12,12 +12,14 @@ class ProfileSettingsScreen extends StatefulWidget {
   final TalerClient client;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final double bottomInset;
 
   const ProfileSettingsScreen({
     super.key,
     required this.client,
     required this.themeMode,
     required this.onThemeModeChanged,
+    this.bottomInset = 12,
   });
 
   @override
@@ -28,7 +30,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    widget.client.fetchActiveSessions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.client.fetchActiveSessions();
+    });
   }
 
   Future<void> _editNameDialog() async {
@@ -155,8 +159,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             border: Border.all(color: p.line),
                           ),
                           child: Text(
-                            'v1.2.2',
-                            style: TalerTheme.monoStyle(
+                            'v1.2.3',
+                            style: TalerTheme.tabularStyle(
                               size: 11.5,
                               weight: FontWeight.w600,
                               color: p.fg2,
@@ -172,9 +176,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               // Секции настроек
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    16,
+                    widget.bottomInset + 12,
                   ),
                   child: Center(
                     child: ConstrainedBox(
@@ -221,11 +227,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             seedId: user?.id ?? 1,
             initials: user?.initials ?? 'T',
             imageUrl: user?.avatarUrl,
-            size: 64,
+            size: 60,
             isOnline: true,
             onlineBorderColor: p.bg2,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,32 +250,32 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isDemo
-                            ? p.accentMuted
-                            : p.statusLiveSurface,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        isDemo ? 'Демо' : 'Live',
-                        style: TalerTheme.monoStyle(
-                          size: 10.5,
-                          weight: FontWeight.w600,
-                          color: isDemo ? p.accent : p.statusLive,
+                    if (isDemo) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: p.accentMuted,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Демо',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: p.accent,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$phoneText · ID ${user?.id ?? '—'}',
+                  phoneText.isNotEmpty ? phoneText : 'ID ${user?.id ?? '—'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TalerTheme.tabularStyle(size: 13, color: p.fg2),
@@ -277,11 +283,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          TalerTactileButton(
-            label: 'Изменить',
+          const SizedBox(width: 8),
+          TalerIconButton(
             icon: TalerIcons.pencil,
-            compact: true,
+            tooltip: 'Изменить имя',
+            circle: true,
+            size: 36,
+            iconSize: 18,
+            color: p.fg,
+            backgroundColor: p.bg3,
             onPressed: user == null ? null : _editNameDialog,
           ),
         ],
@@ -364,7 +374,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     final hasOtherSessions = sessions.any((s) => !s.current);
 
     return TalerTableShell(
-      title: 'Активные сессии (Opcode 96)',
+      title: 'Активные сессии',
       trailing: TalerIconButton(
         icon: TalerIcons.refresh,
         tooltip: 'Обновить сессии',
@@ -510,7 +520,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Taler v1.2.2 — открытый клиент мессенджера MAX с нулевой телеметрией',
+                      'Taler v1.2.3 — приватный клиент для MAX',
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,
@@ -520,8 +530,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'github.com/grentu/Taler · протокол KometTeam/Komet',
-                      style: TalerTheme.monoStyle(size: 11.5, color: p.fg2),
+                      'github.com/grentu/Taler',
+                      style: TextStyle(fontSize: 12, color: p.fg2),
                     ),
                   ],
                 ),

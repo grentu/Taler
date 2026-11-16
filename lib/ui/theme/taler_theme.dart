@@ -728,7 +728,7 @@ class _SegmentItemState<T> extends State<_SegmentItem<T>> {
                   const SizedBox(width: 6),
                   Text(
                     widget.item.badge!,
-                    style: TalerTheme.monoStyle(
+                    style: TalerTheme.tabularStyle(
                       size: 11,
                       color: widget.selected ? p.accent : p.fg3,
                     ),
