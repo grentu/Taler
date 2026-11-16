@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:taler/backend/taler_client.dart';
 import 'package:taler/core/privacy/privacy_firewall.dart';
 import 'package:taler/core/privacy/privacy_settings.dart';
 import 'package:taler/core/privacy/spoof_profile.dart';
@@ -376,5 +377,169 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
+  });
+
+  group('Messaging & Push Sync', () {
+    Future<TalerClient> makeClient() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final settings = PrivacySettings();
+      await settings.load();
+      final client = TalerClient(
+        privacySettings: settings,
+        spoofingService: SpoofingService(),
+        auditLog: WireAuditLog(),
+        store: LocalStore(),
+      );
+      await client.store.init();
+      client.session.rejectConnectForTest = true;
+      await client.store.saveProfile(
+        const TalerUserProfile(id: 10, firstName: 'Тест'),
+      );
+      await client.store.saveChats([
+        const TalerChat(
+          id: 700,
+          type: 'DIALOG',
+          title: 'Собеседник',
+          peerId: 20,
+        ),
+      ]);
+      return client;
+    }
+
+    test('failed sendMessage marks message as error instead of leaving it sending',
+        () async {
+      final client = await makeClient();
+      addTearDown(client.dispose);
+
+      await expectLater(
+        () => client.sendMessage(700, 'Привет, проверим'),
+        throwsA(isA<TalerPacketException>()),
+      );
+
+      final msgs = client.messagesForChat(700);
+      expect(msgs.length, 1);
+      expect(msgs.first.status, 'error');
+      expect(client.sendErrorFor(msgs.first.id), isNotNull);
+    });
+
+    test('NOTIF_MESSAGE REMOVED & NOTIF_MSG_DELETE respect Anti-Delete toggle',
+        () async {
+      final client = await makeClient();
+      addTearDown(client.dispose);
+
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 1,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 700,
+            'unread': 1,
+            'message': <String, dynamic>{
+              'id': 9001,
+              'sender': 20,
+              'text': 'Секретное сообщение',
+              'time': 10000,
+              'status': 'ACTIVE',
+            },
+          },
+        ),
+      );
+      expect(client.messagesForChat(700).length, 1);
+      expect(client.messagesForChat(700).first.deletedByPeer, isFalse);
+
+      // Удаление собеседником приходит через NOTIF_MESSAGE со статусом REMOVED
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 2,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 700,
+            'unread': 0,
+            'message': <String, dynamic>{
+              'id': 9001,
+              'sender': 20,
+              'text': '',
+              'time': 10000,
+              'status': 'REMOVED',
+            },
+          },
+        ),
+      );
+
+      final afterAntiDelete = client.messagesForChat(700).first;
+      expect(afterAntiDelete.deletedByPeer, isTrue);
+      expect(afterAntiDelete.text, 'Секретное сообщение');
+      expect(client.store.chats[700]?.lastMessageDeletedByPeer, isTrue);
+
+      // Когда Anti-Delete выключен — NOTIF_MSG_DELETE (включая chat: {id}) удаляет сообщение и обновляет превью
+      await client.privacySettings.setAntiDelete(false);
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 3,
+          opcode: Opcode.notifMsgDelete,
+          payload: <String, dynamic>{
+            'chat': <String, dynamic>{'id': 700},
+            'messageIds': <int>[9001],
+          },
+        ),
+      );
+      expect(client.messagesForChat(700), isEmpty);
+      expect(client.store.chats[700]?.lastMessageText, isNull);
+    });
+
+    test('NOTIF_MARK updates peerReadMark and NOTIF_MSG_REACTIONS_CHANGED updates reactions',
+        () async {
+      final client = await makeClient();
+      addTearDown(client.dispose);
+
+      await client.store.upsertMessage(
+        const TalerMessage(
+          id: '501',
+          chatId: 700,
+          senderId: 10,
+          text: 'Моё сообщение',
+          time: 20000,
+          status: 'sent',
+        ),
+      );
+
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 4,
+          opcode: Opcode.notifMark,
+          payload: <String, dynamic>{
+            'chatId': 700,
+            'userId': 20,
+            'mark': 25000,
+          },
+        ),
+      );
+      expect(client.store.chats[700]?.peerReadMark, 25000);
+
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 5,
+          opcode: Opcode.notifMsgReactionsChanged,
+          payload: <String, dynamic>{
+            'chatId': 700,
+            'messageId': '501',
+            'yourReaction': '🔥',
+            'counters': <Map<String, dynamic>>[
+              <String, dynamic>{'reaction': '🔥', 'count': 2},
+            ],
+          },
+        ),
+      );
+      final reactions = client.messagesForChat(700).first.reactions;
+      expect(reactions.length, 1);
+      expect(reactions.first.emoji, '🔥');
+      expect(reactions.first.count, 2);
+      expect(reactions.first.isMine, isTrue);
+    });
   });
 }

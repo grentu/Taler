@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
@@ -57,6 +58,7 @@ class _ChatScreenState extends State<ChatScreen> {
   TalerMessage? _editingMessage;
   bool _showInfo = true;
   bool _showSearch = false;
+  bool _wasReady = false;
   String _query = '';
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -65,6 +67,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _wasReady = widget.client.isSessionReady;
+    widget.client.setActiveChat(widget.chat.id);
+    widget.client.addListener(_onClientChanged);
+    _scrollCtrl.addListener(_onScroll);
     _loadChatData();
   }
 
@@ -78,7 +84,26 @@ class _ChatScreenState extends State<ChatScreen> {
       _query = '';
       _searchCtrl.clear();
       _inputCtrl.clear();
+      widget.client.setActiveChat(widget.chat.id);
       _loadChatData();
+    }
+  }
+
+  void _onClientChanged() {
+    final ready = widget.client.isSessionReady;
+    if (!_wasReady && ready) {
+      _wasReady = true;
+      _loadChatData();
+    } else if (_wasReady && !ready) {
+      _wasReady = false;
+    }
+  }
+
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    if (pos.pixels >= pos.maxScrollExtent - 240) {
+      unawaited(widget.client.loadMoreHistory(widget.chat.id));
     }
   }
 
@@ -95,11 +120,21 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    widget.client.removeListener(_onClientChanged);
+    _scrollCtrl.removeListener(_onScroll);
+    widget.client.clearActiveChat(widget.chat.id);
     _inputCtrl.dispose();
     _searchCtrl.dispose();
     _scrollCtrl.dispose();
     _inputFocus.dispose();
     super.dispose();
+  }
+
+  void _showErrorSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _send() async {
@@ -113,11 +148,53 @@ class _ChatScreenState extends State<ChatScreen> {
       _replyingTo = null;
     });
     if (editing != null) {
-      await widget.client.editMessage(widget.chat.id, editing.id, text);
+      try {
+        await widget.client.editMessage(widget.chat.id, editing.id, text);
+      } catch (e) {
+        if (mounted) {
+          _inputCtrl.text = text;
+        }
+        _showErrorSnack('Не удалось изменить сообщение: $e');
+        return;
+      }
     } else {
-      await widget.client.sendMessage(widget.chat.id, text, replyTo: reply);
+      _scrollToBottom();
+      try {
+        await widget.client.sendMessage(widget.chat.id, text, replyTo: reply);
+      } catch (e) {
+        _showErrorSnack('Сообщение не отправлено: $e');
+        return;
+      }
     }
     _scrollToBottom();
+  }
+
+  Future<void> _retryMessage(TalerMessage msg) async {
+    try {
+      await widget.client.retrySendMessage(widget.chat.id, msg.id);
+    } catch (e) {
+      _showErrorSnack('Не удалось отправить повторно: $e');
+    }
+  }
+
+  Future<void> _deleteMessage(TalerMessage msg, {bool forEveryone = false}) async {
+    try {
+      await widget.client.deleteMessage(
+        widget.chat.id,
+        msg.id,
+        forEveryone: forEveryone,
+      );
+    } catch (e) {
+      _showErrorSnack('Не удалось удалить сообщение: $e');
+    }
+  }
+
+  Future<void> _toggleReaction(TalerMessage msg, String emoji) async {
+    try {
+      await widget.client.toggleReaction(widget.chat.id, msg.id, emoji);
+    } catch (e) {
+      _showErrorSnack('Не удалось обновить реакцию: $e');
+    }
   }
 
   void _scrollToBottom() {
@@ -272,7 +349,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _header(TalerPalette p, TalerChat chat, bool canDock) {
     final peer = chat.peerId != null ? widget.client.contactById(chat.peerId!) : null;
-    final live = chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false);
+    final offline = !widget.client.isDemoMode && !widget.client.isSessionReady;
+    final live = !offline && (chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false));
+    final subtitle = offline ? 'Подключение…' : ChatTokens.chatStatus(chat);
     return Container(
       color: p.bg2,
       child: SafeArea(
@@ -327,7 +406,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                       Text(
-                        ChatTokens.chatStatus(chat),
+                        subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 13, color: live ? p.accent : p.fg3),
@@ -444,10 +523,15 @@ class _ChatScreenState extends State<ChatScreen> {
               showSender: group && !isMine,
               senderName: widget.client.senderDisplayName(m.senderId, chatId: chat.id),
               senderAvatarUrl: widget.client.contactById(m.senderId)?.avatarUrl,
-              maxBubbleWidth: group && !isMine ? maxBubble - 44 : maxBubble,
+              maxBubbleWidth: math.max(
+                120.0,
+                group && !isMine ? maxBubble - 44 : maxBubble,
+              ),
+              peerReadMark: chat.peerReadMark,
               onActions: () => _showMessageActions(m, isMine),
               onShowHistory: m.isEdited ? () => _showEditHistory(m) : null,
-              onToggleReaction: (emoji) => widget.client.toggleReaction(chat.id, m.id, emoji),
+              onRetry: m.status == 'error' ? () => _retryMessage(m) : null,
+              onToggleReaction: (emoji) => _toggleReaction(m, emoji),
             );
           },
         );
@@ -627,7 +711,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       GestureDetector(
                         onTap: () {
                           Navigator.of(ctx).pop();
-                          widget.client.toggleReaction(widget.chat.id, msg.id, emoji);
+                          _toggleReaction(msg, emoji);
                         },
                         child: Container(
                           width: 44,
@@ -642,6 +726,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(height: 8),
               Divider(height: 1, color: p.line),
+              if (isMine && msg.status == 'error')
+                action(
+                  TalerIcons.refresh,
+                  'Повторить отправку',
+                  () => _retryMessage(msg),
+                  color: p.accent,
+                ),
               action(TalerIcons.reply, 'Ответить', () {
                 setState(() {
                   _editingMessage = null;
@@ -651,7 +742,7 @@ class _ChatScreenState extends State<ChatScreen> {
               }),
               if (msg.text.isNotEmpty)
                 action(TalerIcons.copy, 'Копировать текст', () => Clipboard.setData(ClipboardData(text: msg.text))),
-              if (isMine && !msg.deletedByPeer)
+              if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
                 action(TalerIcons.pencil, 'Изменить', () {
                   setState(() {
                     _replyingTo = null;
@@ -668,10 +759,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   () => widget.client.simulatePeerDeleteInDemo(widget.chat.id, msg.id),
                   color: p.warning,
                 ),
+              if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
+                action(
+                  TalerIcons.trash,
+                  'Удалить у всех',
+                  () => _deleteMessage(msg, forEveryone: true),
+                  color: p.danger,
+                ),
               action(
                 TalerIcons.trash,
                 'Удалить у себя',
-                () => widget.client.deleteMessage(widget.chat.id, msg.id),
+                () => _deleteMessage(msg, forEveryone: false),
                 color: p.danger,
               ),
               const SizedBox(height: 8),

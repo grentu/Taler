@@ -79,6 +79,9 @@ class TalerSession {
   /// Подключаться сразу через веб-шлюз (deviceType WEB), минуя TLS.
   bool preferWebGateway = false;
 
+  /// В тестах мгновенно отклоняет попытку подключения без сетевых вызовов.
+  bool rejectConnectForTest = false;
+
   TalerSession({
     required this.firewall,
     required this.privacySettings,
@@ -109,6 +112,11 @@ class TalerSession {
     bool enableReconnect = true,
     bool forceReconnect = false,
   }) {
+    if (rejectConnectForTest) {
+      return Future<Map<String, dynamic>>.error(
+        const TalerPacketException('Нет подключения к серверу MAX'),
+      );
+    }
     if (_disposed) {
       return Future<Map<String, dynamic>>.error(
         StateError('TalerSession уже уничтожена'),
@@ -186,6 +194,9 @@ class TalerSession {
     _lastConnectError = lastError.toString();
     _transport = TalerTransport.none;
     _setState(TalerConnectionState.disconnected);
+    if (_autoReconnect && !_disposed) {
+      _scheduleReconnect();
+    }
     throw lastError;
   }
 
@@ -337,16 +348,45 @@ class TalerSession {
   }
 
   /// Отправляет ping с учётом флага невидимки (interactive: false).
-  Future<void> sendPing() async {
-    if (!isOnline) return;
+  /// При сбое/таймауте сбрасывает полуоткрытый сокет и запускает реконнект.
+  Future<void> sendPing({Duration timeout = const Duration(seconds: 6)}) async {
+    if (!isOnline || _disposed) return;
+    final epoch = _sessionEpoch;
     try {
       await request(
         Opcode.ping,
         {'interactive': !privacySettings.ghostModeOnline},
         throwOnError: false,
-        timeout: const Duration(seconds: 8),
+        timeout: timeout,
       );
-    } catch (_) {}
+    } catch (_) {
+      if (_disposed || !isOnline || _sessionEpoch != epoch) return;
+      _handleDrop('Keepalive ping не ответил');
+    }
+  }
+
+  /// Вызывается при возвращении приложения на экран: проверяет живой ли сокет
+  /// или немедленно запускает переподключение.
+  void wakeUp() {
+    if (_disposed || !_autoReconnect) return;
+    switch (_state) {
+      case TalerConnectionState.disconnected:
+        _reconnectAttempt = 0;
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
+        unawaited(
+          connect(enableReconnect: true).then<void>((_) async {
+            if (onReconnected != null) {
+              await onReconnected!();
+            }
+          }, onError: (Object _) {}),
+        );
+      case TalerConnectionState.connecting:
+      case TalerConnectionState.connected:
+        _reconnectAttempt = 0;
+      case TalerConnectionState.online:
+        unawaited(sendPing(timeout: const Duration(seconds: 3)));
+    }
   }
 
   void _writeRaw(Uint8List bytes) {
@@ -392,7 +432,7 @@ class TalerSession {
     if (raw.length < TalerFraming.headerSize) return;
     final cmd = raw[1];
     if (cmd == CmdType.request) return;
-    final seq = ByteData.sublistView(raw).getInt16(2, Endian.big);
+    final seq = ByteData.sublistView(raw).getUint16(2, Endian.big);
     final completer = _pending.remove(seq);
     if (completer != null && !completer.isCompleted) {
       completer.completeError(
@@ -461,7 +501,22 @@ class TalerSession {
         if (onReconnected != null) {
           await onReconnected!();
         }
+      } on TalerPacketException catch (e) {
+        if (e.isSessionExpired) {
+          _autoReconnect = false;
+          await disconnect();
+          return;
+        }
+        await _cleanupSocketOnly();
+        _transport = TalerTransport.none;
+        _setState(TalerConnectionState.disconnected);
+        if (_autoReconnect && !_disposed) {
+          _scheduleReconnect();
+        }
       } catch (_) {
+        await _cleanupSocketOnly();
+        _transport = TalerTransport.none;
+        _setState(TalerConnectionState.disconnected);
         if (_autoReconnect && !_disposed) {
           _scheduleReconnect();
         }

@@ -26,7 +26,7 @@ class TalerApp extends StatefulWidget {
   State<TalerApp> createState() => _TalerAppState();
 }
 
-class _TalerAppState extends State<TalerApp> {
+class _TalerAppState extends State<TalerApp> with WidgetsBindingObserver {
   late final TalerClient _client;
   late final bool _ownsClient;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -35,6 +35,7 @@ class _TalerAppState extends State<TalerApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.client != null) {
       _client = widget.client!;
       _ownsClient = false;
@@ -59,7 +60,15 @@ class _TalerAppState extends State<TalerApp> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _client.wakeUp();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_ownsClient) {
       _client.dispose();
     }

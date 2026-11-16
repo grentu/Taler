@@ -84,8 +84,8 @@ abstract class TalerFraming {
 
     final ver = view.getUint8(0);
     final cmd = view.getUint8(1);
-    final seq = view.getInt16(2, Endian.big);
-    final opcode = view.getInt16(4, Endian.big);
+    final seq = view.getUint16(2, Endian.big);
+    final opcode = view.getUint16(4, Endian.big);
     final compressionRatio = view.getUint8(6);
     final length =
         (view.getUint8(7) << 16) | (view.getUint8(8) << 8) | view.getUint8(9);

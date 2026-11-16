@@ -1,3 +1,9 @@
+String _firstSymbol(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+  return String.fromCharCode(trimmed.runes.first).toUpperCase();
+}
+
 /// Модели данных клиента Taler.
 class TalerUserProfile {
   final int id;
@@ -23,10 +29,8 @@ class TalerUserProfile {
   }
 
   String get initials {
-    final f = firstName.isNotEmpty ? firstName.substring(0, 1).toUpperCase() : '';
-    final l = (lastName != null && lastName!.isNotEmpty)
-        ? lastName!.substring(0, 1).toUpperCase()
-        : '';
+    final f = _firstSymbol(firstName);
+    final l = lastName == null ? '' : _firstSymbol(lastName!);
     return '$f$l'.isEmpty ? 'T' : '$f$l';
   }
 
@@ -132,11 +136,14 @@ class TalerContact {
   }
 
   String get initials {
-    final parts = displayName.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts.first.substring(0, 1)}${parts[1].substring(0, 1)}'
-        .toUpperCase();
+    final parts = displayName.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      final s = _firstSymbol(parts.first);
+      return s.isEmpty ? '?' : s;
+    }
+    final res = '${_firstSymbol(parts[0])}${_firstSymbol(parts[1])}';
+    return res.isEmpty ? '?' : res;
   }
 
   TalerContact copyWith({
@@ -426,6 +433,7 @@ class TalerMessage {
   final List<TalerReactionCounter> reactions;
   final bool isControl;
   final String? forwardedFromName;
+  final int? cid;
 
   const TalerMessage({
     required this.id,
@@ -442,6 +450,7 @@ class TalerMessage {
     this.reactions = const [],
     this.isControl = false,
     this.forwardedFromName,
+    this.cid,
   });
 
   bool get isEdited => editHistory.isNotEmpty || status == 'edited';
@@ -461,6 +470,7 @@ class TalerMessage {
     List<TalerReactionCounter>? reactions,
     bool? isControl,
     String? forwardedFromName,
+    int? cid,
   }) {
     return TalerMessage(
       id: id ?? this.id,
@@ -477,6 +487,7 @@ class TalerMessage {
       reactions: reactions ?? this.reactions,
       isControl: isControl ?? this.isControl,
       forwardedFromName: forwardedFromName ?? this.forwardedFromName,
+      cid: cid ?? this.cid,
     );
   }
 
@@ -495,6 +506,7 @@ class TalerMessage {
         'reactions': reactions.map((r) => r.toJson()).toList(),
         'isControl': isControl,
         'forwardedFromName': forwardedFromName,
+        'cid': cid,
       };
 
   factory TalerMessage.fromJson(Map<String, dynamic> json) {
@@ -533,6 +545,7 @@ class TalerMessage {
           const [],
       isControl: json['isControl'] as bool? ?? false,
       forwardedFromName: json['forwardedFromName'] as String?,
+      cid: (json['cid'] as num?)?.toInt(),
     );
   }
 }
@@ -555,6 +568,7 @@ class TalerChat {
   final int participantsCount;
   final bool isOfficial;
   final String? typingLabel;
+  final int? peerReadMark;
 
   const TalerChat({
     required this.id,
@@ -574,6 +588,7 @@ class TalerChat {
     this.participantsCount = 2,
     this.isOfficial = false,
     this.typingLabel,
+    this.peerReadMark,
   });
 
   bool get isPinned => favIndex > 0;
@@ -582,11 +597,14 @@ class TalerChat {
   bool get isDialog => !isGroup && !isChannel;
 
   String get initials {
-    final parts = title.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts.first.substring(0, 1)}${parts[1].substring(0, 1)}'
-        .toUpperCase();
+    final parts = title.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      final s = _firstSymbol(parts.first);
+      return s.isEmpty ? '?' : s;
+    }
+    final res = '${_firstSymbol(parts[0])}${_firstSymbol(parts[1])}';
+    return res.isEmpty ? '?' : res;
   }
 
   TalerChat copyWith({
@@ -607,6 +625,7 @@ class TalerChat {
     bool? isOfficial,
     String? typingLabel,
     bool clearTyping = false,
+    int? peerReadMark,
   }) {
     return TalerChat(
       id: id,
@@ -627,6 +646,7 @@ class TalerChat {
       participantsCount: participantsCount ?? this.participantsCount,
       isOfficial: isOfficial ?? this.isOfficial,
       typingLabel: clearTyping ? null : (typingLabel ?? this.typingLabel),
+      peerReadMark: peerReadMark ?? this.peerReadMark,
     );
   }
 
@@ -647,6 +667,7 @@ class TalerChat {
         'isMuted': isMuted,
         'participantsCount': participantsCount,
         'isOfficial': isOfficial,
+        'peerReadMark': peerReadMark,
       };
 
   factory TalerChat.fromJson(Map<String, dynamic> json) {
@@ -668,6 +689,7 @@ class TalerChat {
       isMuted: json['isMuted'] as bool? ?? false,
       participantsCount: (json['participantsCount'] as num?)?.toInt() ?? 2,
       isOfficial: json['isOfficial'] as bool? ?? false,
+      peerReadMark: (json['peerReadMark'] as num?)?.toInt(),
     );
   }
 }

@@ -48,8 +48,10 @@ class MessageRow extends StatelessWidget {
   final String senderName;
   final String? senderAvatarUrl;
   final double maxBubbleWidth;
+  final int? peerReadMark;
   final VoidCallback onActions;
   final VoidCallback? onShowHistory;
+  final VoidCallback? onRetry;
   final ValueChanged<String> onToggleReaction;
 
   const MessageRow({
@@ -63,8 +65,10 @@ class MessageRow extends StatelessWidget {
     required this.maxBubbleWidth,
     required this.onActions,
     required this.onToggleReaction,
+    this.peerReadMark,
     this.senderAvatarUrl,
     this.onShowHistory,
+    this.onRetry,
   });
 
   @override
@@ -75,6 +79,7 @@ class MessageRow extends StatelessWidget {
     }
     final bubble = GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onTap: message.status == 'error' ? onActions : null,
       onLongPress: onActions,
       onSecondaryTap: onActions,
       child: MessageBubble(
@@ -84,7 +89,9 @@ class MessageRow extends StatelessWidget {
         showName: showSender && firstInRun,
         senderName: senderName,
         maxWidth: maxBubbleWidth,
+        peerReadMark: peerReadMark,
         onShowHistory: onShowHistory,
+        onRetry: onRetry,
       ),
     );
 
@@ -141,8 +148,9 @@ class MessageRow extends StatelessWidget {
   static String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+    String firstRune(String s) => String.fromCharCode(s.runes.first).toUpperCase();
+    if (parts.length == 1) return firstRune(parts.first);
+    return '${firstRune(parts[0])}${firstRune(parts[1])}';
   }
 }
 
@@ -192,7 +200,9 @@ class MessageBubble extends StatelessWidget {
   final bool showName;
   final String senderName;
   final double maxWidth;
+  final int? peerReadMark;
   final VoidCallback? onShowHistory;
+  final VoidCallback? onRetry;
 
   const MessageBubble({
     super.key,
@@ -202,11 +212,25 @@ class MessageBubble extends StatelessWidget {
     required this.showName,
     required this.senderName,
     required this.maxWidth,
+    this.peerReadMark,
     this.onShowHistory,
+    this.onRetry,
   });
 
   static const double _big = 18;
   static const double _small = 6;
+
+  String? _resolvedStatus(TalerMessage m) {
+    if (!isMine) return null;
+    if (m.status == 'error' || m.status == 'sending' || m.status == 'pending') {
+      return m.status;
+    }
+    if (m.status == 'read' ||
+        (!m.deletedByPeer && peerReadMark != null && peerReadMark! >= m.time)) {
+      return 'read';
+    }
+    return m.status;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -227,6 +251,7 @@ class MessageBubble extends StatelessWidget {
           );
     final deleted = m.deletedByPeer;
     final out = isMine && !deleted;
+    final failed = isMine && m.status == 'error';
     final bg = out ? p.bubbleOut : p.bubbleIn;
     final fg = out ? p.bubbleOutText : p.bubbleInText;
     final metaColor = out ? p.bubbleOutText.withValues(alpha: 0.72) : p.fg3;
@@ -240,8 +265,9 @@ class MessageBubble extends StatelessWidget {
       color: metaColor,
       edited: m.isEdited,
       deleted: deleted,
-      status: isMine ? m.status : null,
+      status: _resolvedStatus(m),
       onTapEdited: onShowHistory,
+      onTapRetry: failed ? onRetry : null,
     );
 
     final children = <Widget>[];
@@ -355,7 +381,9 @@ class MessageBubble extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: radius,
-          border: out ? null : Border.all(color: p.line),
+          border: failed
+              ? Border.all(color: p.danger, width: 1.5)
+              : (out ? null : Border.all(color: p.line)),
         ),
         child: IntrinsicWidth(
           child: Column(
@@ -379,6 +407,7 @@ class MessageMeta extends StatelessWidget {
   final bool deleted;
   final String? status;
   final VoidCallback? onTapEdited;
+  final VoidCallback? onTapRetry;
 
   const MessageMeta({
     super.key,
@@ -388,14 +417,16 @@ class MessageMeta extends StatelessWidget {
     this.deleted = false,
     this.status,
     this.onTapEdited,
+    this.onTapRetry,
   });
 
   /// Примерная ширина, чтобы зарезервировать место в последней строке текста.
   double get estimatedWidth =>
-      32 + (edited ? 16 : 0) + (deleted ? 18 : 0) + (status != null ? 20 : 0);
+      36 + (edited ? 16 : 0) + (deleted ? 18 : 0) + (status != null ? 22 : 0);
 
   @override
   Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -418,13 +449,43 @@ class MessageMeta extends StatelessWidget {
         ],
         Text(ChatTokens.time(time), style: TalerTheme.monoStyle(size: 11, color: color)),
         if (status != null) ...[
-          const SizedBox(width: 3),
-          TalerIcon(
-            status == 'read' ? TalerIcons.checkCheck : TalerIcons.check,
-            size: 15,
-            color: color,
-            strokeWidth: 2,
-          ),
+          const SizedBox(width: 4),
+          if (status == 'error')
+            GestureDetector(
+              onTap: onTapRetry,
+              child: Tooltip(
+                message: 'Не отправлено · нажмите для повтора',
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: p.danger, shape: BoxShape.circle),
+                  child: const TalerIcon(
+                    TalerIcons.alertCircle,
+                    size: 11,
+                    color: Colors.white,
+                    semanticLabel: 'Не отправлено',
+                  ),
+                ),
+              ),
+            )
+          else if (status == 'sending' || status == 'pending')
+            Tooltip(
+              message: 'Отправка…',
+              child: TalerIcon(
+                TalerIcons.history,
+                size: 12,
+                color: color,
+                semanticLabel: 'Отправка',
+              ),
+            )
+          else
+            TalerIcon(
+              status == 'read' ? TalerIcons.checkCheck : TalerIcons.check,
+              size: 15,
+              color: color,
+              strokeWidth: 2,
+            ),
         ],
       ],
     );

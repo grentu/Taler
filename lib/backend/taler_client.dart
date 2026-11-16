@@ -69,8 +69,15 @@ class TalerClient extends ChangeNotifier {
   TalerConnectionState _connectionState = TalerConnectionState.disconnected;
   List<TalerActiveSession> _activeSessions = const [];
   final Map<int, Timer> _typingClearTimers = {};
+  final Map<String, String> _sendErrors = {};
+  final Map<int, bool> _chatHasMore = {};
+  final Set<int> _loadingMoreChats = {};
   List<TalerChat>? _cachedSortedChats;
   int _otpSessionEpoch = -1;
+  int _loggedInSessionEpoch = -1;
+  int _cidSeed = 0;
+  int? _activeChatId;
+  Future<void>? _loginInFlight;
   String? _lastOtpPhone;
   String? _lastTempToken;
 
@@ -91,12 +98,24 @@ class TalerClient extends ChangeNotifier {
     );
     session.onReconnected = () async {
       final token = store.authToken;
-      if (token != null && token.isNotEmpty && !_isDemoMode) {
-        await _sendLogin(token);
+      if (token != null &&
+          token.isNotEmpty &&
+          !_isDemoMode &&
+          _isAuthenticated) {
+        await _ensureLoggedInWithToken(token);
+        final activeId = _activeChatId;
+        if (activeId != null) {
+          unawaited(
+            loadHistory(activeId).catchError((_) => const <TalerMessage>[]),
+          );
+        }
       }
     };
     _connSub = session.stateStream.listen((s) {
       _connectionState = s;
+      if (s == TalerConnectionState.disconnected) {
+        _loggedInSessionEpoch = -1;
+      }
       notifyListeners();
     });
     _pushSub = session.pushStream.listen(_handleServerPush);
@@ -107,10 +126,78 @@ class TalerClient extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   TalerConnectionState get connectionState => _connectionState;
+  bool get isSessionReady =>
+      _isDemoMode ||
+      (session.isOnline && _loggedInSessionEpoch == session.sessionEpoch);
   TalerUserProfile? get currentUser => store.profile;
   List<TalerFolder> get folders => store.folders;
   List<TalerActiveSession> get activeSessions => _activeSessions;
   String? get lastTempToken => _lastTempToken;
+  String? sendErrorFor(String messageId) => _sendErrors[messageId];
+  bool canLoadMoreHistory(int chatId) => _chatHasMore[chatId] ?? true;
+  bool isLoadingMoreHistory(int chatId) => _loadingMoreChats.contains(chatId);
+
+  void setActiveChat(int? chatId) {
+    _activeChatId = chatId;
+  }
+
+  void clearActiveChat(int chatId) {
+    if (_activeChatId == chatId) {
+      _activeChatId = null;
+    }
+  }
+
+  void wakeUp() {
+    if (_isDemoMode || !_isAuthenticated) return;
+    if (Platform.environment['FLUTTER_TEST'] == 'true') return;
+    session.wakeUp();
+    final token = store.authToken;
+    if (token != null &&
+        token.isNotEmpty &&
+        session.isOnline &&
+        _loggedInSessionEpoch != session.sessionEpoch) {
+      unawaited(
+        _ensureLoggedInWithToken(token).catchError((_) {}),
+      );
+    }
+  }
+
+  int _nextCid() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now <= _cidSeed) {
+      _cidSeed++;
+    } else {
+      _cidSeed = now;
+    }
+    return -_cidSeed;
+  }
+
+  Future<void> _ensureLoggedInWithToken(String token) {
+    if (_loggedInSessionEpoch == session.sessionEpoch && session.isOnline) {
+      return Future<void>.value();
+    }
+    final inFlight = _loginInFlight;
+    if (inFlight != null) return inFlight;
+    final run = _sendLogin(token);
+    _loginInFlight = run;
+    return run.whenComplete(() {
+      if (identical(_loginInFlight, run)) _loginInFlight = null;
+    });
+  }
+
+  /// Гарантирует, что сокет онлайн и авторизация по токену (`Opcode.login`) завершена.
+  Future<void> ensureReady() async {
+    if (_isDemoMode) return;
+    if (!session.isOnline) {
+      await session.connect(enableReconnect: true);
+    }
+    final token = store.authToken;
+    if (token != null &&
+        token.isNotEmpty &&
+        _loggedInSessionEpoch != session.sessionEpoch) {
+      await _ensureLoggedInWithToken(token);
+    }
+  }
 
   @override
   void notifyListeners() {
@@ -240,6 +327,7 @@ class TalerClient extends ChangeNotifier {
       if (e.isSessionExpired) {
         _errorMessage = 'Сессия истекла. Войдите заново.';
         _isAuthenticated = false;
+        _loggedInSessionEpoch = -1;
         await store.clearAccountData();
         notifyListeners();
       }
@@ -488,9 +576,15 @@ class TalerClient extends ChangeNotifier {
     try {
       _isDemoMode = false;
       await _ensureSessionOnline();
-      await _sendLogin(token.trim());
+      await _ensureLoggedInWithToken(token.trim());
       _isAuthenticated = true;
       notifyListeners();
+      final activeId = _activeChatId;
+      if (activeId != null) {
+        unawaited(
+          loadHistory(activeId).catchError((_) => const <TalerMessage>[]),
+        );
+      }
     } finally {
       _setBusy(false);
     }
@@ -507,7 +601,7 @@ class TalerClient extends ChangeNotifier {
       await store.saveProfile(p);
       await store.saveCredentials(loginToken, p.id);
     }
-    await _sendLogin(loginToken);
+    await _ensureLoggedInWithToken(loginToken);
     _isDemoMode = false;
     _isAuthenticated = true;
     notifyListeners();
@@ -532,6 +626,7 @@ class TalerClient extends ChangeNotifier {
     }
 
     final packet = await session.request(Opcode.login, payload);
+    _loggedInSessionEpoch = session.sessionEpoch;
     final data = packet.payloadAsMap ?? const {};
 
     final updatedToken = data['token'] as String? ?? token;
@@ -702,6 +797,19 @@ class TalerClient extends ChangeNotifier {
     }
 
     final existing = store.chats[id];
+    int? peerReadMark = existing?.peerReadMark;
+    if (participants is Map) {
+      for (final entry in participants.entries) {
+        final uid = int.tryParse(entry.key.toString());
+        final mark = (entry.value as num?)?.toInt();
+        if (uid != null && uid != accountId && mark != null && mark > 0) {
+          if (peerReadMark == null || mark > peerReadMark) {
+            peerReadMark = mark;
+          }
+        }
+      }
+    }
+
     return TalerChat(
       id: id,
       type: type,
@@ -722,6 +830,7 @@ class TalerClient extends ChangeNotifier {
       participantsCount: (map['participantsCount'] as num?)?.toInt() ??
           (participants is Map ? participants.length : 2),
       isOfficial: isOfficial,
+      peerReadMark: peerReadMark,
     );
   }
 
@@ -796,7 +905,7 @@ class TalerClient extends ChangeNotifier {
 
   /// Загружает историю сообщений чата (`Opcode.chatHistory`).
   Future<List<TalerMessage>> loadHistory(int chatId, {int count = 50}) async {
-    if (_isDemoMode || !session.isOnline) {
+    if (_isDemoMode || !isSessionReady) {
       return store.getMessages(chatId);
     }
 
@@ -818,11 +927,112 @@ class TalerClient extends ChangeNotifier {
     }
 
     await store.saveMessagesBatch(chatId, parsed);
+    _chatHasMore[chatId] = rawMsgs.length >= count;
+
+    if (parsed.isNotEmpty) {
+      await _reconcileDeletedFromFetch(chatId, parsed);
+    }
+
+    final serverChat = data?['chat'];
+    if (serverChat is Map) {
+      final accountId = currentUser?.id ?? store.accountId ?? 0;
+      final parsedChat = _parseServerChat(serverChat, accountId: accountId);
+      if (parsedChat != null) {
+        await store.saveChats([parsedChat]);
+      }
+    }
+
     notifyListeners();
     return store.getMessages(chatId);
   }
 
-  TalerMessage? _parseServerMessage(Map<dynamic, dynamic> m, int chatId) {
+  /// Догружает более старые сообщения при прокрутке ленты вверх.
+  Future<int> loadMoreHistory(int chatId, {int count = 50}) async {
+    if (_isDemoMode || !isSessionReady) return 0;
+    if (!canLoadMoreHistory(chatId) || _loadingMoreChats.contains(chatId)) {
+      return 0;
+    }
+    final existing = store.getMessages(chatId);
+    if (existing.isEmpty) return 0;
+
+    _loadingMoreChats.add(chatId);
+    try {
+      final oldestTime = existing.first.time;
+      final packet = await session.request(Opcode.chatHistory, {
+        'chatId': chatId,
+        'from': oldestTime > 0 ? oldestTime - 1 : 0,
+        'forward': 0,
+        'backward': count,
+        'getMessages': true,
+      });
+      final data = packet.payloadAsMap;
+      final rawMsgs = data?['messages'];
+      if (rawMsgs is! List || rawMsgs.isEmpty) {
+        _chatHasMore[chatId] = false;
+        return 0;
+      }
+
+      final beforeCount = store.getMessages(chatId).length;
+      final parsed = <TalerMessage>[];
+      for (final m in rawMsgs.whereType<Map>()) {
+        final msg = _parseServerMessage(m, chatId);
+        if (msg != null) parsed.add(msg);
+      }
+
+      if (parsed.isNotEmpty) {
+        await store.saveMessagesBatch(chatId, parsed);
+        await _reconcileDeletedFromFetch(chatId, parsed);
+      }
+      _chatHasMore[chatId] = rawMsgs.length >= count;
+      final added = store.getMessages(chatId).length - beforeCount;
+      notifyListeners();
+      return added;
+    } catch (_) {
+      return 0;
+    } finally {
+      _loadingMoreChats.remove(chatId);
+    }
+  }
+
+  Future<void> _reconcileDeletedFromFetch(
+    int chatId,
+    List<TalerMessage> serverMessages,
+  ) async {
+    if (serverMessages.isEmpty) return;
+    final serverIds = <String>{};
+    var minTime = serverMessages.first.time;
+    var maxTime = serverMessages.first.time;
+    for (final m in serverMessages) {
+      serverIds.add(m.id);
+      if (m.time < minTime) minTime = m.time;
+      if (m.time > maxTime) maxTime = m.time;
+    }
+
+    final cached = store.getMessages(chatId);
+    final missing = <String>[];
+    for (final m in cached) {
+      if (m.id.startsWith('temp_')) continue;
+      if (m.status == 'sending' || m.status == 'pending' || m.status == 'error') {
+        continue;
+      }
+      if (m.deletedByPeer) continue;
+      if (m.time < minTime || m.time > maxTime) continue;
+      if (!serverIds.contains(m.id)) {
+        missing.add(m.id);
+      }
+    }
+
+    if (missing.isNotEmpty) {
+      await _applyDeletedMessages(chatId, missing, recordAudit: true);
+    }
+  }
+
+  TalerMessage? _parseServerMessage(
+    Map<dynamic, dynamic> m,
+    int chatId, {
+    int? fallbackSenderId,
+    int? fallbackCid,
+  }) {
     final id = m['id']?.toString();
     if (id == null || id.isEmpty) return null;
 
@@ -845,12 +1055,32 @@ class TalerClient extends ChangeNotifier {
       final linkedMsg = link['message'];
       if (lType == 'REPLY' && linkedMsg is Map) {
         final sender = (linkedMsg['sender'] as num?)?.toInt() ?? 0;
+        var replyText = linkedMsg['text']?.toString();
+        if ((replyText == null || replyText.isEmpty) &&
+            linkedMsg['attaches'] is List &&
+            (linkedMsg['attaches'] as List).isNotEmpty) {
+          replyText = '[Вложение]';
+        }
         replyTo = TalerReplyPreview(
           messageId: linkedMsg['id']?.toString(),
           senderId: sender,
           senderName: senderDisplayName(sender, chatId: chatId),
-          text: linkedMsg['text']?.toString(),
+          text: replyText,
         );
+      } else if (lType == 'REPLY' && link['messageId'] != null) {
+        final targetId = link['messageId'].toString();
+        final cached = store
+            .getMessages(chatId)
+            .where((item) => item.id == targetId)
+            .firstOrNull;
+        if (cached != null) {
+          replyTo = TalerReplyPreview(
+            messageId: cached.id,
+            senderId: cached.senderId,
+            senderName: senderDisplayName(cached.senderId, chatId: chatId),
+            text: cached.text.isNotEmpty ? cached.text : '[Вложение]',
+          );
+        }
       } else if (lType == 'FORWARD' && linkedMsg is Map) {
         final sender = (linkedMsg['sender'] as num?)?.toInt() ?? 0;
         forwardedFrom = link['chatName']?.toString() ??
@@ -880,19 +1110,29 @@ class TalerClient extends ChangeNotifier {
       }
     }
 
+    final rawStatus = m['status']?.toString().toUpperCase();
+    final isRemoved = rawStatus == 'REMOVED';
+    final rawSender = (m['sender'] as num?)?.toInt();
+    final senderId =
+        (rawSender != null && rawSender != 0) ? rawSender : (fallbackSenderId ?? 0);
+    final cid = (m['cid'] as num?)?.toInt() ?? fallbackCid;
+
     return TalerMessage(
       id: id,
       chatId: chatId,
-      senderId: (m['sender'] as num?)?.toInt() ?? 0,
+      senderId: senderId,
       text: m['text']?.toString() ?? '',
       time: (m['time'] as num?)?.toInt() ??
           DateTime.now().millisecondsSinceEpoch,
-      status: m['status']?.toString().toLowerCase() ?? 'sent',
+      status: rawStatus?.toLowerCase() ?? 'sent',
+      deletedByPeer: isRemoved,
+      deletedAt: isRemoved ? DateTime.now().millisecondsSinceEpoch : null,
       replyTo: replyTo,
       attachments: attaches,
       reactions: reactions,
       isControl: isControl,
       forwardedFromName: forwardedFrom,
+      cid: cid,
     );
   }
 
@@ -955,6 +1195,27 @@ class TalerClient extends ChangeNotifier {
     );
   }
 
+  Future<TalerPacket> _sendWithNotReadyRetry(
+    Map<String, dynamic> payload, {
+    int maxAttempts = 4,
+    Duration retryDelay = const Duration(milliseconds: 600),
+  }) async {
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        return await session.request(Opcode.msgSend, payload);
+      } on TalerPacketException catch (e) {
+        final code = (e.code ?? '').toLowerCase();
+        final msg = e.message.toLowerCase();
+        final isNotReady = code.contains('not.ready') || msg.contains('not.ready');
+        if (!isNotReady || attempt == maxAttempts - 1) {
+          rethrow;
+        }
+        await Future<void>.delayed(retryDelay);
+      }
+    }
+    throw const TalerPacketException('Превышено число попыток отправки');
+  }
+
   /// Отправляет текстовое сообщение (`Opcode.msgSend`).
   Future<void> sendMessage(
     int chatId,
@@ -964,7 +1225,8 @@ class TalerClient extends ChangeNotifier {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final cid = _nextCid();
+    final now = -cid;
     final tempId = 'temp_$now';
     final myId = currentUser?.id ?? 1;
 
@@ -975,6 +1237,7 @@ class TalerClient extends ChangeNotifier {
       text: trimmed,
       time: now,
       status: _isDemoMode ? 'sent' : 'sending',
+      cid: cid,
       replyTo: replyTo == null
           ? null
           : TalerReplyPreview(
@@ -1017,7 +1280,7 @@ class TalerClient extends ChangeNotifier {
 
     final messageMap = <String, dynamic>{
       'text': trimmed,
-      'cid': -now,
+      'cid': cid,
       'elements': const <dynamic>[],
       'attaches': const <dynamic>[],
     };
@@ -1032,22 +1295,77 @@ class TalerClient extends ChangeNotifier {
       }
     }
 
-    final packet = await session.request(Opcode.msgSend, {
-      'chatId': chatId,
-      'message': messageMap,
-      'notify': true,
-    });
-    final data = packet.payloadAsMap;
-    final msgObj = data?['message'];
-    if (msgObj is Map) {
-      final confirmed = _parseServerMessage(msgObj, chatId) ??
-          optimistic.copyWith(
-            id: msgObj['id']?.toString() ?? tempId,
-            status: 'sent',
-          );
+    try {
+      await ensureReady();
+      final packet = await _sendWithNotReadyRetry({
+        'chatId': chatId,
+        'message': messageMap,
+        'notify': true,
+      });
+      final data = packet.payloadAsMap;
+      final msgObj = data?['message'];
+      final TalerMessage confirmed;
+      if (msgObj is Map) {
+        confirmed = _parseServerMessage(
+              msgObj,
+              chatId,
+              fallbackSenderId: myId,
+              fallbackCid: cid,
+            ) ??
+            optimistic.copyWith(
+              id: msgObj['id']?.toString() ?? tempId,
+              status: 'sent',
+            );
+      } else {
+        confirmed = optimistic.copyWith(status: 'sent');
+      }
       await store.replaceTempMessage(chatId, tempId, confirmed);
+      _sendErrors.remove(tempId);
+      final curChat = store.chats[chatId];
+      if (curChat != null) {
+        await store.saveChats([
+          curChat.copyWith(
+            lastMessageText: trimmed,
+            lastMessageTime: confirmed.time,
+            lastMessageSenderId: confirmed.senderId,
+            lastMessageDeletedByPeer: false,
+          ),
+        ]);
+      }
       notifyListeners();
+    } catch (e) {
+      final existing = store.getMessages(chatId);
+      final stillTemp = existing.where((m) => m.id == tempId).firstOrNull;
+      if (stillTemp != null) {
+        await store.upsertMessage(
+          stillTemp.copyWith(status: 'error'),
+          trackEditHistory: false,
+        );
+        _sendErrors[tempId] = e.toString();
+        notifyListeners();
+      }
+      rethrow;
     }
+  }
+
+  /// Повторная отправка неудачного сообщения (`status == 'error'`).
+  Future<void> retrySendMessage(int chatId, String messageId) async {
+    final msgs = store.getMessages(chatId);
+    final failed = msgs.where((m) => m.id == messageId).firstOrNull;
+    if (failed == null) return;
+    if (failed.text.trim().isEmpty) return;
+
+    TalerMessage? replyTarget;
+    final replyId = failed.replyTo?.messageId;
+    if (replyId != null) {
+      replyTarget = msgs.where((m) => m.id == replyId).firstOrNull;
+    }
+
+    await store.removeMessage(chatId, messageId);
+    _sendErrors.remove(messageId);
+    notifyListeners();
+
+    await sendMessage(chatId, failed.text, replyTo: replyTarget);
   }
 
   /// Загрузка и отправка фото (`Opcode.photoUpload`) или файла (`Opcode.fileUpload`).
@@ -1060,117 +1378,156 @@ class TalerClient extends ChangeNotifier {
   }) async {
     final file = File(filePath);
     final bytes = await file.readAsBytes();
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final cid = _nextCid();
+    final now = -cid;
+    final tempId = 'temp_$now';
     final myId = currentUser?.id ?? 1;
+    final previewLabel = isImage ? '📷 Фото: $fileName' : '📎 $fileName';
 
-    if (_isDemoMode) {
-      final msg = TalerMessage(
-        id: 'demo_file_$now',
-        chatId: chatId,
-        senderId: myId,
-        text: caption?.trim() ?? '',
-        time: now,
-        status: 'sent',
-        attachments: [
-          TalerAttachment(
-            type: isImage ? 'PHOTO' : 'FILE',
-            url: filePath,
-            fileName: fileName,
-            fileSize: bytes.length,
-          ),
-        ],
-      );
-      await store.upsertMessage(msg);
-      final chat = store.chats[chatId];
-      if (chat != null) {
-        await store.saveChats([
-          chat.copyWith(
-            lastMessageText: isImage ? '📷 Фото: $fileName' : '📎 $fileName',
-            lastMessageTime: now,
-            lastMessageSenderId: myId,
-          ),
-        ]);
-      }
-      notifyListeners();
-      return;
+    final optimistic = TalerMessage(
+      id: tempId,
+      chatId: chatId,
+      senderId: myId,
+      text: caption?.trim() ?? '',
+      time: now,
+      status: _isDemoMode ? 'sent' : 'sending',
+      cid: cid,
+      attachments: [
+        TalerAttachment(
+          type: isImage ? 'PHOTO' : 'FILE',
+          url: filePath,
+          fileName: fileName,
+          fileSize: bytes.length,
+        ),
+      ],
+    );
+    await store.upsertMessage(optimistic);
+    final chat = store.chats[chatId];
+    if (chat != null) {
+      await store.saveChats([
+        chat.copyWith(
+          lastMessageText: previewLabel,
+          lastMessageTime: now,
+          lastMessageSenderId: myId,
+          lastMessageDeletedByPeer: false,
+        ),
+      ]);
     }
+    notifyListeners();
 
-    if (isImage) {
-      final urlResp = await session.request(Opcode.photoUpload, {'count': 1});
-      final uploadUrl = urlResp.payloadAsMap?['url'] as String?;
-      if (uploadUrl == null || uploadUrl.isEmpty) {
-        throw const TalerPacketException('Не получен URL для загрузки фото');
-      }
-      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-        ..files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-        );
-      final streamed = await req.send();
-      final body = await streamed.stream.bytesToString();
-      final tokenMatch = RegExp(r'"token"\s*:\s*"([^"]+)"').firstMatch(body);
-      final photoToken = tokenMatch?.group(1);
-      if (photoToken == null) {
-        throw const TalerPacketException('Сервер не вернул photoToken');
-      }
+    if (_isDemoMode) return;
 
-      final sendResp = await session.request(Opcode.msgSend, {
-        'chatId': chatId,
-        'message': {
-          'cid': -now,
-          if (caption != null && caption.trim().isNotEmpty)
-            'text': caption.trim(),
-          'attaches': [
-            {'_type': 'PHOTO', 'photoToken': photoToken},
-          ],
-        },
-        'notify': true,
-      });
-      final msgMap = sendResp.payloadAsMap?['message'];
-      if (msgMap is Map) {
-        final parsed = _parseServerMessage(msgMap, chatId);
-        if (parsed != null) {
-          await store.upsertMessage(parsed);
-          notifyListeners();
+    try {
+      await ensureReady();
+
+      final Map<String, dynamic> sendPayload;
+      if (isImage) {
+        final urlResp = await session.request(Opcode.photoUpload, {'count': 1});
+        final uploadUrl = urlResp.payloadAsMap?['url'] as String?;
+        if (uploadUrl == null || uploadUrl.isEmpty) {
+          throw const TalerPacketException('Не получен URL для загрузки фото');
         }
-      }
-    } else {
-      final urlResp = await session.request(Opcode.fileUpload, {'count': 1});
-      final infoList = urlResp.payloadAsMap?['info'] as List?;
-      final first =
-          infoList != null && infoList.isNotEmpty && infoList.first is Map
-              ? infoList.first as Map
-              : null;
-      final uploadUrl = first?['url'] as String?;
-      final fileToken = first?['token'] as String?;
-      final fileId = (first?['fileId'] as num?)?.toInt();
-      if (uploadUrl == null || fileToken == null) {
-        throw const TalerPacketException('Не получен URL для загрузки файла');
-      }
-      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-        ..files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-        );
-      await req.send();
-
-      final sendResp = await session.request(Opcode.msgSend, {
-        'chatId': chatId,
-        'message': {
-          'cid': now,
-          'elements': const <dynamic>[],
-          'attaches': [
-            {'_type': 'FILE', 'token': fileToken, 'fileId': ?fileId},
-          ],
-        },
-        'notify': true,
-      });
-      final msgMap = sendResp.payloadAsMap?['message'];
-      if (msgMap is Map) {
-        final parsed = _parseServerMessage(msgMap, chatId);
-        if (parsed != null) {
-          await store.upsertMessage(parsed);
-          notifyListeners();
+        final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+          ..files.add(
+            http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+          );
+        final streamed = await req.send();
+        final body = await streamed.stream.bytesToString();
+        if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+          throw TalerPacketException(
+            'Ошибка HTTP при загрузке фото (${streamed.statusCode})',
+          );
         }
+        final tokenMatch = RegExp(r'"token"\s*:\s*"([^"]+)"').firstMatch(body);
+        final photoToken = tokenMatch?.group(1);
+        if (photoToken == null || photoToken.isEmpty) {
+          throw const TalerPacketException('Сервер не вернул photoToken');
+        }
+
+        sendPayload = {
+          'chatId': chatId,
+          'message': {
+            'cid': cid,
+            if (caption != null && caption.trim().isNotEmpty)
+              'text': caption.trim(),
+            'attaches': [
+              {'_type': 'PHOTO', 'photoToken': photoToken},
+            ],
+          },
+          'notify': true,
+        };
+      } else {
+        final urlResp = await session.request(Opcode.fileUpload, {'count': 1});
+        final infoList = urlResp.payloadAsMap?['info'] as List?;
+        final first =
+            infoList != null && infoList.isNotEmpty && infoList.first is Map
+                ? infoList.first as Map
+                : null;
+        final uploadUrl = first?['url'] as String?;
+        final fileToken = first?['token'] as String?;
+        final fileId = (first?['fileId'] as num?)?.toInt();
+        if (uploadUrl == null || fileToken == null) {
+          throw const TalerPacketException('Не получен URL для загрузки файла');
+        }
+        final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+          ..files.add(
+            http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+          );
+        final streamed = await req.send();
+        await streamed.stream.drain<void>();
+        if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+          throw TalerPacketException(
+            'Ошибка HTTP при загрузке файла (${streamed.statusCode})',
+          );
+        }
+
+        sendPayload = {
+          'chatId': chatId,
+          'message': {
+            'cid': now,
+            'elements': const <dynamic>[],
+            'attaches': [
+              {
+                '_type': 'FILE',
+                'token': fileToken,
+                'fileId': ?fileId,
+              },
+            ],
+          },
+          'notify': true,
+        };
       }
+
+      final sendResp = await _sendWithNotReadyRetry(
+        sendPayload,
+        maxAttempts: 15,
+        retryDelay: const Duration(seconds: 1),
+      );
+      final msgMap = sendResp.payloadAsMap?['message'];
+      final confirmed = msgMap is Map
+          ? (_parseServerMessage(
+                msgMap,
+                chatId,
+                fallbackSenderId: myId,
+                fallbackCid: cid,
+              ) ??
+              optimistic.copyWith(status: 'sent'))
+          : optimistic.copyWith(status: 'sent');
+      await store.replaceTempMessage(chatId, tempId, confirmed);
+      _sendErrors.remove(tempId);
+      notifyListeners();
+    } catch (e) {
+      final existing = store.getMessages(chatId);
+      final stillTemp = existing.where((m) => m.id == tempId).firstOrNull;
+      if (stillTemp != null) {
+        await store.upsertMessage(
+          stillTemp.copyWith(status: 'error'),
+          trackEditHistory: false,
+        );
+        _sendErrors[tempId] = e.toString();
+        notifyListeners();
+      }
+      rethrow;
     }
   }
 
@@ -1184,20 +1541,30 @@ class TalerClient extends ChangeNotifier {
     if (trimmed.isEmpty) return;
     final list = store.getMessages(chatId);
     final idx = list.indexWhere((m) => m.id == messageId);
-    if (idx >= 0) {
-      await store.upsertMessage(list[idx].copyWith(text: trimmed));
+    final previous = idx >= 0 ? list[idx] : null;
+    if (previous != null) {
+      await store.upsertMessage(previous.copyWith(text: trimmed));
       notifyListeners();
     }
 
-    if (!_isDemoMode && session.isOnline) {
+    if (!_isDemoMode) {
       final mid = int.tryParse(messageId);
       if (mid != null) {
-        await session.request(Opcode.msgEdit, {
-          'messageId': mid,
-          'chatId': chatId,
-          'elements': const <dynamic>[],
-          'text': trimmed,
-        });
+        try {
+          await ensureReady();
+          await session.request(Opcode.msgEdit, {
+            'messageId': mid,
+            'chatId': chatId,
+            'elements': const <dynamic>[],
+            'text': trimmed,
+          });
+        } catch (_) {
+          if (previous != null) {
+            await store.upsertMessage(previous, trackEditHistory: false);
+            notifyListeners();
+          }
+          rethrow;
+        }
       }
     }
   }
@@ -1208,22 +1575,31 @@ class TalerClient extends ChangeNotifier {
     String messageId, {
     bool forEveryone = false,
   }) async {
-    await store.markMessagesDeletedByPeer(
-      chatId,
-      [messageId],
-      antiDeleteEnabled: false,
-    );
+    final prevList = store.getMessages(chatId);
+    final previous = prevList.where((m) => m.id == messageId).firstOrNull;
+
+    await store.removeMessage(chatId, messageId);
+    _sendErrors.remove(messageId);
     notifyListeners();
 
-    if (!_isDemoMode && session.isOnline) {
+    if (!_isDemoMode) {
       final mid = int.tryParse(messageId);
       if (mid != null) {
-        await session.request(Opcode.msgDelete, {
-          'messageIds': [mid],
-          'chatId': chatId,
-          'forMe': !forEveryone,
-          'itemType': 'REGULAR',
-        });
+        try {
+          await ensureReady();
+          await session.request(Opcode.msgDelete, {
+            'messageIds': [mid],
+            'chatId': chatId,
+            'forMe': !forEveryone,
+            'itemType': 'REGULAR',
+          });
+        } catch (_) {
+          if (previous != null) {
+            await store.upsertMessage(previous, trackEditHistory: false);
+            notifyListeners();
+          }
+          rethrow;
+        }
       }
     }
   }
@@ -1306,20 +1682,27 @@ class TalerClient extends ChangeNotifier {
     );
     notifyListeners();
 
-    if (!_isDemoMode && session.isOnline) {
+    if (!_isDemoMode) {
       final mid = int.tryParse(messageId);
       if (mid != null) {
-        if (removeCurrent) {
-          await session.request(Opcode.msgCancelReaction, {
-            'chatId': chatId,
-            'messageId': mid,
-          });
-        } else {
-          await session.request(Opcode.msgReaction, {
-            'chatId': chatId,
-            'messageId': mid,
-            'reaction': {'reactionType': 'EMOJI', 'id': emoji},
-          });
+        try {
+          await ensureReady();
+          if (removeCurrent) {
+            await session.request(Opcode.msgCancelReaction, {
+              'chatId': chatId,
+              'messageId': mid,
+            });
+          } else {
+            await session.request(Opcode.msgReaction, {
+              'chatId': chatId,
+              'messageId': mid,
+              'reaction': {'reactionType': 'EMOJI', 'id': emoji},
+            });
+          }
+        } catch (_) {
+          await store.upsertMessage(target, trackEditHistory: false);
+          notifyListeners();
+          rethrow;
         }
       }
     }
@@ -1413,6 +1796,29 @@ class TalerClient extends ChangeNotifier {
     await session.request(Opcode.debug, {'probe': 'telemetry_audit'});
   }
 
+  Future<void> _ensureChatLoaded(int chatId) async {
+    if (store.chats[chatId] != null || _isDemoMode || !session.isOnline) {
+      return;
+    }
+    try {
+      final packet = await session.request(Opcode.chatInfo, {
+        'chatIds': [chatId],
+      });
+      final chats = packet.payloadAsMap?['chats'];
+      if (chats is List && chats.isNotEmpty && chats.first is Map) {
+        final accountId = currentUser?.id ?? store.accountId ?? 0;
+        final parsed = _parseServerChat(
+          chats.first as Map,
+          accountId: accountId,
+        );
+        if (parsed != null) {
+          await store.saveChats([parsed]);
+          _resolveDialogPeers();
+        }
+      }
+    } catch (_) {}
+  }
+
   void _handleServerPush(TalerPacket packet) {
     final data = packet.payloadAsMap;
     if (data == null) return;
@@ -1421,30 +1827,99 @@ class TalerClient extends ChangeNotifier {
       case Opcode.notifMessage:
         final chatId = (data['chatId'] as num?)?.toInt();
         final msgMap = data['message'];
-        if (chatId != null && msgMap is Map) {
-          final parsed = _parseServerMessage(msgMap, chatId);
-          if (parsed != null) {
-            unawaited(_applyIncomingMessage(chatId, parsed));
-          }
-        }
+        if (chatId == null || msgMap is! Map) return;
+        final msgLink = msgMap['link'];
+        final isComment = data['postId'] is String ||
+            msgMap['postId'] is String ||
+            (msgLink is Map && msgLink['postId'] is String);
+        if (isComment) return;
+        final unread = (data['unread'] as num?)?.toInt();
+        unawaited(_onNotifMessage(chatId, msgMap, unread));
+
       case Opcode.notifMsgDelete:
       case Opcode.notifMsgDeleteRange:
-        final chatId = (data['chatId'] as num?)?.toInt();
+        final chatMap = data['chat'];
+        final chatId =
+            (chatMap is Map ? (chatMap['id'] as num?)?.toInt() : null) ??
+                (data['chatId'] as num?)?.toInt();
+        if (chatId == null) return;
+        final unread = (data['unread'] as num?)?.toInt();
+        if (chatMap is Map) {
+          final accountId = currentUser?.id ?? store.accountId ?? 0;
+          final parsed = _parseServerChat(chatMap, accountId: accountId);
+          if (parsed != null) {
+            unawaited(store.saveChats([parsed]));
+          }
+        }
         final idsRaw = data['messageIds'];
-        if (chatId != null && idsRaw is List) {
+        if (idsRaw is List && idsRaw.isNotEmpty) {
           final ids = idsRaw.map((e) => e.toString()).toList();
-          unawaited(() async {
-            await store.markMessagesDeletedByPeer(
+          unawaited(
+            _applyDeletedMessages(
               chatId,
               ids,
-              antiDeleteEnabled: privacySettings.antiDelete,
-            );
-            notifyListeners();
-          }());
+              unreadFromPayload: unread,
+              recordAudit: true,
+            ),
+          );
+        } else {
+          final startTime =
+              ((data['startTime'] ?? data['fromTime']) as num?)?.toInt();
+          final endTime =
+              ((data['endTime'] ?? data['toTime']) as num?)?.toInt();
+          if (startTime != null && endTime != null) {
+            unawaited(() async {
+              final affected = await store.markMessagesDeletedByTimeRange(
+                chatId,
+                startTime: startTime,
+                endTime: endTime,
+                antiDeleteEnabled: privacySettings.antiDelete,
+              );
+              if (affected > 0 && privacySettings.antiDelete) {
+                _recordAntiDeleteAudit(chatId, '$startTime..$endTime');
+              }
+              notifyListeners();
+            }());
+          }
         }
+
+      case Opcode.notifMsgReactionsChanged:
+      case Opcode.notifMsgYouReacted:
+        final chatId = (data['chatId'] as num?)?.toInt();
+        final messageId = data['messageId']?.toString();
+        if (chatId != null && messageId != null && messageId.isNotEmpty) {
+          unawaited(_applyReactionPush(chatId, messageId, data));
+        }
+
+      case Opcode.notifChat:
+        final chatMap = data['chat'];
+        if (chatMap is Map) {
+          final accountId = currentUser?.id ?? store.accountId ?? 0;
+          final parsed = _parseServerChat(chatMap, accountId: accountId);
+          if (parsed != null) {
+            unawaited(() async {
+              await store.saveChats([parsed]);
+              _resolveDialogPeers();
+              notifyListeners();
+            }());
+          }
+        }
+
+      case Opcode.notifContact:
+        final contactMap = data['contact'];
+        if (contactMap is Map) {
+          final contact = TalerContact.fromServerMap(contactMap);
+          if (contact.id != 0) {
+            unawaited(() async {
+              await store.saveContacts([contact]);
+              notifyListeners();
+            }());
+          }
+        }
+
       case Opcode.notifTyping:
         final chatId = (data['chatId'] as num?)?.toInt();
-        final userId = (data['user'] as num?)?.toInt();
+        final userId = ((data['user'] ?? data['userId']) as num?)?.toInt();
         if (chatId != null) {
           final name = userId != null
               ? senderDisplayName(userId, chatId: chatId)
@@ -1465,41 +1940,239 @@ class TalerClient extends ChangeNotifier {
             });
           }
         }
+
       case Opcode.notifPresence:
         final presence = data['presence'];
+        final userId = (data['userId'] as num?)?.toInt();
         if (presence is Map) {
-          unawaited(_applyPresencePush(presence));
+          if (userId != null) {
+            unawaited(_applyPresencePush({userId: presence}));
+          } else {
+            unawaited(_applyPresencePush(presence));
+          }
         }
+
       case Opcode.notifMark:
         final chatId = (data['chatId'] as num?)?.toInt();
+        if (chatId == null) return;
+        final chat = store.chats[chatId];
+        if (chat == null) return;
         final unread = (data['unread'] as num?)?.toInt();
-        if (chatId != null && unread != null) {
-          final chat = store.chats[chatId];
-          if (chat != null) {
-            unawaited(store.saveChats([chat.copyWith(unreadCount: unread)]));
+        final userId = (data['userId'] as num?)?.toInt();
+        final mark = (data['mark'] as num?)?.toInt();
+        final setAsUnread = data['setAsUnread'] == true;
+
+        var nextChat = chat;
+        var changed = false;
+        if (unread != null && unread != nextChat.unreadCount) {
+          nextChat = nextChat.copyWith(unreadCount: unread);
+          changed = true;
+        }
+        if (!setAsUnread &&
+            userId != null &&
+            userId != currentUser?.id &&
+            mark != null &&
+            mark > (nextChat.peerReadMark ?? 0)) {
+          nextChat = nextChat.copyWith(peerReadMark: mark);
+          changed = true;
+        }
+        if (changed) {
+          unawaited(() async {
+            await store.saveChats([nextChat]);
             notifyListeners();
-          }
+          }());
         }
     }
   }
 
-  Future<void> _applyIncomingMessage(int chatId, TalerMessage msg) async {
-    await store.upsertMessage(msg);
+  Future<void> _onNotifMessage(
+    int chatId,
+    Map<dynamic, dynamic> msgMap,
+    int? unreadFromPayload,
+  ) async {
+    await _ensureChatLoaded(chatId);
+
+    final rawStatus = msgMap['status']?.toString().toUpperCase();
+    final msgId = msgMap['id']?.toString();
+    if (msgId == null || msgId.isEmpty) return;
+
+    if (rawStatus == 'REMOVED') {
+      await _applyDeletedMessages(
+        chatId,
+        [msgId],
+        unreadFromPayload: unreadFromPayload,
+        recordAudit: true,
+      );
+      return;
+    }
+
+    final parsed = _parseServerMessage(msgMap, chatId);
+    if (parsed == null) return;
+
+    if (parsed.senderId > 0 &&
+        parsed.senderId != currentUser?.id &&
+        store.contacts[parsed.senderId] == null) {
+      unawaited(resolveContacts([parsed.senderId]));
+    }
+
+    await _applyIncomingMessage(
+      chatId,
+      parsed,
+      isEditedPush: rawStatus == 'EDITED',
+      unreadFromPayload: unreadFromPayload,
+    );
+  }
+
+  Future<void> _applyDeletedMessages(
+    int chatId,
+    List<String> ids, {
+    int? unreadFromPayload,
+    bool recordAudit = false,
+  }) async {
+    if (ids.isEmpty) return;
+    final affected = await store.markMessagesDeletedByPeer(
+      chatId,
+      ids,
+      antiDeleteEnabled: privacySettings.antiDelete,
+    );
+    var chat = store.chats[chatId];
+    if (chat != null && unreadFromPayload != null) {
+      chat = chat.copyWith(unreadCount: unreadFromPayload);
+      await store.saveChats([chat]);
+    }
+    if (recordAudit && affected > 0 && privacySettings.antiDelete) {
+      _recordAntiDeleteAudit(chatId, ids.join(', '));
+    }
+    notifyListeners();
+  }
+
+  void _recordAntiDeleteAudit(int chatId, String target) {
+    auditLog.record(
+      WireAuditEntry(
+        timestamp: DateTime.now(),
+        direction: PacketDirection.incoming,
+        opcode: Opcode.notifMsgDelete,
+        opcodeName: Opcode.name(Opcode.notifMsgDelete),
+        seq: 0,
+        verdict: AuditVerdict.allowed,
+        summary: 'Anti-Delete: перехвачено удаление #$target в чате #$chatId',
+        payload: {'chatId': chatId, 'target': target},
+      ),
+    );
+  }
+
+  Future<void> _applyReactionPush(
+    int chatId,
+    String messageId,
+    Map<String, dynamic> data,
+  ) async {
+    final existingList = store.getMessages(chatId);
+    final idx = existingList.indexWhere((m) => m.id == messageId);
+    if (idx < 0) return;
+
+    final existing = existingList[idx];
+    final nextReactions = <TalerReactionCounter>[];
+    final your = data['yourReaction']?.toString() ??
+        (data['reactionInfo'] is Map
+            ? (data['reactionInfo'] as Map)['yourReaction']?.toString()
+            : null);
+    final rawCounters = data['counters'] ??
+        (data['reactionInfo'] is Map
+            ? (data['reactionInfo'] as Map)['counters']
+            : null);
+
+    if (rawCounters is List) {
+      for (final c in rawCounters.whereType<Map>()) {
+        final emoji = c['reaction']?.toString();
+        final count = (c['count'] as num?)?.toInt() ?? 0;
+        if (emoji != null && emoji.isNotEmpty && count > 0) {
+          final wasMine =
+              existing.reactions.any((r) => r.emoji == emoji && r.isMine);
+          nextReactions.add(
+            TalerReactionCounter(
+              emoji: emoji,
+              count: count,
+              isMine: your != null ? emoji == your : wasMine,
+            ),
+          );
+        }
+      }
+      await store.upsertMessage(
+        existing.copyWith(reactions: nextReactions),
+        trackEditHistory: false,
+      );
+      notifyListeners();
+    }
+  }
+
+  Future<void> _applyIncomingMessage(
+    int chatId,
+    TalerMessage msg, {
+    bool isEditedPush = false,
+    int? unreadFromPayload,
+  }) async {
+    final existingBefore = store.getMessages(chatId);
+    final alreadyExists = existingBefore.any(
+      (m) => m.id == msg.id || (msg.cid != null && m.cid == msg.cid),
+    );
+
+    if (msg.cid != null) {
+      final tempMatch = existingBefore
+          .where((m) => m.cid == msg.cid && m.id != msg.id)
+          .firstOrNull;
+      if (tempMatch != null) {
+        await store.replaceTempMessage(chatId, tempMatch.id, msg);
+        _sendErrors.remove(tempMatch.id);
+      } else {
+        await store.upsertMessage(msg);
+      }
+    } else {
+      await store.upsertMessage(msg);
+    }
+
     final chat = store.chats[chatId];
     if (chat != null) {
       final isMine = msg.senderId == currentUser?.id;
+      final previewText = msg.text.isNotEmpty ? msg.text : '[Вложение]';
+      final isLatest =
+          !isEditedPush || msg.time >= (chat.lastMessageTime ?? 0);
+      final nextUnread = unreadFromPayload ??
+          (isEditedPush || isMine || alreadyExists
+              ? chat.unreadCount
+              : chat.unreadCount + 1);
       await store.saveChats([
         chat.copyWith(
-          lastMessageText: msg.text.isNotEmpty ? msg.text : '[Вложение]',
-          lastMessageTime: msg.time,
-          lastMessageSenderId: msg.senderId,
-          lastMessageDeletedByPeer: false,
-          unreadCount: isMine ? chat.unreadCount : chat.unreadCount + 1,
-          clearTyping: true,
+          lastMessageText: isLatest ? previewText : null,
+          lastMessageTime: isLatest ? msg.time : null,
+          lastMessageSenderId: isLatest ? msg.senderId : null,
+          lastMessageDeletedByPeer: isLatest ? false : null,
+          unreadCount: nextUnread,
+          clearTyping: !isEditedPush,
         ),
       ]);
+      if (chatId == _activeChatId && !isMine && !isEditedPush) {
+        unawaited(markChatRead(chatId));
+      }
     }
     notifyListeners();
+  }
+
+  /// Вспомогательный метод для тестирования обработки серверных пушей.
+  @visibleForTesting
+  Future<void> debugHandlePush(TalerPacket packet) async {
+    final data = packet.payloadAsMap;
+    if (data == null) return;
+    if (packet.opcode == Opcode.notifMessage) {
+      final chatId = (data['chatId'] as num?)?.toInt();
+      final msgMap = data['message'];
+      if (chatId != null && msgMap is Map) {
+        final unread = (data['unread'] as num?)?.toInt();
+        await _onNotifMessage(chatId, msgMap, unread);
+      }
+      return;
+    }
+    _handleServerPush(packet);
+    await Future<void>.delayed(Duration.zero);
   }
 
   Future<void> _applyPresencePush(Map<dynamic, dynamic> presence) async {
@@ -1724,6 +2397,11 @@ class TalerClient extends ChangeNotifier {
       await session.disconnect();
       await store.clearAccountData();
       _activeSessions = const [];
+      _loggedInSessionEpoch = -1;
+      _activeChatId = null;
+      _sendErrors.clear();
+      _chatHasMore.clear();
+      _loadingMoreChats.clear();
       _isDemoMode = false;
       _isAuthenticated = false;
       notifyListeners();

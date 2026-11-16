@@ -129,6 +129,13 @@ class LocalStore {
     );
   }
 
+  static void _sortMessages(List<TalerMessage> list) {
+    list.sort((a, b) {
+      final byTime = a.time.compareTo(b.time);
+      return byTime != 0 ? byTime : a.id.compareTo(b.id);
+    });
+  }
+
   List<TalerMessage> getMessages(int chatId) {
     final cached = _messages[chatId];
     if (cached != null) return List.unmodifiable(cached);
@@ -140,8 +147,13 @@ class LocalStore {
         final parsed = list
             .whereType<Map>()
             .map((e) => TalerMessage.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
-          ..sort((a, b) => a.time.compareTo(b.time));
+            .map(
+              (m) => (m.status == 'sending' || m.status == 'pending')
+                  ? m.copyWith(status: 'error')
+                  : m,
+            )
+            .toList();
+        _sortMessages(parsed);
         _messages[chatId] = parsed;
         return List.unmodifiable(parsed);
       } catch (_) {}
@@ -160,7 +172,7 @@ class LocalStore {
     for (final msg in incoming) {
       _upsertIntoList(list, msg, trackEditHistory: trackEditHistory);
     }
-    list.sort((a, b) => a.time.compareTo(b.time));
+    _sortMessages(list);
     await _persistMessages(chatId);
   }
 
@@ -177,7 +189,7 @@ class LocalStore {
       incoming,
       trackEditHistory: trackEditHistory,
     );
-    list.sort((a, b) => a.time.compareTo(b.time));
+    _sortMessages(list);
     await _persistMessages(incoming.chatId);
     return result;
   }
@@ -187,7 +199,10 @@ class LocalStore {
     TalerMessage incoming, {
     required bool trackEditHistory,
   }) {
-    final idx = list.indexWhere((m) => m.id == incoming.id);
+    var idx = list.indexWhere((m) => m.id == incoming.id);
+    if (idx < 0 && incoming.cid != null) {
+      idx = list.indexWhere((m) => m.cid != null && m.cid == incoming.cid);
+    }
     if (idx < 0) {
       list.add(incoming);
       return incoming;
@@ -196,6 +211,9 @@ class LocalStore {
     final existing = list[idx];
     var nextHistory = List<TalerEditRevision>.from(existing.editHistory);
     var nextStatus = incoming.status;
+    if (existing.status == 'read' && nextStatus == 'sent') {
+      nextStatus = 'read';
+    }
 
     if (trackEditHistory &&
         existing.text != incoming.text &&
@@ -209,7 +227,9 @@ class LocalStore {
           ),
         );
       }
-      nextStatus = 'edited';
+      if (nextStatus != 'read') {
+        nextStatus = 'edited';
+      }
     }
 
     final merged = incoming.copyWith(
@@ -217,6 +237,13 @@ class LocalStore {
       status: nextStatus,
       deletedByPeer: existing.deletedByPeer || incoming.deletedByPeer,
       deletedAt: existing.deletedAt ?? incoming.deletedAt,
+      reactions: (incoming.reactions.isEmpty &&
+              existing.reactions.isNotEmpty &&
+              incoming.status == 'edited')
+          ? existing.reactions
+          : incoming.reactions,
+      replyTo: incoming.replyTo ?? existing.replyTo,
+      cid: incoming.cid ?? existing.cid,
     );
     list[idx] = merged;
     return merged;
@@ -230,10 +257,28 @@ class LocalStore {
   ) async {
     getMessages(chatId);
     final list = _messages.putIfAbsent(chatId, () => <TalerMessage>[]);
-    list.removeWhere((m) => m.id == tempId || m.id == confirmed.id);
+    list.removeWhere(
+      (m) =>
+          m.id == tempId ||
+          m.id == confirmed.id ||
+          (confirmed.cid != null && m.cid == confirmed.cid),
+    );
     list.add(confirmed);
-    list.sort((a, b) => a.time.compareTo(b.time));
+    _sortMessages(list);
     await _persistMessages(chatId);
+  }
+
+  /// Удаляет конкретное локальное сообщение (например, неудачную отправку).
+  Future<bool> removeMessage(int chatId, String messageId) async {
+    getMessages(chatId);
+    final list = _messages[chatId];
+    if (list == null || list.isEmpty) return false;
+    final before = list.length;
+    list.removeWhere((m) => m.id == messageId);
+    if (list.length == before) return false;
+    await _persistMessages(chatId);
+    _refreshChatPreviewAfterRemove(chatId, list);
+    return true;
   }
 
   /// Anti-Delete: вместо удаления сообщений собеседника помечает их
@@ -251,6 +296,7 @@ class LocalStore {
     final idSet = messageIds.toSet();
     final now = DateTime.now().millisecondsSinceEpoch;
     var affected = 0;
+    final wasLastAffected = list.isNotEmpty && idSet.contains(list.last.id);
 
     if (!antiDeleteEnabled) {
       final before = list.length;
@@ -260,11 +306,13 @@ class LocalStore {
       for (var i = 0; i < list.length; i++) {
         final msg = list[i];
         if (idSet.contains(msg.id)) {
-          list[i] = msg.copyWith(
-            deletedByPeer: true,
-            deletedAt: msg.deletedAt ?? now,
-          );
-          affected++;
+          if (!msg.deletedByPeer) {
+            list[i] = msg.copyWith(
+              deletedByPeer: true,
+              deletedAt: msg.deletedAt ?? now,
+            );
+            affected++;
+          }
         }
       }
     }
@@ -272,15 +320,79 @@ class LocalStore {
     if (affected > 0) {
       await _persistMessages(chatId);
       final chat = _chats[chatId];
-      if (chat != null && list.isNotEmpty) {
-        final last = list.last;
-        if (idSet.contains(last.id) && antiDeleteEnabled) {
-          _chats[chatId] = chat.copyWith(lastMessageDeletedByPeer: true);
+      if (chat != null) {
+        if (antiDeleteEnabled) {
+          if (wasLastAffected) {
+            _chats[chatId] = chat.copyWith(lastMessageDeletedByPeer: true);
+            await _persistChats();
+          }
+        } else if (wasLastAffected) {
+          _refreshChatPreviewAfterRemove(chatId, list);
           await _persistChats();
         }
       }
     }
     return affected;
+  }
+
+  /// Помечает/удаляет сообщения в диапазоне времени (`Opcode.notifMsgDeleteRange`).
+  Future<int> markMessagesDeletedByTimeRange(
+    int chatId, {
+    required int startTime,
+    required int endTime,
+    bool antiDeleteEnabled = true,
+  }) async {
+    getMessages(chatId);
+    final list = _messages[chatId];
+    if (list == null || list.isEmpty) return 0;
+    final ids = <String>[
+      for (final m in list)
+        if (!m.id.startsWith('temp_') &&
+            m.status != 'sending' &&
+            m.status != 'error' &&
+            m.time >= startTime &&
+            m.time <= endTime)
+          m.id,
+    ];
+    return markMessagesDeletedByPeer(
+      chatId,
+      ids,
+      antiDeleteEnabled: antiDeleteEnabled,
+    );
+  }
+
+  void _refreshChatPreviewAfterRemove(int chatId, List<TalerMessage> list) {
+    final chat = _chats[chatId];
+    if (chat == null) return;
+    if (list.isEmpty) {
+      _chats[chatId] = TalerChat(
+        id: chat.id,
+        type: chat.type,
+        title: chat.title,
+        avatarUrl: chat.avatarUrl,
+        peerId: chat.peerId,
+        unreadCount: chat.unreadCount,
+        isOnline: chat.isOnline,
+        lastSeen: chat.lastSeen,
+        favIndex: chat.favIndex,
+        isMuted: chat.isMuted,
+        participantsCount: chat.participantsCount,
+        isOfficial: chat.isOfficial,
+        typingLabel: chat.typingLabel,
+        peerReadMark: chat.peerReadMark,
+      );
+    } else {
+      final last = list.last;
+      final preview = last.text.isNotEmpty
+          ? last.text
+          : (last.attachments.isNotEmpty ? '[Вложение]' : '');
+      _chats[chatId] = chat.copyWith(
+        lastMessageText: preview,
+        lastMessageTime: last.time,
+        lastMessageSenderId: last.senderId,
+        lastMessageDeletedByPeer: last.deletedByPeer,
+      );
+    }
   }
 
   Future<void> clearAccountData() async {
