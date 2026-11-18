@@ -13,7 +13,8 @@ import '../theme/taler_theme.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/settings_components.dart';
 
-/// Экран настроек клиента в стиле Solar / exteraGram с живым поиском и подэкранами.
+/// Экран настроек в стиле `exteraless` (`SettingsActivity` + `BaseFragmentSimpleGlass`),
+/// адаптированный под строгий чёрный AMOLED-стиль с чёрными сквирклами и фейд-кромкой.
 class SettingsScreen extends StatefulWidget {
   final TalerClient client;
   final ThemeMode themeMode;
@@ -38,7 +39,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsItemSpec {
   final TalerIconData icon;
-  final Color color;
   final String title;
   final String keywords;
   final String? valueText;
@@ -46,7 +46,6 @@ class _SettingsItemSpec {
 
   const _SettingsItemSpec({
     required this.icon,
-    required this.color,
     required this.title,
     required this.keywords,
     required this.onTap,
@@ -59,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final FocusNode _searchFocus = FocusNode();
   final ScrollController _scrollCtrl = ScrollController();
   bool _searching = false;
-  bool _showBarTitle = false;
+  double _fadeFactor = 0.0;
   String _query = '';
 
   @override
@@ -84,9 +83,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _onScroll() {
-    final show = _scrollCtrl.hasClients && _scrollCtrl.offset > 120;
-    if (show != _showBarTitle && mounted) {
-      setState(() => _showBarTitle = show);
+    if (!_scrollCtrl.hasClients) return;
+    // Как updateActionBarVisible в SettingsActivity: плавно проявляем кромку при уходе аватара вверх.
+    final next = ((_scrollCtrl.offset - 24.0) / 88.0).clamp(0.0, 1.0);
+    if ((next - _fadeFactor).abs() > 0.02 && mounted) {
+      setState(() => _fadeFactor = next);
     }
   }
 
@@ -119,11 +120,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return raw?.isNotEmpty == true ? raw! : 'Демо-аккаунт Taler';
   }
 
-  void _openQuickAccountSheet(BuildContext context) {
-    if (widget.onOpenProfile != null) {
-      widget.onOpenProfile!();
-      return;
+  Future<void> _editNameDialog() async {
+    final user = widget.client.currentUser;
+    if (user == null) return;
+    final firstCtrl = TextEditingController(text: user.firstName);
+    final lastCtrl = TextEditingController(text: user.lastName ?? '');
+    final p = TalerTheme.paletteOf(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.bg2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Изменить имя',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.fg),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: firstCtrl,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Имя'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lastCtrl,
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.words,
+              onSubmitted: (_) => Navigator.of(ctx).pop(true),
+              decoration: const InputDecoration(labelText: 'Фамилия'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+
+    if (confirmed == true && first.isNotEmpty) {
+      await widget.client.updateProfileName(first, last.isEmpty ? null : last);
     }
+  }
+
+  void _openAccountSheet(BuildContext context) {
     final user = widget.client.currentUser;
     showModalBottomSheet<void>(
       context: context,
@@ -131,52 +187,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final p = TalerTheme.paletteOf(ctx);
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: p.line2,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                TalerAvatar(
-                  seedId: user?.id ?? 0,
-                  initials: user?.initials ?? 'T',
-                  imageUrl: user?.avatarUrl,
-                  size: 68,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  user?.fullName ?? 'Профиль Taler',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: p.fg,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _formatUserPhone(user?.phone),
-                  style: TextStyle(fontSize: 13.5, color: p.fg2),
-                ),
-                if (user != null) ...[
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _copyAndNotify('${user.id}', 'ID ${user.id} скопирован');
-                      },
-                      child: Text('Скопировать ID: ${user.id}'),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: p.line2,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                ],
+                ),
+                Center(
+                  child: TalerAvatar(
+                    seedId: user?.id ?? 0,
+                    initials: user?.initials ?? 'T',
+                    imageUrl: user?.avatarUrl,
+                    size: 68,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  user?.fullName ?? 'Профиль Taler',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatUserPhone(user?.phone),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13.5, color: p.fg3),
+                ),
+                const SizedBox(height: 16),
+                TalerSettingsGroup(
+                  children: [
+                    TalerSettingsTile(
+                      icon: TalerIcons.pencil,
+                      title: 'Изменить имя',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _editNameDialog();
+                      },
+                    ),
+                    if (user != null)
+                      TalerSettingsTile(
+                        icon: TalerIcons.qrCode,
+                        title: 'ID: ${user.id}',
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _copyAndNotify('${user.id}', 'ID ${user.id} скопирован');
+                        },
+                      ),
+                    TalerSettingsTile(
+                      icon: TalerIcons.logOut,
+                      iconColor: p.danger,
+                      title: 'Выйти',
+                      titleColor: p.danger,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        unawaited(widget.client.logout());
+                      },
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -255,36 +333,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: p.bg2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
-          'Язык интерфейса',
+          'Язык',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.fg),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: p.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: p.accent.withValues(alpha: 0.45)),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: p.accent.withValues(alpha: 0.45)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Русский', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: p.fg)),
+                    Text('Основной язык интерфейса', style: TextStyle(fontSize: 12.5, color: p.fg3)),
+                  ],
+                ),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Русский', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: p.fg)),
-                        Text('Основной язык клиента', style: TextStyle(fontSize: 12.5, color: p.fg3)),
-                      ],
-                    ),
-                  ),
-                  TalerIcon(TalerIcons.check, size: 18, color: p.accent),
-                ],
-              ),
-            ),
-          ],
+              TalerIcon(TalerIcons.check, size: 18, color: p.accent),
+            ],
+          ),
         ),
         actions: [
           FilledButton(
@@ -340,80 +413,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ) {
     return [
       _SettingsItemSpec(
-        icon: TalerIcons.shieldCheck,
-        color: const Color(0xFFE53935),
+        icon: TalerIcons.settingsGram,
         title: 'Настройки Taler',
         keywords: 'защита приватность призрак anti delete маскировка shield taler',
         onTap: () => _openShield(context),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.user,
-        color: const Color(0xFF1E88E5),
+        icon: TalerIcons.settingsAccount,
         title: 'Аккаунт',
         keywords: 'аккаунт профиль имя телефон id выход',
-        onTap: () => _openQuickAccountSheet(context),
+        onTap: () => _openAccountSheet(context),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.messageCircle,
-        color: const Color(0xFFF59E0B),
+        icon: TalerIcons.settingsChat,
         title: 'Настройки чатов',
         keywords: 'тема ночная светлая шрифт размер пузыри скругление обои дизайн',
         onTap: _openChatAppearance,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.key,
-        color: const Color(0xFF22C55E),
+        icon: TalerIcons.settingsPrivacy,
         title: 'Конфиденциальность',
         keywords: 'конфиденциальность безопасность чтение печать онлайн скрыть',
         onTap: () => _openShield(context),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.bell,
-        color: const Color(0xFFEF4444),
+        icon: TalerIcons.settingsSounds,
         title: 'Уведомления',
         keywords: 'уведомления звук без звука бейджи превью',
         onTap: _openNotifications,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.pieChart,
-        color: const Color(0xFF4F6DF5),
+        icon: TalerIcons.settingsData,
         title: 'Данные и память',
         keywords: 'данные память кэш очистить хранилище трафик',
         onTap: _openDataStorage,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.folder,
-        color: const Color(0xFF2990FF),
+        icon: TalerIcons.settingsFolders,
         title: 'Папки с чатами',
         keywords: 'папки вкладки фильтры чаты личные группы каналы',
         onTap: _openFolders,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.monitor,
-        color: const Color(0xFF06B6D4),
+        icon: TalerIcons.settingsDevices,
         title: 'Устройства',
         keywords: 'устройства сессии вход завершить',
         valueText: '$sessionsCount',
         onTap: _openDevices,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.battery,
-        color: const Color(0xFFF97316),
+        icon: TalerIcons.settingsPower,
         title: 'Энергосбережение',
         keywords: 'энергосбережение батарея блюр анимации оптимизация',
         onTap: _openPowerSaving,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.globe,
-        color: const Color(0xFF8B5CF6),
+        icon: TalerIcons.settingsLanguage,
         title: 'Язык',
         keywords: 'язык русский локализация language',
         valueText: prefs.languageLabel,
         onTap: _openLanguageDialog,
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.askQuestion,
-        color: const Color(0xFFF59E0B),
+        icon: TalerIcons.settingsAsk,
         title: 'Задать вопрос',
         keywords: 'поддержка вопрос баг github issues',
         onTap: () => _openInfoSheet(
@@ -424,33 +486,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.info,
-        color: const Color(0xFF2990FF),
+        icon: TalerIcons.settingsFaq,
         title: 'Вопросы о Taler',
         keywords: 'faq вопросы справка max клиент обновления',
         onTap: () => _openInfoSheet(
           title: 'Вопросы о Taler',
-          body: 'Taler — независимый клиент для MAX на базе открытого протокола.\n\n• Переписка, группы и папки синхронизируются с вашей учётной записью MAX.\n• Все настройки защиты, Anti-Delete и кэш работают локально на устройстве.',
+          body: 'Taler — независимый клиент для MAX на базе открытого протокола.\n\nПереписка, группы и папки синхронизируются с вашей учётной записью MAX, а защита приватности и локальный кэш работают на устройстве.',
         ),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.bulb,
-        color: const Color(0xFFA855F7),
+        icon: TalerIcons.settingsFeatures,
         title: 'Возможности Taler',
         keywords: 'функции возможности anti delete история правок призрак',
         onTap: () => _openInfoSheet(
           title: 'Возможности Taler',
-          body: '• Режим «Призрак»: скрывает ваш статус онлайн, набор текста и отметки прочтения.\n• Защита истории: сохраняет удалённые и отредактированные сообщения.\n• Маскировка устройства: передаёт профиль выбранного устройства при подключении.\n• Гибкие настройки чатов, папок, кэша и энергосбережения.',
+          body: 'Режим «Призрак», сохранение удалённых и изменённых сообщений, маскировка устройства, настройка оформления чатов, управление кэшем и энергосбережение.',
         ),
       ),
       _SettingsItemSpec(
-        icon: TalerIcons.policy,
-        color: const Color(0xFF22C55E),
+        icon: TalerIcons.settingsPolicy,
         title: 'Политика конфиденциальности',
         keywords: 'политика конфиденциальность телеметрия приватность данные',
         onTap: () => _openInfoSheet(
           title: 'Политика конфиденциальности',
-          body: 'Taler не собирает аналитику, не содержит рекламных SDK и блокирует отправку фоновой телеметрии до выхода из приложения.\n\nТокен сессии, локальный кэш чатов и настройки хранятся только в памяти вашего устройства.',
+          body: 'Taler не собирает аналитику, не содержит рекламных SDK и блокирует отправку фоновой телеметрии до выхода из приложения.',
         ),
       ),
     ];
@@ -474,7 +533,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               right: -2,
               bottom: -2,
               child: GestureDetector(
-                onTap: () => _openQuickAccountSheet(context),
+                onTap: () => _openAccountSheet(context),
                 child: Container(
                   width: 30,
                   height: 30,
@@ -516,10 +575,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13.5,
-            color: p.fg3,
-          ),
+          style: TextStyle(fontSize: 13.5, color: p.fg3),
         ),
       ],
     );
@@ -529,6 +585,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final isWide = MediaQuery.sizeOf(context).width >= 820;
+    final statusTop = isWide ? 0.0 : MediaQuery.paddingOf(context).top;
 
     return ListenableBuilder(
       listenable: Listenable.merge([
@@ -555,20 +612,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     item.keywords.contains(q))
                 .toList();
 
-        return Container(
+        final scrollTopPad = _searching
+            ? statusTop + 62.0
+            : (isWide ? 24.0 : statusTop + 18.0);
+        final overlayFactor = (_searching || isWide) ? 1.0 : _fadeFactor;
+
+        return ColoredBox(
           color: p.settingsBg,
-          child: Column(
+          child: Stack(
             children: [
-              _buildTopBar(p, isWide),
-              Expanded(
+              Positioned.fill(
                 child: SingleChildScrollView(
                   controller: _scrollCtrl,
                   keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: EdgeInsets.fromLTRB(
                     12,
-                    4,
+                    scrollTopPad,
                     12,
-                    widget.bottomInset + 16,
+                    widget.bottomInset + 18,
                   ),
                   child: Center(
                     child: ConstrainedBox(
@@ -600,12 +661,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 18),
                                 Center(
                                   child: Text(
-                                    'Taler 1.2.8 (14)',
+                                    'Taler 1.2.9 (15)',
                                     style: TextStyle(fontSize: 13, color: p.fg3),
                                   ),
                                 ),
                               ],
                             ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!isWide)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: TalerBottomFadeOverlay(
+                    height: 72,
+                    backgroundColor: p.settingsBg,
+                  ),
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: TalerTopFadeOverlay(
+                  height: statusTop + 52 + 28,
+                  backgroundColor: p.settingsBg,
+                  factor: overlayFactor,
+                  powerSaving: prefs.powerSavingMode,
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  top: !isWide,
+                  child: SizedBox(
+                    height: 52,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: _buildBarContent(p, isWide, overlayFactor),
                     ),
                   ),
                 ),
@@ -620,7 +718,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _toTile(_SettingsItemSpec item) {
     return TalerSettingsTile(
       icon: item.icon,
-      badgeColor: item.color,
       title: item.title,
       valueText: item.valueText,
       onTap: item.onTap,
@@ -646,174 +743,225 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildTopBar(TalerPalette p, bool isWide) {
-    return Container(
-      color: isWide ? p.bg2 : p.settingsBg,
-      child: SafeArea(
-        bottom: false,
-        top: !isWide,
-        child: Container(
-          height: 52,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: isWide ? p.bg2 : p.settingsBg,
-            border: isWide ? Border(bottom: BorderSide(color: p.line)) : null,
+  Widget _buildBarContent(TalerPalette p, bool isWide, double titleFactor) {
+    if (_searching) {
+      return Row(
+        children: [
+          TalerIconButton(
+            icon: TalerIcons.arrowLeft,
+            tooltip: 'Назад',
+            size: 42,
+            iconSize: 20,
+            color: p.fg,
+            onPressed: _toggleSearch,
           ),
-          child: _searching
-              ? Row(
-                  children: [
-                    TalerIconButton(
-                      icon: TalerIcons.arrowLeft,
-                      tooltip: 'Назад',
-                      size: 42,
-                      iconSize: 20,
-                      color: p.fg,
-                      onPressed: _toggleSearch,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: TextField(
-                        controller: _searchCtrl,
-                        focusNode: _searchFocus,
-                        onChanged: (v) => setState(() => _query = v),
-                        style: TextStyle(fontSize: 15, color: p.fg),
-                        decoration: InputDecoration(
-                          hintText: 'Поиск по настройкам',
-                          hintStyle: TextStyle(fontSize: 15, color: p.fg3),
-                          filled: false,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                    if (_query.isNotEmpty)
+          const SizedBox(width: 4),
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              focusNode: _searchFocus,
+              onChanged: (v) => setState(() => _query = v),
+              style: TextStyle(fontSize: 15.5, color: p.fg),
+              decoration: InputDecoration(
+                hintText: 'Поиск по настройкам',
+                hintStyle: TextStyle(fontSize: 15.5, color: p.fg3),
+                filled: false,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+              ),
+            ),
+          ),
+          if (_query.isNotEmpty)
+            TalerIconButton(
+              icon: TalerIcons.close,
+              tooltip: 'Очистить',
+              size: 38,
+              iconSize: 17,
+              color: p.fg2,
+              onPressed: () {
+                _searchCtrl.clear();
+                setState(() => _query = '');
+              },
+            ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        TalerIconButton(
+          icon: TalerIcons.qrCode,
+          tooltip: 'Профиль и ID',
+          size: 42,
+          iconSize: 21,
+          color: p.fg,
+          onPressed: () => _openAccountSheet(context),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Opacity(
+            opacity: isWide ? 1.0 : titleFactor,
+            child: Text(
+              'Настройки',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+                color: p.fg,
+              ),
+            ),
+          ),
+        ),
+        TalerIconButton(
+          icon: TalerIcons.search,
+          tooltip: 'Поиск в настройках',
+          size: 42,
+          iconSize: 21,
+          color: p.fg,
+          onPressed: _toggleSearch,
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Ещё',
+          color: p.bg2,
+          icon: TalerIcon(TalerIcons.more, size: 21, color: p.fg),
+          onSelected: (action) {
+            if (action == 'profile') _openAccountSheet(context);
+            if (action == 'shield') _openShield(context);
+            if (action == 'storage') _openDataStorage();
+            if (action == 'logout') widget.client.logout();
+          },
+          itemBuilder: (ctx) => [
+            const PopupMenuItem(value: 'profile', child: Text('Аккаунт')),
+            const PopupMenuItem(value: 'shield', child: Text('Taler Shield')),
+            const PopupMenuItem(value: 'storage', child: Text('Данные и память')),
+            PopupMenuItem(
+              value: 'logout',
+              child: Text('Выйти', style: TextStyle(color: p.danger)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsSubScaffold extends StatefulWidget {
+  final String title;
+  final List<Widget> actions;
+  final Widget Function(ScrollController controller, EdgeInsets padding) bodyBuilder;
+
+  const _SettingsSubScaffold({
+    required this.title,
+    required this.bodyBuilder,
+    this.actions = const [],
+  });
+
+  @override
+  State<_SettingsSubScaffold> createState() => _SettingsSubScaffoldState();
+}
+
+class _SettingsSubScaffoldState extends State<_SettingsSubScaffold> {
+  final ScrollController _scrollCtrl = ScrollController();
+  double _fadeFactor = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final next = (_scrollCtrl.offset / 32.0).clamp(0.0, 1.0);
+    if ((next - _fadeFactor).abs() > 0.02 && mounted) {
+      setState(() => _fadeFactor = next);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final pad = MediaQuery.paddingOf(context);
+    return Scaffold(
+      backgroundColor: p.settingsBg,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 760),
+                child: widget.bodyBuilder(
+                  _scrollCtrl,
+                  EdgeInsets.fromLTRB(12, pad.top + 56 + 8, 12, pad.bottom + 24),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: TalerTopFadeOverlay(
+              height: pad.top + 52 + 24,
+              backgroundColor: p.settingsBg,
+              factor: _fadeFactor.clamp(0.65, 1.0),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: 52,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
                       TalerIconButton(
-                        icon: TalerIcons.close,
-                        tooltip: 'Очистить',
-                        size: 38,
-                        iconSize: 17,
-                        color: p.fg2,
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _query = '');
-                        },
+                        icon: TalerIcons.arrowLeft,
+                        tooltip: 'Назад',
+                        size: 42,
+                        iconSize: 20,
+                        color: p.fg,
+                        onPressed: () => Navigator.of(context).pop(),
                       ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    TalerIconButton(
-                      icon: TalerIcons.qrCode,
-                      tooltip: 'Профиль и ID',
-                      size: 42,
-                      iconSize: 21,
-                      color: p.fg,
-                      onPressed: () => _openQuickAccountSheet(context),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 160),
-                        opacity: (isWide || _showBarTitle) ? 1.0 : 0.0,
+                      const SizedBox(width: 6),
+                      Expanded(
                         child: Text(
-                          'Настройки',
+                          widget.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w600,
-                            letterSpacing: -0.2,
                             color: p.fg,
                           ),
                         ),
                       ),
-                    ),
-                    TalerIconButton(
-                      icon: TalerIcons.search,
-                      tooltip: 'Поиск в настройках',
-                      size: 42,
-                      iconSize: 21,
-                      color: p.fg,
-                      onPressed: _toggleSearch,
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: 'Ещё',
-                      color: p.bg2,
-                      icon: TalerIcon(TalerIcons.more, size: 21, color: p.fg),
-                      onSelected: (action) {
-                        if (action == 'profile') _openQuickAccountSheet(context);
-                        if (action == 'shield') _openShield(context);
-                        if (action == 'storage') _openDataStorage();
-                        if (action == 'logout') widget.client.logout();
-                      },
-                      itemBuilder: (ctx) => [
-                        const PopupMenuItem(value: 'profile', child: Text('Профиль')),
-                        const PopupMenuItem(value: 'shield', child: Text('Taler Shield')),
-                        const PopupMenuItem(value: 'storage', child: Text('Данные и память')),
-                        PopupMenuItem(
-                          value: 'logout',
-                          child: Text('Выйти', style: TextStyle(color: p.danger)),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ...widget.actions,
+                    ],
+                  ),
                 ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsSubScaffold extends StatelessWidget {
-  final String title;
-  final List<Widget> actions;
-  final Widget body;
-
-  const _SettingsSubScaffold({
-    required this.title,
-    required this.body,
-    this.actions = const [],
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final p = TalerTheme.paletteOf(context);
-    return Scaffold(
-      backgroundColor: p.settingsBg,
-      appBar: AppBar(
-        backgroundColor: p.bg2,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 4),
-          child: TalerIconButton(
-            icon: TalerIcons.arrowLeft,
-            tooltip: 'Назад',
-            iconSize: 20,
-            color: p.fg,
-            onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
           ),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
-        ),
-        actions: actions,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: p.line),
-        ),
-      ),
-      body: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: body,
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -843,7 +991,7 @@ class _ChatAppearancePage extends StatelessWidget {
           chatId: 0,
           senderId: 2,
           time: now - 60000,
-          text: 'Привет! Как выглядят новые пузыри?',
+          text: 'Во сколько созвон?',
           status: 'read',
         );
         final previewOut = TalerMessage(
@@ -851,14 +999,15 @@ class _ChatAppearancePage extends StatelessWidget {
           chatId: 0,
           senderId: 1,
           time: now,
-          text: 'Отступы ровные, иконки чёткие 👍',
+          text: 'В 19:00, буду на месте',
           status: 'read',
         );
 
         return _SettingsSubScaffold(
           title: 'Настройки чатов',
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(18),
@@ -880,7 +1029,7 @@ class _ChatAppearancePage extends StatelessWidget {
                               isMine: false,
                               firstInRun: true,
                               showName: false,
-                              senderName: 'Собеседник',
+                              senderName: 'Алексей',
                               maxWidth: 260,
                               fontSize: prefs.messageFontSize,
                               cornerRadius: prefs.bubbleRadius,
@@ -906,7 +1055,7 @@ class _ChatAppearancePage extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
                 title: 'Тема оформления',
                 children: [
@@ -924,12 +1073,12 @@ class _ChatAppearancePage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
                 title: 'Размер текста и форма пузырей',
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -940,15 +1089,15 @@ class _ChatAppearancePage extends StatelessWidget {
                                 'Размер текста сообщений',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: p.fg),
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: p.fg),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Text(
                               '${prefs.messageFontSize.round()} px',
                               style: TalerTheme.tabularStyle(
-                                size: 14,
-                                weight: FontWeight.w600,
+                                size: 15,
+                                weight: FontWeight.w500,
                                 color: p.accent,
                               ),
                             ),
@@ -966,15 +1115,15 @@ class _ChatAppearancePage extends StatelessWidget {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Text(
-                            'Скругление углов сообщений',
-                            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500, color: p.fg),
+                            'Скругление углов',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: p.fg),
                           ),
                         ),
                         TalerSlidingPillSwitch<double>(
@@ -991,16 +1140,13 @@ class _ChatAppearancePage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
                 title: 'Отображение',
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.palette,
-                    badgeColor: const Color(0xFF8B5CF6),
+                    icon: TalerIcons.settingsChat,
                     title: 'Узор на фоне чатов',
-                    subtitle: 'Тонкий орнамент позади сообщений',
-                    showChevron: false,
                     trailing: Switch(
                       value: prefs.showChatWallpaper,
                       onChanged: (v) => unawaited(prefs.setShowChatWallpaper(v)),
@@ -1008,11 +1154,8 @@ class _ChatAppearancePage extends StatelessWidget {
                     onTap: () => unawaited(prefs.setShowChatWallpaper(!prefs.showChatWallpaper)),
                   ),
                   TalerSettingsTile(
-                    icon: TalerIcons.messageCircle,
-                    badgeColor: const Color(0xFF0EA5E9),
+                    icon: TalerIcons.settingsFolders,
                     title: 'Компактный список чатов',
-                    subtitle: 'Уменьшить высоту строк и аватаров',
-                    showChevron: false,
                     trailing: Switch(
                       value: prefs.compactChatList,
                       onChanged: (v) => unawaited(prefs.setCompactChatList(v)),
@@ -1043,18 +1186,16 @@ class _NotificationsPage extends StatelessWidget {
         final mutedChats = client.chats.where((c) => c.isMuted).toList();
         return _SettingsSubScaffold(
           title: 'Уведомления',
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               TalerSettingsGroup(
                 title: 'Индикация',
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.bell,
-                    badgeColor: const Color(0xFFEF4444),
+                    icon: TalerIcons.settingsSounds,
                     title: 'Показывать текст в уведомлениях',
-                    subtitle: 'Отображать фрагмент сообщения',
-                    showChevron: false,
                     trailing: Switch(
                       value: prefs.showNotificationPreview,
                       onChanged: (v) => unawaited(prefs.setShowNotificationPreview(v)),
@@ -1064,11 +1205,8 @@ class _NotificationsPage extends StatelessWidget {
                     ),
                   ),
                   TalerSettingsTile(
-                    icon: TalerIcons.folder,
-                    badgeColor: const Color(0xFF0EA5E9),
+                    icon: TalerIcons.settingsFolders,
                     title: 'Счётчики на папках чатов',
-                    subtitle: 'Показывать число непрочитанных на вкладках',
-                    showChevron: false,
                     trailing: Switch(
                       value: prefs.showFolderBadges,
                       onChanged: (v) => unawaited(prefs.setShowFolderBadges(v)),
@@ -1077,28 +1215,22 @@ class _NotificationsPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
                 title: 'Чаты без звука (${mutedChats.length})',
                 children: mutedChats.isEmpty
                     ? [
                         const TalerSettingsTile(
                           icon: TalerIcons.bellOff,
-                          badgeColor: Color(0xFF64748B),
                           title: 'Нет заглушённых чатов',
-                          subtitle: 'Все диалоги и группы присылают уведомления',
-                          showChevron: false,
                         ),
                       ]
                     : [
                         for (final chat in mutedChats)
                           TalerSettingsTile(
                             icon: TalerIcons.bellOff,
-                            badgeColor: const Color(0xFF64748B),
                             title: chat.title,
-                            subtitle: 'Нажмите, чтобы снова включить уведомления',
                             valueText: 'Включить',
-                            showChevron: false,
                             onTap: () => unawaited(client.toggleChatMute(chat.id)),
                           ),
                       ],
@@ -1130,27 +1262,24 @@ class _DataStoragePage extends StatelessWidget {
 
         return _SettingsSubScaffold(
           title: 'Данные и память',
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               TalerSettingsGroup(
-                title: 'Использование хранилища',
+                title: 'Хранилище',
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.pieChart,
-                    badgeColor: const Color(0xFF4F6DF5),
+                    icon: TalerIcons.settingsData,
                     title: 'Кэш сообщений и чатов',
-                    subtitle: '${stats.chatsCount} чатов • ${stats.messagesCount} сообщений • ${stats.contactsCount} контактов',
+                    subtitle: '${stats.chatsCount} чатов • ${stats.messagesCount} сообщений',
                     valueText: sizeText,
-                    showChevron: false,
                   ),
                   TalerSettingsTile(
                     icon: TalerIcons.trash,
-                    badgeColor: p.danger,
+                    iconColor: p.danger,
                     title: 'Очистить кэш сообщений',
                     titleColor: p.danger,
-                    subtitle: 'Аккаунт и список чатов останутся в сохранности',
-                    showChevron: false,
                     onTap: () async {
                       final confirmed = await showDialog<bool>(
                         context: context,
@@ -1158,7 +1287,7 @@ class _DataStoragePage extends StatelessWidget {
                           backgroundColor: p.bg2,
                           title: const Text('Очистить кэш?'),
                           content: const Text(
-                            'История сообщений в локальном кэше будет удалена с устройства. Вы не выйдете из аккаунта.',
+                            'Локальная история сообщений будет удалена с устройства. Вы останетесь в аккаунте.',
                           ),
                           actions: [
                             TextButton(
@@ -1182,16 +1311,13 @@ class _DataStoragePage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
-                title: 'Медиа и трафик',
+                title: 'Медиа',
                 children: [
                   TalerSettingsTile(
                     icon: TalerIcons.image,
-                    badgeColor: const Color(0xFF0EA5E9),
-                    title: 'Автозагрузка медиа в чатах',
-                    subtitle: 'Загружать изображения автоматически при открытии',
-                    showChevron: false,
+                    title: 'Автозагрузка изображений',
                     trailing: Switch(
                       value: prefs.autoDownloadMedia,
                       onChanged: (v) => unawaited(prefs.setAutoDownloadMedia(v)),
@@ -1236,39 +1362,33 @@ class _FoldersPage extends StatelessWidget {
 
         return _SettingsSubScaffold(
           title: 'Папки с чатами',
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               TalerSettingsGroup(
                 title: 'Активные вкладки',
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.folder,
-                    badgeColor: const Color(0xFF0EA5E9),
+                    icon: TalerIcons.settingsFolders,
                     title: 'Все чаты',
                     valueText: '${client.chats.length}',
-                    showChevron: false,
                   ),
                   for (final r in rows)
                     TalerSettingsTile(
-                      icon: TalerIcons.folder,
-                      badgeColor: const Color(0xFF3B82F6),
+                      icon: TalerIcons.settingsFolders,
                       title: r.title,
                       valueText: '${r.count}',
-                      showChevron: false,
                     ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
                 title: 'Отображение',
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.bell,
-                    badgeColor: const Color(0xFF22C55E),
+                    icon: TalerIcons.settingsSounds,
                     title: 'Счётчики непрочитанных',
-                    subtitle: 'Показывать бейдж с числом чатов на вкладках',
-                    showChevron: false,
                     trailing: Switch(
                       value: prefs.showFolderBadges,
                       onChanged: (v) => unawaited(prefs.setShowFolderBadges(v)),
@@ -1308,37 +1428,34 @@ class _DevicesPage extends StatelessWidget {
               onPressed: () => unawaited(client.fetchActiveSessions()),
             ),
           ],
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               TalerSettingsGroup(
                 title: 'Активные сеансы',
                 children: sessions.isEmpty
                     ? [
                         TalerSettingsTile(
-                          icon: TalerIcons.monitor,
-                          badgeColor: const Color(0xFF06B6D4),
+                          icon: TalerIcons.settingsDevices,
                           title: 'Текущее устройство',
                           subtitle: client.spoofingService.activeProfile.label,
                           valueText: 'Онлайн',
-                          showChevron: false,
                         ),
                       ]
                     : [
-                        for (final s in sessions) _sessionRow(p, s),
+                        for (final s in sessions) _sessionRow(s),
                       ],
               ),
               if (hasOthers) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 TalerSettingsGroup(
                   children: [
                     TalerSettingsTile(
                       icon: TalerIcons.logOut,
-                      badgeColor: p.danger,
+                      iconColor: p.danger,
                       title: 'Завершить все остальные сеансы',
                       titleColor: p.danger,
-                      subtitle: 'Оставить активным только это устройство',
-                      showChevron: false,
                       onTap: () => unawaited(client.terminateOtherSessions()),
                     ),
                   ],
@@ -1351,13 +1468,13 @@ class _DevicesPage extends StatelessWidget {
     );
   }
 
-  Widget _sessionRow(TalerPalette p, TalerActiveSession s) {
+  Widget _sessionRow(TalerActiveSession s) {
     final lower = s.client.toLowerCase();
     final icon = lower.contains('android') || lower.contains('ios')
         ? TalerIcons.smartphone
         : lower.contains('windows') || lower.contains('desktop')
-            ? TalerIcons.monitor
-            : TalerIcons.globe;
+            ? TalerIcons.settingsDevices
+            : TalerIcons.settingsLanguage;
     final dateStr = s.time > 0
         ? DateFormat('dd.MM HH:mm').format(DateTime.fromMillisecondsSinceEpoch(s.time))
         : null;
@@ -1369,11 +1486,9 @@ class _DevicesPage extends StatelessWidget {
 
     return TalerSettingsTile(
       icon: icon,
-      badgeColor: s.current ? p.statusLive : const Color(0xFF3B82F6),
       title: s.client,
       subtitle: details.isEmpty ? null : details,
       valueText: s.current ? 'Текущая' : null,
-      showChevron: false,
     );
   }
 }
@@ -1391,17 +1506,16 @@ class _PowerSavingPage extends StatelessWidget {
         final prefs = client.appPreferences;
         return _SettingsSubScaffold(
           title: 'Энергосбережение',
-          body: ListView(
-            padding: const EdgeInsets.all(16),
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
             children: [
               TalerSettingsGroup(
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.battery,
-                    badgeColor: const Color(0xFFF97316),
+                    icon: TalerIcons.settingsPower,
                     title: 'Режим энергосбережения',
-                    subtitle: 'Отключает фоновое размытие (Blur) и узор обоев для экономии заряда',
-                    showChevron: false,
+                    subtitle: 'Отключает размытие панелей и узор фона чатов',
                     trailing: Switch(
                       value: prefs.powerSavingMode,
                       onChanged: (v) => unawaited(prefs.setPowerSavingMode(v)),
@@ -1410,23 +1524,19 @@ class _PowerSavingPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TalerSettingsGroup(
-                title: 'Что отключается при активации',
+                title: 'Параметры графики',
                 children: [
                   TalerSettingsTile(
                     icon: TalerIcons.sunMoon,
-                    badgeColor: const Color(0xFF6366F1),
-                    title: 'Размытие панелей (BackdropFilter)',
-                    valueText: prefs.powerSavingMode ? 'Откл' : 'Активно',
-                    showChevron: false,
+                    title: 'Размытие верхней и нижней кромки',
+                    valueText: prefs.powerSavingMode ? 'Откл' : 'Вкл',
                   ),
                   TalerSettingsTile(
                     icon: TalerIcons.palette,
-                    badgeColor: const Color(0xFF8B5CF6),
-                    title: 'Декоративный паттерн фона чатов',
-                    valueText: prefs.powerSavingMode ? 'Откл' : 'Активно',
-                    showChevron: false,
+                    title: 'Узор на фоне чатов',
+                    valueText: prefs.powerSavingMode ? 'Откл' : 'Вкл',
                   ),
                 ],
               ),

@@ -12,7 +12,8 @@ import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
 import '../widgets/settings_components.dart';
 
-/// Экран профиля пользователя: аватар, имя, данные аккаунта и активные сессии.
+/// Экран профиля пользователя в чёрном стиле `exteraless`:
+/// шапка с аватаром, сквирклы настроек профиля, активные сессии и верхний фейд-эффект.
 class ProfileSettingsScreen extends StatefulWidget {
   final TalerClient client;
   final ThemeMode themeMode;
@@ -35,7 +36,7 @@ class ProfileSettingsScreen extends StatefulWidget {
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final ScrollController _scrollCtrl = ScrollController();
-  bool _showBarTitle = false;
+  double _fadeFactor = 0.0;
 
   @override
   void initState() {
@@ -55,9 +56,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
   void _onScroll() {
-    final next = _scrollCtrl.hasClients && _scrollCtrl.offset > 68;
-    if (next != _showBarTitle && mounted) {
-      setState(() => _showBarTitle = next);
+    if (!_scrollCtrl.hasClients) return;
+    final next = ((_scrollCtrl.offset - 24.0) / 88.0).clamp(0.0, 1.0);
+    if ((next - _fadeFactor).abs() > 0.02 && mounted) {
+      setState(() => _fadeFactor = next);
     }
   }
 
@@ -76,11 +78,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
           'Изменить имя',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: p.fg,
-          ),
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.fg),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -137,7 +135,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       context: context,
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -153,16 +151,18 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ),
                 ),
               ),
-              Text(
-                'Мой профиль',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  'Мой профиль',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
+                ),
               ),
               const SizedBox(height: 14),
               TalerSettingsGroup(
                 children: [
                   TalerSettingsTile(
-                    icon: TalerIcons.user,
-                    badgeColor: p.accent,
+                    icon: TalerIcons.settingsAccount,
                     title: user?.fullName ?? 'Профиль Taler',
                     subtitle: 'Отображаемое имя',
                     trailing: TalerIconButton(
@@ -174,22 +174,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         _editNameDialog();
                       },
                     ),
-                    showChevron: false,
                   ),
                   TalerSettingsTile(
                     icon: TalerIcons.phone,
-                    badgeColor: const Color(0xFF22C55E),
                     title: _formatPhone(user?.phone),
                     subtitle: 'Телефон привязки MAX',
-                    showChevron: false,
                   ),
                   if (user != null)
                     TalerSettingsTile(
                       icon: TalerIcons.qrCode,
-                      badgeColor: const Color(0xFF8B5CF6),
                       title: 'ID: ${user.id}',
-                      subtitle: 'Нажмите, чтобы скопировать идентификатор',
-                      showChevron: false,
+                      subtitle: 'Нажмите, чтобы скопировать',
                       onTap: () {
                         Navigator.of(ctx).pop();
                         Clipboard.setData(ClipboardData(text: '${user.id}'));
@@ -211,27 +206,29 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     return ListenableBuilder(
-      listenable: widget.client,
+      listenable: Listenable.merge([widget.client, widget.client.appPreferences]),
       builder: (context, _) {
         final isWide = MediaQuery.sizeOf(context).width >= 820;
+        final statusTop = isWide ? 0.0 : MediaQuery.paddingOf(context).top;
         final user = widget.client.currentUser;
         final sessions = widget.client.activeSessions;
         final sessionsText = sessions.isEmpty ? '1' : '${sessions.length}';
         final hasOthers = sessions.any((s) => !s.current);
+        final powerSaving = widget.client.appPreferences.powerSavingMode;
+        final scrollTopPad = isWide ? 24.0 : statusTop + 18.0;
 
-        return Container(
+        return ColoredBox(
           color: p.settingsBg,
-          child: Column(
+          child: Stack(
             children: [
-              _buildTopBar(p, isWide, user),
-              Expanded(
+              Positioned.fill(
                 child: SingleChildScrollView(
                   controller: _scrollCtrl,
                   padding: EdgeInsets.fromLTRB(
                     12,
-                    8,
+                    scrollTopPad,
                     12,
-                    widget.bottomInset + 16,
+                    widget.bottomInset + 18,
                   ),
                   child: Center(
                     child: ConstrainedBox(
@@ -244,15 +241,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           TalerSettingsGroup(
                             children: [
                               TalerSettingsTile(
-                                icon: TalerIcons.user,
-                                badgeColor: const Color(0xFF1E88E5),
+                                icon: TalerIcons.settingsAccount,
                                 title: 'Мой профиль',
                                 onTap: () => _openMyProfileSheet(user),
                               ),
                               if (widget.onOpenSettings != null)
                                 TalerSettingsTile(
-                                  icon: TalerIcons.settings,
-                                  badgeColor: const Color(0xFF6366F1),
+                                  icon: TalerIcons.settingsGram,
                                   title: 'Настройки',
                                   onTap: widget.onOpenSettings,
                                 ),
@@ -265,18 +260,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             children: [
                               if (sessions.isEmpty)
                                 TalerSettingsTile(
-                                  icon: TalerIcons.monitor,
-                                  badgeColor: p.statusLive,
+                                  icon: TalerIcons.settingsDevices,
                                   title: 'Текущая сессия',
                                   subtitle: widget.client.spoofingService.activeProfile.label,
                                   valueText: sessionsText,
                                 )
                               else
-                                for (final s in sessions) _buildSessionTile(p, s),
+                                for (final s in sessions) _buildSessionTile(s),
                               if (hasOthers)
                                 TalerSettingsTile(
                                   icon: TalerIcons.trash,
-                                  badgeColor: p.danger,
+                                  iconColor: p.danger,
                                   title: 'Завершить другие сессии',
                                   titleColor: p.danger,
                                   onTap: () => unawaited(widget.client.terminateOtherSessions()),
@@ -288,7 +282,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             children: [
                               TalerSettingsTile(
                                 icon: TalerIcons.logOut,
-                                badgeColor: p.danger,
+                                iconColor: p.danger,
                                 title: 'Выйти',
                                 titleColor: p.danger,
                                 onTap: () => unawaited(widget.client.logout()),
@@ -298,9 +292,73 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           const SizedBox(height: 18),
                           Center(
                             child: Text(
-                              'Taler 1.2.8 (14)',
+                              'Taler 1.2.9 (15)',
                               style: TextStyle(fontSize: 13, color: p.fg3),
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!isWide)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: TalerBottomFadeOverlay(
+                    height: 72,
+                    backgroundColor: p.settingsBg,
+                  ),
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: TalerTopFadeOverlay(
+                  height: statusTop + 52 + 28,
+                  backgroundColor: p.settingsBg,
+                  factor: isWide ? 1.0 : _fadeFactor,
+                  powerSaving: powerSaving,
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  top: !isWide,
+                  child: SizedBox(
+                    height: 52,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Opacity(
+                              opacity: isWide ? 1.0 : _fadeFactor,
+                              child: Text(
+                                user?.fullName ?? 'Профиль',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w600,
+                                  color: p.fg,
+                                ),
+                              ),
+                            ),
+                          ),
+                          TalerIconButton(
+                            icon: TalerIcons.pencil,
+                            tooltip: 'Изменить имя',
+                            size: 42,
+                            iconSize: 20,
+                            color: p.accent,
+                            onPressed: _editNameDialog,
                           ),
                         ],
                       ),
@@ -312,52 +370,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildTopBar(TalerPalette p, bool isWide, TalerUserProfile? user) {
-    return Container(
-      color: isWide ? p.bg2 : p.settingsBg,
-      child: SafeArea(
-        bottom: false,
-        top: !isWide,
-        child: Container(
-          height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: isWide ? p.bg2 : p.settingsBg,
-            border: isWide ? Border(bottom: BorderSide(color: p.line)) : null,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 160),
-                  opacity: isWide || _showBarTitle ? 1.0 : 0.0,
-                  child: Text(
-                    user?.fullName ?? 'Профиль',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: p.fg,
-                    ),
-                  ),
-                ),
-              ),
-              TalerIconButton(
-                icon: TalerIcons.pencil,
-                tooltip: 'Изменить имя',
-                size: 40,
-                iconSize: 19,
-                color: p.accent,
-                onPressed: _editNameDialog,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -379,7 +391,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               seedId: user?.id ?? 0,
               initials: user?.initials ?? 'T',
               imageUrl: user?.avatarUrl,
-              size: 92,
+              size: 90,
             ),
             Positioned(
               right: -2,
@@ -405,13 +417,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
             user?.fullName ?? 'Пользователь Taler',
             textAlign: TextAlign.center,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 22,
@@ -421,27 +433,26 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           subParts.join(' • '),
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13.5,
-            fontWeight: FontWeight.w500,
-            color: online ? p.accent : p.fg2,
+            color: online ? p.accent : p.fg3,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSessionTile(TalerPalette p, TalerActiveSession s) {
+  Widget _buildSessionTile(TalerActiveSession s) {
     final lower = s.client.toLowerCase();
     final icon = lower.contains('android') || lower.contains('ios')
         ? TalerIcons.smartphone
         : lower.contains('windows') || lower.contains('desktop')
-            ? TalerIcons.monitor
-            : TalerIcons.globe;
+            ? TalerIcons.settingsDevices
+            : TalerIcons.settingsLanguage;
     final timeStr = s.time > 0
         ? DateFormat('dd.MM HH:mm').format(DateTime.fromMillisecondsSinceEpoch(s.time))
         : null;
@@ -453,11 +464,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
     return TalerSettingsTile(
       icon: icon,
-      badgeColor: s.current ? p.statusLive : const Color(0xFF3B82F6),
       title: s.client,
       subtitle: sub.isEmpty ? null : sub,
       valueText: s.current ? 'Текущая' : null,
-      showChevron: false,
     );
   }
 }

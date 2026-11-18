@@ -152,7 +152,7 @@ void main() {
     expect(find.text('Помощь'), findsOneWidget);
     expect(find.text('Возможности Taler'), findsOneWidget);
     expect(find.text('Политика конфиденциальности'), findsOneWidget);
-    expect(find.text('Taler 1.2.8 (14)'), findsOneWidget);
+    expect(find.text('Taler 1.2.9 (15)'), findsOneWidget);
 
     // Switch back to Profile tab from bottom dock.
     await tester.tap(find.text('Профиль').last);

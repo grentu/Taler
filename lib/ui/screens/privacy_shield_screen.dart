@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
@@ -5,8 +7,10 @@ import '../../core/privacy/spoof_profile.dart';
 import '../../core/privacy/spoofing_service.dart';
 import '../icons/taler_icon.dart';
 import '../theme/taler_theme.dart';
+import '../widgets/settings_components.dart';
 
-/// Экран настроек приватности и маскировки устройства (Taler Shield).
+/// Экран настроек приватности и маскировки устройства (Taler Shield)
+/// в чёрном монохромном стиле `exteraless` с чёрными сквирклами и фейд-кромкой.
 class PrivacyShieldScreen extends StatefulWidget {
   final TalerClient client;
   final double bottomInset;
@@ -14,7 +18,7 @@ class PrivacyShieldScreen extends StatefulWidget {
   const PrivacyShieldScreen({
     super.key,
     required this.client,
-    this.bottomInset = 12,
+    this.bottomInset = 16,
   });
 
   @override
@@ -22,6 +26,31 @@ class PrivacyShieldScreen extends StatefulWidget {
 }
 
 class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
+  final ScrollController _scrollCtrl = ScrollController();
+  double _fadeFactor = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final next = (_scrollCtrl.offset / 32.0).clamp(0.0, 1.0);
+    if ((next - _fadeFactor).abs() > 0.02 && mounted) {
+      setState(() => _fadeFactor = next);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
@@ -30,105 +59,158 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
       listenable: Listenable.merge([
         widget.client.privacySettings,
         widget.client.spoofingService,
+        widget.client.appPreferences,
       ]),
       builder: (context, _) {
         final screenWidth = MediaQuery.sizeOf(context).width;
         final isWide = screenWidth >= 820;
+        final statusTop = isWide ? 0.0 : MediaQuery.paddingOf(context).top;
         final privacy = widget.client.privacySettings;
         final spoof = widget.client.spoofingService;
         final profile = spoof.activeProfile;
-        final activeProtections = [
-          privacy.ghostModeOnline,
-          privacy.hideTyping,
-          privacy.hideReadReceipts,
-          privacy.antiDelete,
-          privacy.spoofingEnabled,
-        ].where((v) => v).length;
+        final powerSaving = widget.client.appPreferences.powerSavingMode;
 
-        return Container(
+        return ColoredBox(
           color: p.settingsBg,
-          child: Column(
+          child: Stack(
             children: [
-              // Верхняя панель
-              Container(
-                color: isWide ? p.bg2 : p.settingsBg,
+              Positioned.fill(
+                child: SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  padding: EdgeInsets.fromLTRB(
+                    12,
+                    statusTop + 56 + 8,
+                    12,
+                    widget.bottomInset + 18,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TalerSettingsGroup(
+                            title: 'Приватность',
+                            children: [
+                              TalerSettingsTile(
+                                icon: TalerIcons.ghost,
+                                title: 'Невидимый статус',
+                                subtitle: 'Скрыть статус «в сети» от собеседников',
+                                trailing: Switch(
+                                  value: privacy.ghostModeOnline,
+                                  onChanged: (v) {
+                                    unawaited(privacy.setGhostModeOnline(v));
+                                    widget.client.session.sendPing();
+                                  },
+                                ),
+                                onTap: () {
+                                  final v = !privacy.ghostModeOnline;
+                                  unawaited(privacy.setGhostModeOnline(v));
+                                  widget.client.session.sendPing();
+                                },
+                              ),
+                              TalerSettingsTile(
+                                icon: TalerIcons.pencilOff,
+                                title: 'Скрыть набор текста',
+                                subtitle: 'Не показывать индикатор «печатает»',
+                                trailing: Switch(
+                                  value: privacy.hideTyping,
+                                  onChanged: (v) => unawaited(privacy.setHideTyping(v)),
+                                ),
+                                onTap: () => unawaited(privacy.setHideTyping(!privacy.hideTyping)),
+                              ),
+                              TalerSettingsTile(
+                                icon: TalerIcons.checkCheck,
+                                title: 'Не отправлять «Прочитано»',
+                                subtitle: 'Читать сообщения без отметки о прочтении',
+                                trailing: Switch(
+                                  value: privacy.hideReadReceipts,
+                                  onChanged: (v) => unawaited(privacy.setHideReadReceipts(v)),
+                                ),
+                                onTap: () => unawaited(
+                                  privacy.setHideReadReceipts(!privacy.hideReadReceipts),
+                                ),
+                              ),
+                              TalerSettingsTile(
+                                icon: TalerIcons.timerOff,
+                                title: 'Сохранять удалённые',
+                                subtitle: 'Не удалять сообщения, стёртые собеседником',
+                                trailing: Switch(
+                                  value: privacy.antiDelete,
+                                  onChanged: (v) => unawaited(privacy.setAntiDelete(v)),
+                                ),
+                                onTap: () => unawaited(privacy.setAntiDelete(!privacy.antiDelete)),
+                              ),
+                              TalerSettingsTile(
+                                icon: TalerIcons.fingerprint,
+                                title: 'Маскировка устройства',
+                                subtitle: 'Подменять модель устройства и параметры экрана',
+                                trailing: Switch(
+                                  value: privacy.spoofingEnabled,
+                                  onChanged: (v) => unawaited(privacy.setSpoofingEnabled(v)),
+                                ),
+                                onTap: () => unawaited(
+                                  privacy.setSpoofingEnabled(!privacy.spoofingEnabled),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _buildSpoofingGroup(p, profile),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!isWide)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: TalerBottomFadeOverlay(
+                    height: 72,
+                    backgroundColor: p.settingsBg,
+                  ),
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: TalerTopFadeOverlay(
+                  height: statusTop + 56 + 26,
+                  backgroundColor: p.settingsBg,
+                  factor: isWide ? 1.0 : _fadeFactor.clamp(0.75, 1.0),
+                  powerSaving: powerSaving,
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
                 child: SafeArea(
                   bottom: false,
                   top: !isWide,
                   child: Container(
                     height: 56,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: isWide ? p.bg2 : p.settingsBg,
-                      border: isWide
-                          ? Border(bottom: BorderSide(color: p.line))
-                          : null,
-                    ),
                     child: Row(
                       children: [
-                        TelegramIconBadge(
-                          icon: TalerIcons.shieldCheck,
-                          color: p.statusLive,
-                          size: 34,
-                        ),
-                        const SizedBox(width: 12),
+                        const TalerSettingsBadge(icon: TalerIcons.settingsGram),
+                        const SizedBox(width: 14),
                         Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Taler Shield',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 15.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: p.fg,
-                                ),
-                              ),
-                              Text(
-                                'Приватность и маскировка устройства',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 12, color: p.fg2),
-                              ),
-                            ],
+                          child: Text(
+                            'Taler Shield',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w600,
+                              color: p.fg,
+                            ),
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // Секции настроек приватности
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    12,
-                    8,
-                    12,
-                    widget.bottomInset + 16,
-                  ),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 880),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildSummaryCard(
-                            p,
-                            activeProtections: activeProtections,
-                            profile: profile,
-                            spoofingEnabled: privacy.spoofingEnabled,
-                          ),
-                          const SizedBox(height: 18),
-                          _buildPrivacyTogglesCard(p, privacy),
-                          const SizedBox(height: 18),
-                          _buildSpoofingCard(p, profile),
-                        ],
-                      ),
                     ),
                   ),
                 ),
@@ -140,259 +222,68 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
     );
   }
 
-  Widget _buildSummaryCard(
-    TalerPalette p, {
-    required int activeProtections,
-    required SpoofProfile profile,
-    required bool spoofingEnabled,
-  }) {
-    final activeLabel = activeProtections > 0 ? 'Включена' : 'Выключена';
-    final activeColor = activeProtections > 0 ? p.statusLive : p.fg2;
-    final profileValue = spoofingEnabled ? profile.label : 'Реальное устройство';
-
-    return TalerTableShell(
-      bodyPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 460;
-          if (stacked) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SummaryStat(
-                  label: 'Защита приватности',
-                  value: activeLabel,
-                  valueColor: activeColor,
-                ),
-                Divider(height: 18, color: p.line),
-                _SummaryStat(
-                  label: 'Профиль устройства',
-                  value: profileValue,
-                  valueColor: p.fg,
-                ),
-              ],
-            );
-          }
-
-          return IntrinsicHeight(
-            child: Row(
-              children: [
-                Expanded(
-                  child: _SummaryStat(
-                    label: 'Защита приватности',
-                    value: activeLabel,
-                    valueColor: activeColor,
-                  ),
-                ),
-                VerticalDivider(width: 24, thickness: 1, color: p.line),
-                Expanded(
-                  child: _SummaryStat(
-                    label: 'Профиль устройства',
-                    value: profileValue,
-                    valueColor: p.fg,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildPrivacyTogglesCard(TalerPalette p, dynamic privacy) {
-    return TalerTableShell(
-      title: 'Приватность',
-      child: Column(
-        children: [
-          _PrivacySwitchRow(
-            icon: TalerIcons.ghost,
-            badgeColor: const Color(0xFF8E6CEF),
-            title: 'Невидимый статус',
-            subtitle: 'Не показывать другим пользователям, когда вы в сети',
-            value: privacy.ghostModeOnline as bool,
-            onChanged: (v) {
-              privacy.setGhostModeOnline(v);
-              widget.client.session.sendPing();
-            },
-          ),
-          Divider(height: 1, indent: 62, color: p.line),
-          _PrivacySwitchRow(
-            icon: TalerIcons.pencilOff,
-            badgeColor: const Color(0xFF2AABEE),
-            title: 'Скрыть набор текста',
-            subtitle: 'Собеседники не увидят, что вы печатаете сообщение',
-            value: privacy.hideTyping as bool,
-            onChanged: privacy.setHideTyping,
-          ),
-          Divider(height: 1, indent: 62, color: p.line),
-          _PrivacySwitchRow(
-            icon: TalerIcons.checkCheck,
-            badgeColor: const Color(0xFF26A69A),
-            title: 'Не отправлять «Прочитано»',
-            subtitle: 'Можно читать входящие сообщения без отметки о прочтении',
-            value: privacy.hideReadReceipts as bool,
-            onChanged: privacy.setHideReadReceipts,
-          ),
-          Divider(height: 1, indent: 62, color: p.line),
-          _PrivacySwitchRow(
-            icon: TalerIcons.timerOff,
-            badgeColor: const Color(0xFFF5A623),
-            title: 'Сохранять удалённые',
-            subtitle: 'Оставлять сообщения, даже если собеседник удалит их у себя',
-            value: privacy.antiDelete as bool,
-            onChanged: privacy.setAntiDelete,
-          ),
-          Divider(height: 1, indent: 62, color: p.line),
-          _PrivacySwitchRow(
-            icon: TalerIcons.fingerprint,
-            badgeColor: const Color(0xFF4ECC5E),
-            title: 'Маскировка устройства',
-            subtitle: 'Скрывать реальную модель устройства, систему и экран',
-            value: privacy.spoofingEnabled as bool,
-            onChanged: privacy.setSpoofingEnabled,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpoofingCard(TalerPalette p, SpoofProfile profile) {
-    return TalerTableShell(
-      title: 'Профиль устройства',
-      trailing: TalerTactileButton(
-        label: 'Обновить',
-        icon: TalerIcons.refresh,
-        compact: true,
-        onPressed: () => widget.client.spoofingService.regenerateIdentifiers(),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final preset in SpoofingService.presets)
-                  _PresetChip(
-                    preset: preset,
-                    selected: preset.id == profile.presetId,
-                    onTap: () =>
-                        widget.client.spoofingService.selectPreset(preset),
-                  ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: p.line),
-          _SpecKeyValueRow(label: 'Устройство', value: profile.label),
-          Divider(height: 1, indent: 14, color: p.line),
-          _SpecKeyValueRow(label: 'Система', value: profile.osVersion),
-          Divider(height: 1, indent: 14, color: p.line),
-          _SpecKeyValueRow(label: 'Версия клиента', value: profile.appVersion),
-          Divider(height: 1, indent: 14, color: p.line),
-          _SpecKeyValueRow(label: 'Экран', value: profile.screen),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color valueColor;
-
-  const _SummaryStat({
-    required this.label,
-    required this.value,
-    required this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final p = TalerTheme.paletteOf(context);
+  Widget _buildSpoofingGroup(TalerPalette p, SpoofProfile profile) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: p.fg2),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 14, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Профиль устройства',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: p.accent,
+                  ),
+                ),
+              ),
+              TalerIconButton(
+                icon: TalerIcons.refresh,
+                tooltip: 'Обновить',
+                size: 32,
+                iconSize: 17,
+                color: p.accent,
+                onPressed: () => widget.client.spoofingService.regenerateIdentifiers(),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TalerTheme.tabularStyle(
-            size: 16,
-            weight: FontWeight.w600,
-            color: valueColor,
+        Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: p.isDark ? const Color(0xFF121215) : p.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: p.isDark ? null : Border.all(color: p.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final preset in SpoofingService.presets)
+                      _PresetChip(
+                        preset: preset,
+                        selected: preset.id == profile.presetId,
+                        onTap: () => widget.client.spoofingService.selectPreset(preset),
+                      ),
+                  ],
+                ),
+              ),
+              _SpecKeyValueRow(label: 'Устройство', value: profile.label),
+              _SpecKeyValueRow(label: 'Система', value: profile.osVersion),
+              _SpecKeyValueRow(label: 'Версия клиента', value: profile.appVersion),
+              _SpecKeyValueRow(label: 'Экран', value: profile.screen),
+            ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PrivacySwitchRow extends StatelessWidget {
-  final TalerIconData icon;
-  final Color badgeColor;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _PrivacySwitchRow({
-    required this.icon,
-    required this.badgeColor,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final p = TalerTheme.paletteOf(context);
-    return InkWell(
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            TelegramIconBadge(icon: icon, color: badgeColor, size: 34),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: p.fg,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 12, color: p.fg2, height: 1.3),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Switch.adaptive(
-              value: value,
-              activeTrackColor: p.accent,
-              onChanged: onChanged,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -416,7 +307,7 @@ class _PresetChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: TalerTheme.fastDuration,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? p.accent.withValues(alpha: 0.16) : p.bg3,
           borderRadius: BorderRadius.circular(10),
@@ -425,8 +316,8 @@ class _PresetChip extends StatelessWidget {
         child: Text(
           preset.label,
           style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
             color: selected ? p.accent : p.fg,
           ),
         ),
@@ -448,12 +339,12 @@ class _SpecKeyValueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(18, 10, 20, 10),
       child: Row(
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: 13.5, color: p.fg2),
+            style: TextStyle(fontSize: 14.5, color: p.fg2),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -463,7 +354,7 @@ class _SpecKeyValueRow extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TalerTheme.tabularStyle(
-                size: 13.5,
+                size: 14.5,
                 weight: FontWeight.w500,
                 color: p.fg,
               ),
