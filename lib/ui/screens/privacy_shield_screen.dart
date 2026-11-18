@@ -106,9 +106,9 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                    16,
                     12,
-                    16,
+                    8,
+                    12,
                     widget.bottomInset + 16,
                   ),
                   child: Center(
@@ -146,9 +146,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
     required SpoofProfile profile,
     required bool spoofingEnabled,
   }) {
-    final activeLabel = activeProtections > 0
-        ? 'Активно: $activeProtections из 5'
-        : 'Выключено';
+    final activeLabel = activeProtections > 0 ? 'Включена' : 'Выключена';
     final activeColor = activeProtections > 0 ? p.statusLive : p.fg2;
     final profileValue = spoofingEnabled ? profile.label : 'Реальное устройство';
 

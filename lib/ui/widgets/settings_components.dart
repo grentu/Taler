@@ -3,19 +3,17 @@ import 'package:material_ui/material_ui.dart';
 import '../icons/taler_icon.dart';
 import '../theme/taler_theme.dart';
 
-/// Цветной круглый бейдж для пунктов настроек, в стиле Solar / exteraGram.
+/// Цветной круглый бейдж категории в стиле Solar / exteraGram.
 class TalerSettingsBadge extends StatelessWidget {
   final TalerIconData icon;
   final Color color;
   final double size;
-  final bool roundedSquare;
 
   const TalerSettingsBadge({
     super.key,
     required this.icon,
     required this.color,
-    this.size = 30,
-    this.roundedSquare = false,
+    this.size = 28,
   });
 
   @override
@@ -26,11 +24,11 @@ class TalerSettingsBadge extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(roundedSquare ? 9 : size / 2),
+        shape: BoxShape.circle,
       ),
       child: TalerIcon(
         icon,
-        size: size * 0.56,
+        size: size * 0.58,
         color: Colors.white,
         strokeWidth: 1.9,
       ),
@@ -38,22 +36,26 @@ class TalerSettingsBadge extends StatelessWidget {
   }
 }
 
-/// Групповая секция настроек: опциональный заголовок и скруглённая карточка.
+/// Чёрно-графитовая скруглённая карточка секции настроек (стиль exteraGram).
 class TalerSettingsGroup extends StatelessWidget {
   final String? title;
   final bool accentTitle;
+  final bool showDividers;
   final List<Widget> children;
 
   const TalerSettingsGroup({
     super.key,
     this.title,
     this.accentTitle = true,
+    this.showDividers = false,
     required this.children,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
+    final cardColor = p.isDark ? const Color(0xFF141416) : p.surface;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -72,13 +74,13 @@ class TalerSettingsGroup extends StatelessWidget {
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: p.surface,
+            color: cardColor,
             borderRadius: BorderRadius.circular(18),
             border: p.isDark ? null : Border.all(color: p.line),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: _withDividers(children, p),
+            children: showDividers ? _withDividers(children, p) : children,
           ),
         ),
       ],
@@ -105,8 +107,8 @@ class TalerSettingsGroup extends StatelessWidget {
   }
 }
 
-/// Строка настроек: цветной бейдж, заголовок, опциональный подзаголовок,
-/// правое синее значение и стрелка или переключатель.
+/// Чистая строка настроек в стиле exteraGram: цветной бейдж, заголовок,
+/// опциональный подзаголовок (для подэкранов) и правое синее значение.
 class TalerSettingsTile extends StatelessWidget {
   final TalerIconData icon;
   final Color badgeColor;
@@ -127,19 +129,23 @@ class TalerSettingsTile extends StatelessWidget {
     this.valueText,
     this.titleColor,
     this.trailing,
-    this.showChevron = true,
+    this.showChevron = false,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
+    final hasSub = subtitle != null && subtitle!.isNotEmpty;
     final row = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: hasSub ? 11 : 10,
+      ),
       child: Row(
         children: [
           TalerSettingsBadge(icon: icon, color: badgeColor),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,11 +157,11 @@ class TalerSettingsTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 15.5,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w400,
                     color: titleColor ?? p.fg,
                   ),
                 ),
-                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                if (hasSub) ...[
                   const SizedBox(height: 2),
                   Text(
                     subtitle!,
@@ -168,12 +174,12 @@ class TalerSettingsTile extends StatelessWidget {
             ),
           ),
           if (valueText != null && valueText!.isNotEmpty) ...[
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Text(
               valueText!,
               style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w500,
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
                 color: p.accent,
               ),
             ),

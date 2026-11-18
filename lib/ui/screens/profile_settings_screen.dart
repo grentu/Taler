@@ -228,9 +228,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 child: SingleChildScrollView(
                   controller: _scrollCtrl,
                   padding: EdgeInsets.fromLTRB(
-                    16,
                     12,
-                    16,
+                    8,
+                    12,
                     widget.bottomInset + 16,
                   ),
                   child: Center(
@@ -240,27 +240,25 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildProfileHero(p, user),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 16),
                           TalerSettingsGroup(
                             children: [
                               TalerSettingsTile(
                                 icon: TalerIcons.user,
-                                badgeColor: const Color(0xFF2B87F3),
+                                badgeColor: const Color(0xFF1E88E5),
                                 title: 'Мой профиль',
-                                subtitle: _formatPhone(user?.phone),
                                 onTap: () => _openMyProfileSheet(user),
                               ),
                               if (widget.onOpenSettings != null)
                                 TalerSettingsTile(
                                   icon: TalerIcons.settings,
                                   badgeColor: const Color(0xFF6366F1),
-                                  title: 'Настройки клиента',
-                                  subtitle: 'Оформление чатов, память, уведомления',
+                                  title: 'Настройки',
                                   onTap: widget.onOpenSettings,
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 14),
                           TalerSettingsGroup(
                             title: 'Активные сессии',
                             accentTitle: true,
@@ -272,7 +270,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                   title: 'Текущая сессия',
                                   subtitle: widget.client.spoofingService.activeProfile.label,
                                   valueText: sessionsText,
-                                  showChevron: false,
                                 )
                               else
                                 for (final s in sessions) _buildSessionTile(p, s),
@@ -282,12 +279,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                   badgeColor: p.danger,
                                   title: 'Завершить другие сессии',
                                   titleColor: p.danger,
-                                  showChevron: false,
                                   onTap: () => unawaited(widget.client.terminateOtherSessions()),
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 14),
                           TalerSettingsGroup(
                             children: [
                               TalerSettingsTile(
@@ -295,15 +291,14 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                 badgeColor: p.danger,
                                 title: 'Выйти',
                                 titleColor: p.danger,
-                                showChevron: false,
                                 onTap: () => unawaited(widget.client.logout()),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 18),
                           Center(
                             child: Text(
-                              'Taler 1.2.7 (13)',
+                              'Taler 1.2.8 (14)',
                               style: TextStyle(fontSize: 13, color: p.fg3),
                             ),
                           ),

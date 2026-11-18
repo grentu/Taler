@@ -101,7 +101,7 @@ void main() {
     await tester.tap(find.text('Настройки').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Настройки Taler Shield'), findsOneWidget);
+    expect(find.text('Настройки Taler'), findsOneWidget);
     expect(find.text('Аккаунт'), findsOneWidget);
     expect(find.text('Настройки чатов'), findsOneWidget);
     expect(find.text('Конфиденциальность'), findsOneWidget);
@@ -111,6 +111,9 @@ void main() {
     expect(find.text('Устройства'), findsOneWidget);
     expect(find.text('Энергосбережение'), findsOneWidget);
     expect(find.text('Русский'), findsOneWidget);
+    // Без лишнего «нейрослопного» мусора на главном экране настроек
+    expect(find.textContaining('модулей'), findsNothing);
+    expect(find.textContaining('КБ'), findsNothing);
     expect(tester.takeException(), isNull);
 
     // Live search in Settings works cleanly.
@@ -142,7 +145,6 @@ void main() {
     expect(find.text('Откл'), findsWidgets);
     await tester.tap(find.byTooltip('Назад'));
     await tester.pumpAndSettle();
-    expect(find.text('Вкл'), findsOneWidget);
 
     // Help section and footer appear on scroll.
     await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -350));
@@ -150,7 +152,7 @@ void main() {
     expect(find.text('Помощь'), findsOneWidget);
     expect(find.text('Возможности Taler'), findsOneWidget);
     expect(find.text('Политика конфиденциальности'), findsOneWidget);
-    expect(find.text('Taler 1.2.7 (13)'), findsOneWidget);
+    expect(find.text('Taler 1.2.8 (14)'), findsOneWidget);
 
     // Switch back to Profile tab from bottom dock.
     await tester.tap(find.text('Профиль').last);

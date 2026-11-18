@@ -6,7 +6,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
 import '../../core/storage/app_preferences.dart';
-import '../../core/storage/local_store.dart';
 import '../../core/storage/taler_models.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
@@ -42,7 +41,6 @@ class _SettingsItemSpec {
   final Color color;
   final String title;
   final String keywords;
-  final String? subtitle;
   final String? valueText;
   final VoidCallback onTap;
 
@@ -52,7 +50,6 @@ class _SettingsItemSpec {
     required this.title,
     required this.keywords,
     required this.onTap,
-    this.subtitle,
     this.valueText,
   });
 }
@@ -60,12 +57,15 @@ class _SettingsItemSpec {
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
+  final ScrollController _scrollCtrl = ScrollController();
   bool _searching = false;
+  bool _showBarTitle = false;
   String _query = '';
 
   @override
   void initState() {
     super.initState();
+    _scrollCtrl.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.client.activeSessions.isEmpty) {
         widget.client.fetchActiveSessions();
@@ -75,9 +75,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _scrollCtrl
+      ..removeListener(_onScroll)
+      ..dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    final show = _scrollCtrl.hasClients && _scrollCtrl.offset > 120;
+    if (show != _showBarTitle && mounted) {
+      setState(() => _showBarTitle = show);
+    }
   }
 
   void _toggleSearch() {
@@ -325,31 +335,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<_SettingsItemSpec> _buildAllItems(
-    int activeProtections,
     int sessionsCount,
-    int mutedCount,
-    CacheStats cacheStats,
     AppPreferences prefs,
   ) {
-    final foldersCount = widget.client.folders.where((f) => !f.isAllChats).isNotEmpty
-        ? widget.client.folders.where((f) => !f.isAllChats).length
-        : 4;
-    final cacheText = cacheStats.approxBytes > 0
-        ? ChatTokens.fileSize(cacheStats.approxBytes)
-        : null;
-
     return [
       _SettingsItemSpec(
         icon: TalerIcons.shieldCheck,
-        color: const Color(0xFFEA4359),
-        title: 'Настройки Taler Shield',
-        keywords: 'защита приватность призрак anti delete маскировка shield',
-        subtitle: '$activeProtections из 5 модулей защиты активно',
+        color: const Color(0xFFE53935),
+        title: 'Настройки Taler',
+        keywords: 'защита приватность призрак anti delete маскировка shield taler',
         onTap: () => _openShield(context),
       ),
       _SettingsItemSpec(
         icon: TalerIcons.user,
-        color: const Color(0xFF2B87F3),
+        color: const Color(0xFF1E88E5),
         title: 'Аккаунт',
         keywords: 'аккаунт профиль имя телефон id выход',
         onTap: () => _openQuickAccountSheet(context),
@@ -366,7 +365,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: const Color(0xFF22C55E),
         title: 'Конфиденциальность',
         keywords: 'конфиденциальность безопасность чтение печать онлайн скрыть',
-        valueText: '$activeProtections/5',
         onTap: () => _openShield(context),
       ),
       _SettingsItemSpec(
@@ -374,7 +372,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: const Color(0xFFEF4444),
         title: 'Уведомления',
         keywords: 'уведомления звук без звука бейджи превью',
-        valueText: mutedCount > 0 ? 'Без звука: $mutedCount' : null,
         onTap: _openNotifications,
       ),
       _SettingsItemSpec(
@@ -382,15 +379,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: const Color(0xFF4F6DF5),
         title: 'Данные и память',
         keywords: 'данные память кэш очистить хранилище трафик',
-        valueText: cacheText,
         onTap: _openDataStorage,
       ),
       _SettingsItemSpec(
         icon: TalerIcons.folder,
-        color: const Color(0xFF0EA5E9),
+        color: const Color(0xFF2990FF),
         title: 'Папки с чатами',
         keywords: 'папки вкладки фильтры чаты личные группы каналы',
-        valueText: '$foldersCount',
         onTap: _openFolders,
       ),
       _SettingsItemSpec(
@@ -406,7 +401,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: const Color(0xFFF97316),
         title: 'Энергосбережение',
         keywords: 'энергосбережение батарея блюр анимации оптимизация',
-        valueText: prefs.powerSavingMode ? 'Вкл' : null,
         onTap: _openPowerSaving,
       ),
       _SettingsItemSpec(
@@ -431,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       _SettingsItemSpec(
         icon: TalerIcons.info,
-        color: const Color(0xFF3B82F6),
+        color: const Color(0xFF2990FF),
         title: 'Вопросы о Taler',
         keywords: 'faq вопросы справка max клиент обновления',
         onTap: () => _openInfoSheet(
@@ -462,6 +456,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
+  Widget _buildHeaderHero(TalerPalette p) {
+    final user = widget.client.currentUser;
+    final sub = _formatUserPhone(user?.phone);
+    return Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            TalerAvatar(
+              seedId: user?.id ?? 0,
+              initials: user?.initials ?? 'T',
+              imageUrl: user?.avatarUrl,
+              size: 90,
+            ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: GestureDetector(
+                onTap: () => _openQuickAccountSheet(context),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: p.accent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: p.settingsBg, width: 2.5),
+                  ),
+                  child: const TalerIcon(
+                    TalerIcons.camera,
+                    size: 15,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            user?.fullName ?? 'Пользователь Taler',
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.3,
+              color: p.fg,
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          sub,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 13.5,
+            color: p.fg3,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
@@ -470,32 +533,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListenableBuilder(
       listenable: Listenable.merge([
         widget.client,
-        widget.client.privacySettings,
         widget.client.appPreferences,
       ]),
       builder: (context, _) {
         final prefs = widget.client.appPreferences;
-        final privacy = widget.client.privacySettings;
-        final activeProtections = [
-          privacy.ghostModeOnline,
-          privacy.hideTyping,
-          privacy.hideReadReceipts,
-          privacy.antiDelete,
-          privacy.spoofingEnabled,
-        ].where((v) => v).length;
         final sessionsCount = widget.client.activeSessions.isEmpty
             ? 1
             : widget.client.activeSessions.length;
-        final mutedCount = widget.client.chats.where((c) => c.isMuted).length;
-        final cacheStats = widget.client.store.estimateCacheStats();
 
-        final allItems = _buildAllItems(
-          activeProtections,
-          sessionsCount,
-          mutedCount,
-          cacheStats,
-          prefs,
-        );
+        final allItems = _buildAllItems(sessionsCount, prefs);
         final highlight = allItems.first;
         final mainItems = allItems.sublist(1, 10);
         final helpItems = allItems.sublist(10);
@@ -506,8 +552,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : allItems
                 .where((item) =>
                     item.title.toLowerCase().contains(q) ||
-                    item.keywords.contains(q) ||
-                    (item.subtitle?.toLowerCase().contains(q) ?? false))
+                    item.keywords.contains(q))
                 .toList();
 
         return Container(
@@ -517,11 +562,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildTopBar(p, isWide),
               Expanded(
                 child: SingleChildScrollView(
+                  controller: _scrollCtrl,
                   keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: EdgeInsets.fromLTRB(
-                    16,
-                    8,
-                    16,
+                    12,
+                    4,
+                    12,
                     widget.bottomInset + 16,
                   ),
                   child: Center(
@@ -532,10 +578,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
+                                _buildHeaderHero(p),
+                                const SizedBox(height: 16),
                                 TalerSettingsGroup(
                                   children: [_toTile(highlight)],
                                 ),
-                                const SizedBox(height: 14),
+                                const SizedBox(height: 12),
                                 TalerSettingsGroup(
                                   children: [
                                     for (final item in mainItems) _toTile(item),
@@ -549,10 +597,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     for (final item in helpItems) _toTile(item),
                                   ],
                                 ),
-                                const SizedBox(height: 20),
+                                const SizedBox(height: 18),
                                 Center(
                                   child: Text(
-                                    'Taler 1.2.7 (13)',
+                                    'Taler 1.2.8 (14)',
                                     style: TextStyle(fontSize: 13, color: p.fg3),
                                   ),
                                 ),
@@ -574,7 +622,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       icon: item.icon,
       badgeColor: item.color,
       title: item.title,
-      subtitle: item.subtitle,
       valueText: item.valueText,
       onTap: item.onTap,
     );
@@ -606,8 +653,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         bottom: false,
         top: !isWide,
         child: Container(
-          height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: isWide ? p.bg2 : p.settingsBg,
             border: isWide ? Border(bottom: BorderSide(color: p.line)) : null,
@@ -662,21 +709,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: TalerIcons.qrCode,
                       tooltip: 'Профиль и ID',
                       size: 42,
-                      iconSize: 20,
+                      iconSize: 21,
                       color: p.fg,
                       onPressed: () => _openQuickAccountSheet(context),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                        'Настройки',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.2,
-                          color: p.fg,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 160),
+                        opacity: (isWide || _showBarTitle) ? 1.0 : 0.0,
+                        child: Text(
+                          'Настройки',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.2,
+                            color: p.fg,
+                          ),
                         ),
                       ),
                     ),
@@ -684,14 +735,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: TalerIcons.search,
                       tooltip: 'Поиск в настройках',
                       size: 42,
-                      iconSize: 20,
+                      iconSize: 21,
                       color: p.fg,
                       onPressed: _toggleSearch,
                     ),
                     PopupMenuButton<String>(
                       tooltip: 'Ещё',
                       color: p.bg2,
-                      icon: TalerIcon(TalerIcons.more, size: 20, color: p.fg),
+                      icon: TalerIcon(TalerIcons.more, size: 21, color: p.fg),
                       onSelected: (action) {
                         if (action == 'profile') _openQuickAccountSheet(context);
                         if (action == 'shield') _openShield(context);

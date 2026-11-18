@@ -1,7 +1,7 @@
 name: taler
 description: "Taler — открытый мультиплатформенный клиент для мессенджера MAX без телеметрии."
 publish_to: 'none'
-version: 1.2.7+13
+version: 1.2.8+14
 
 environment:
   sdk: ^3.10.0
