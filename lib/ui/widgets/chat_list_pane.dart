@@ -91,9 +91,21 @@ class _ChatListPaneState extends State<ChatListPane> {
         final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
         final hPad = widget.compact ? 16.0 : 12.0;
 
-        return Container(
-          color: widget.compact ? p.settingsBg : p.bg2,
-          child: SafeArea(
+        return PopScope(
+          canPop: _query.isEmpty && _filterId == 'all',
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (_query.isNotEmpty) {
+              _searchCtrl.clear();
+              setState(() => _query = '');
+              _searchFocus.unfocus();
+            } else if (_filterId != 'all') {
+              setState(() => _filterId = 'all');
+            }
+          },
+          child: Container(
+            color: widget.compact ? p.settingsBg : p.bg2,
+            child: SafeArea(
             bottom: false,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -178,6 +190,7 @@ class _ChatListPaneState extends State<ChatListPane> {
               ],
             ),
           ),
+        ),
         );
       },
     );

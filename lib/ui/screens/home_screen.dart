@@ -126,34 +126,46 @@ class _HomeScreenState extends State<HomeScreen> {
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
           onOpenSettings: () => _selectTab(2),
+          onOpenShield: () => _selectTab(1),
           bottomInset: wide ? 24 : _dockSpace,
         );
 
         if (wide) {
-          return Scaffold(
-            backgroundColor: p.bg,
-            body: Row(
-              children: [
-                _Rail(
-                  selected: _tab,
-                  unread: unread,
-                  hasUpdate: hasUpdate,
-                  isDark: p.isDark,
-                  user: client.currentUser,
-                  online: online,
-                  onSelect: _selectTab,
-                  onToggleTheme: () => _toggleTheme(context),
-                  onLogout: () => client.logout(),
-                ),
-                Expanded(
-                  child: switch (_tab) {
-                    0 => _desktopChats(p),
-                    1 => PrivacyShieldScreen(client: client, bottomInset: 24),
-                    2 => settings,
-                    _ => profile,
-                  },
-                ),
-              ],
+          return PopScope(
+            canPop: _tab == 0 && _selectedChatId == null,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              if (_tab != 0) {
+                _selectTab(0);
+              } else if (_selectedChatId != null) {
+                setState(() => _selectedChatId = null);
+              }
+            },
+            child: Scaffold(
+              backgroundColor: p.bg,
+              body: Row(
+                children: [
+                  _Rail(
+                    selected: _tab,
+                    unread: unread,
+                    hasUpdate: hasUpdate,
+                    isDark: p.isDark,
+                    user: client.currentUser,
+                    online: online,
+                    onSelect: _selectTab,
+                    onToggleTheme: () => _toggleTheme(context),
+                    onLogout: () => client.logout(),
+                  ),
+                  Expanded(
+                    child: switch (_tab) {
+                      0 => _desktopChats(p),
+                      1 => PrivacyShieldScreen(client: client, bottomInset: 24),
+                      2 => settings,
+                      _ => profile,
+                    },
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -161,62 +173,71 @@ class _HomeScreenState extends State<HomeScreen> {
         final bottom = MediaQuery.paddingOf(context).bottom;
         final keyboard = MediaQuery.viewInsetsOf(context).bottom;
         final listBottomInset = math.max(_dockSpace + bottom, keyboard + 12);
-        return Focus(
-          focusNode: _rootFocus,
-          child: Scaffold(
-            backgroundColor: p.settingsBg,
-            resizeToAvoidBottomInset: false,
-            body: Stack(
-              children: [
-                Positioned.fill(
-                  child: switch (_tab) {
-                    0 => ChatListPane(
-                        client: client,
-                        compact: true,
-                        bottomInset: listBottomInset,
-                        onOpen: _openMobileChat,
+        return PopScope(
+          canPop: _tab == 0,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop && _tab != 0) {
+              _selectTab(0);
+            }
+          },
+          child: Focus(
+            focusNode: _rootFocus,
+            child: Scaffold(
+              backgroundColor: p.settingsBg,
+              resizeToAvoidBottomInset: false,
+              body: Stack(
+                children: [
+                  Positioned.fill(
+                    child: switch (_tab) {
+                      0 => ChatListPane(
+                          client: client,
+                          compact: true,
+                          bottomInset: listBottomInset,
+                          onOpen: _openMobileChat,
+                        ),
+                      1 => PrivacyShieldScreen(
+                          client: client,
+                          bottomInset: _dockSpace + bottom,
+                        ),
+                      2 => SettingsScreen(
+                          client: client,
+                          themeMode: widget.themeMode,
+                          onThemeModeChanged: widget.onThemeModeChanged,
+                          onOpenShield: () => _selectTab(1),
+                          onOpenProfile: () => _selectTab(3),
+                          bottomInset: _dockSpace + bottom,
+                        ),
+                      _ => ProfileSettingsScreen(
+                          client: client,
+                          themeMode: widget.themeMode,
+                          onThemeModeChanged: widget.onThemeModeChanged,
+                          onOpenSettings: () => _selectTab(2),
+                          onOpenShield: () => _selectTab(1),
+                          bottomInset: _dockSpace + bottom,
+                        ),
+                    },
+                  ),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12 + bottom,
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge([
+                        client.appPreferences,
+                        client.updater,
+                      ]),
+                      builder: (context, _) => _Dock(
+                        selected: _tab,
+                        unread: unread,
+                        hasUpdate: client.updater.hasUpdate,
+                        user: client.currentUser,
+                        powerSaving: client.appPreferences.powerSavingMode,
+                        onSelect: _selectTab,
                       ),
-                    1 => PrivacyShieldScreen(
-                        client: client,
-                        bottomInset: _dockSpace + bottom,
-                      ),
-                    2 => SettingsScreen(
-                        client: client,
-                        themeMode: widget.themeMode,
-                        onThemeModeChanged: widget.onThemeModeChanged,
-                        onOpenShield: () => _selectTab(1),
-                        onOpenProfile: () => _selectTab(3),
-                        bottomInset: _dockSpace + bottom,
-                      ),
-                    _ => ProfileSettingsScreen(
-                        client: client,
-                        themeMode: widget.themeMode,
-                        onThemeModeChanged: widget.onThemeModeChanged,
-                        onOpenSettings: () => _selectTab(2),
-                        bottomInset: _dockSpace + bottom,
-                      ),
-                  },
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12 + bottom,
-                  child: ListenableBuilder(
-                    listenable: Listenable.merge([
-                      client.appPreferences,
-                      client.updater,
-                    ]),
-                    builder: (context, _) => _Dock(
-                      selected: _tab,
-                      unread: unread,
-                      hasUpdate: client.updater.hasUpdate,
-                      user: client.currentUser,
-                      powerSaving: client.appPreferences.powerSavingMode,
-                      onSelect: _selectTab,
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

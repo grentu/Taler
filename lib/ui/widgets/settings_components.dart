@@ -239,6 +239,7 @@ class TalerSettingsGroup extends StatelessWidget {
     final cardColor = p.isDark ? const Color(0xFF121215) : p.surface;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (title != null)
@@ -261,6 +262,7 @@ class TalerSettingsGroup extends StatelessWidget {
             border: p.isDark ? null : Border.all(color: p.line),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: showDividers ? _withDividers(children, p) : children,
           ),
@@ -394,4 +396,449 @@ class TalerSettingsTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Определяет подходящую иконку устройства по строке клиента активной сессии.
+TalerIconData talerDeviceIconForClient(String clientName) {
+  final lower = clientName.toLowerCase();
+  if (lower.contains('web') ||
+      lower.contains('browser') ||
+      lower.contains('chrome') ||
+      lower.contains('safari') ||
+      lower.contains('firefox') ||
+      lower.contains('edge')) {
+    return TalerIcons.settingsLanguage;
+  }
+  if (lower.contains('windows') ||
+      lower.contains('desktop') ||
+      lower.contains('macos') ||
+      lower.contains('mac os') ||
+      lower.contains('linux') ||
+      lower.contains('darwin')) {
+    return TalerIcons.settingsDevices;
+  }
+  if (lower.contains('android') ||
+      lower.contains('ios') ||
+      lower.contains('iphone') ||
+      lower.contains('ipad') ||
+      lower.contains('mobile') ||
+      lower.contains('taler') ||
+      lower.contains('max') ||
+      lower.contains('pixel') ||
+      lower.contains('samsung') ||
+      lower.contains('xiaomi') ||
+      lower.contains('redmi') ||
+      lower.contains('poco')) {
+    return TalerIcons.smartphone;
+  }
+  return TalerIcons.devicesOther;
+}
+
+Widget _sheetHandle(TalerPalette p) => Center(
+      child: Container(
+        width: 36,
+        height: 4,
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: p.fg.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+
+/// Чёрный лист редактирования имени и фамилии в стиле `exteraless`.
+Future<void> showTalerEditNameSheet(
+  BuildContext context, {
+  required String initialFirstName,
+  String? initialLastName,
+  required Future<void> Function(String firstName, String? lastName) onSave,
+}) async {
+  final result = await showModalBottomSheet<({String first, String? last})>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _EditNameSheetBody(
+      initialFirstName: initialFirstName,
+      initialLastName: initialLastName,
+    ),
+  );
+
+  if (result != null && result.first.isNotEmpty) {
+    await onSave(result.first, result.last);
+  }
+}
+
+class _EditNameSheetBody extends StatefulWidget {
+  final String initialFirstName;
+  final String? initialLastName;
+
+  const _EditNameSheetBody({
+    required this.initialFirstName,
+    this.initialLastName,
+  });
+
+  @override
+  State<_EditNameSheetBody> createState() => _EditNameSheetBodyState();
+}
+
+class _EditNameSheetBodyState extends State<_EditNameSheetBody> {
+  late final TextEditingController _firstCtrl;
+  late final TextEditingController _lastCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _firstCtrl = TextEditingController(text: widget.initialFirstName);
+    _lastCtrl = TextEditingController(text: widget.initialLastName ?? '');
+  }
+
+  @override
+  void dispose() {
+    _firstCtrl.dispose();
+    _lastCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final first = _firstCtrl.text.trim();
+    if (first.isEmpty) return;
+    final last = _lastCtrl.text.trim();
+    Navigator.of(context).pop((
+      first: first,
+      last: last.isEmpty ? null : last,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final bottom =
+        MediaQuery.viewInsetsOf(context).bottom + MediaQuery.paddingOf(context).bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: p.settingsBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        border: Border(top: BorderSide(color: p.line2)),
+      ),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sheetHandle(p),
+            Row(
+              children: [
+                const TalerSettingsBadge(
+                  icon: TalerIcons.pencil,
+                  size: 32,
+                  iconSize: 19,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Изменить имя',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: p.fg,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TalerSettingsGroup(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: TextField(
+                    controller: _firstCtrl,
+                    autofocus: true,
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
+                    style: TextStyle(fontSize: 16, color: p.fg),
+                    decoration: InputDecoration(
+                      labelText: 'Имя',
+                      labelStyle: TextStyle(fontSize: 13, color: p.fg3),
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: TextField(
+                    controller: _lastCtrl,
+                    textInputAction: TextInputAction.done,
+                    textCapitalization: TextCapitalization.words,
+                    onSubmitted: (_) => _submit(),
+                    style: TextStyle(fontSize: 16, color: p.fg),
+                    decoration: InputDecoration(
+                      labelText: 'Фамилия (необязательно)',
+                      labelStyle: TextStyle(fontSize: 13, color: p.fg3),
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: p.line2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('Отмена'),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      onPressed: _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: p.accent,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('Сохранить'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Информационный чёрный лист в стиле `exteraless` (для справки, политики, вопросов и т.д.).
+Future<void> showTalerInfoSheet(
+  BuildContext context, {
+  required TalerIconData icon,
+  required String title,
+  required String body,
+  String? copyText,
+  String? copyButtonLabel,
+  ValueChanged<String>? onCopied,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final p = TalerTheme.paletteOf(ctx);
+      final bottom = MediaQuery.paddingOf(ctx).bottom;
+      return Container(
+        decoration: BoxDecoration(
+          color: p.settingsBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          border: Border(top: BorderSide(color: p.line2)),
+        ),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sheetHandle(p),
+            Row(
+              children: [
+                TalerSettingsBadge(icon: icon, size: 34, iconSize: 21),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: p.fg,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TalerSettingsGroup(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                  child: SelectableText(
+                    body,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      height: 1.48,
+                      color: p.fg2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (copyText != null && copyButtonLabel != null) ...[
+              const SizedBox(height: 12),
+              TalerSettingsGroup(
+                children: [
+                  TalerSettingsTile(
+                    icon: TalerIcons.copy,
+                    title: copyButtonLabel,
+                    subtitle: copyText,
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      onCopied?.call(copyText);
+                    },
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 46,
+              child: FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: FilledButton.styleFrom(
+                  backgroundColor: p.accent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: const Text('Понятно'),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+/// Чёрный лист подтверждения опасного или важного действия.
+Future<bool> showTalerConfirmSheet(
+  BuildContext context, {
+  required TalerIconData icon,
+  required String title,
+  required String message,
+  required String confirmLabel,
+  bool destructive = true,
+}) async {
+  final res = await showModalBottomSheet<bool>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final p = TalerTheme.paletteOf(ctx);
+      final bottom = MediaQuery.paddingOf(ctx).bottom;
+      final confirmColor = destructive ? p.danger : p.accent;
+      return Container(
+        decoration: BoxDecoration(
+          color: p.settingsBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          border: Border(top: BorderSide(color: p.line2)),
+        ),
+        padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sheetHandle(p),
+            Row(
+              children: [
+                TalerSettingsBadge(
+                  icon: icon,
+                  size: 34,
+                  iconSize: 21,
+                  iconColor: confirmColor,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: p.fg,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TalerSettingsGroup(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      height: 1.45,
+                      color: p.fg2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: p.line2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('Отмена'),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: confirmColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(confirmLabel),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  return res == true;
 }

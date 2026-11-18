@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
+import '../../core/media/taler_media_cache.dart';
 import '../../core/storage/taler_models.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
+import 'photo_viewer_page.dart';
 
 enum _Tab { members, media, files }
 
@@ -47,10 +50,16 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
     final peer = chat.peerId != null ? client.contactById(chat.peerId!) : null;
     final tabs = <_Tab>[if (chat.isGroup) _Tab.members, _Tab.media, _Tab.files];
     final tab = (_tab != null && tabs.contains(_tab)) ? _tab! : tabs.first;
-    final photos = <TalerAttachment>[
+    final photoItems = <TalerPhotoViewerItem>[
       for (final m in widget.messages.reversed)
         for (final a in m.attachments)
-          if (a.type == 'PHOTO' && a.url != null) a,
+          if (a.type == 'PHOTO' && a.url != null)
+            TalerPhotoViewerItem(
+              attachment: a,
+              senderName: client.senderDisplayName(m.senderId, chatId: chat.id),
+              timestamp: m.time,
+              caption: m.text,
+            ),
     ];
     final files = <TalerAttachment>[
       for (final m in widget.messages.reversed)
@@ -168,7 +177,7 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
         const SizedBox(height: 4),
         if (tab == _Tab.members) ..._members(p),
         if (tab == _Tab.media)
-          photos.isEmpty
+          photoItems.isEmpty
               ? const _Empty(text: 'Фото пока нет')
               : Padding(
                   padding: const EdgeInsets.all(4),
@@ -179,10 +188,19 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
                     mainAxisSpacing: 2,
                     crossAxisSpacing: 2,
                     children: [
-                      for (final a in photos.take(60))
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: _thumb(a.url!, p),
+                      for (var i = 0; i < photoItems.length && i < 60; i++)
+                        GestureDetector(
+                          onTap: () => unawaited(
+                            showTalerPhotoViewer(
+                              context,
+                              items: photoItems,
+                              initialIndex: i,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: _thumb(photoItems[i].attachment.url!, p),
+                          ),
                         ),
                     ],
                   ),
@@ -240,10 +258,21 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
 
   Widget _thumb(String url, TalerPalette p) {
     final placeholder = Container(color: p.bg3);
-    if (url.startsWith('http')) {
-      return Image.network(url, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder);
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return TalerCachedImage(
+        url: url,
+        fit: BoxFit.cover,
+        cacheWidth: 320,
+        placeholder: placeholder,
+        errorWidget: placeholder,
+      );
     }
-    return Image.file(File(url), fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder);
+    return Image.file(
+      File(url),
+      fit: BoxFit.cover,
+      cacheWidth: 320,
+      errorBuilder: (_, _, _) => placeholder,
+    );
   }
 
   /// Участники: известные по переписке отправители и вы.

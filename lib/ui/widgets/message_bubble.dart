@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../../core/media/taler_media_cache.dart';
 import '../../core/storage/taler_models.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
@@ -54,6 +55,7 @@ class MessageRow extends StatelessWidget {
   final ValueChanged<Rect?>? onBubbleActions;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
+  final void Function(TalerAttachment photo)? onOpenPhoto;
   final ValueChanged<String> onToggleReaction;
 
   const MessageRow({
@@ -74,6 +76,7 @@ class MessageRow extends StatelessWidget {
     this.senderAvatarUrl,
     this.onShowHistory,
     this.onRetry,
+    this.onOpenPhoto,
   });
 
   void _triggerActions(BuildContext bubbleCtx) {
@@ -112,6 +115,7 @@ class MessageRow extends StatelessWidget {
           cornerRadius: bubbleRadius,
           onShowHistory: onShowHistory,
           onRetry: onRetry,
+          onOpenPhoto: onOpenPhoto,
         ),
       ),
     );
@@ -230,6 +234,7 @@ class MessageBubble extends StatelessWidget {
   final double cornerRadius;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
+  final void Function(TalerAttachment photo)? onOpenPhoto;
 
   const MessageBubble({
     super.key,
@@ -244,6 +249,7 @@ class MessageBubble extends StatelessWidget {
     this.cornerRadius = 20.0,
     this.onShowHistory,
     this.onRetry,
+    this.onOpenPhoto,
   });
 
   static const double _small = 6;
@@ -326,11 +332,17 @@ class MessageBubble extends StatelessWidget {
       ));
     }
     for (final photo in photos) {
-      children.add(_PhotoView(
-        attachment: photo,
-        width: maxWidth,
-        overlayMeta: !hasText && files.isEmpty && photo == photos.last ? meta : null,
-      ));
+      children.add(
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onOpenPhoto != null ? () => onOpenPhoto!(photo) : null,
+          child: _PhotoView(
+            attachment: photo,
+            width: maxWidth,
+            overlayMeta: !hasText && files.isEmpty && photo == photos.last ? meta : null,
+          ),
+        ),
+      );
     }
     final reply = m.replyTo;
     if (reply != null) {
@@ -535,14 +547,32 @@ class _PhotoView extends StatelessWidget {
     final w = attachment.width;
     final h = attachment.height;
     final ratio = (w != null && h != null && w > 0 && h > 0) ? (w / h).clamp(0.6, 2.0) : 4 / 3;
+    final targetWidth = width.clamp(160.0, 360.0);
     final isHttp = url.startsWith('http://') || url.startsWith('https://');
-    final placeholder = Container(color: p.bg3);
+    final cachePx = (targetWidth * MediaQuery.devicePixelRatioOf(context)).round();
+    final placeholder = Container(
+      color: p.bg3,
+      child: Center(
+        child: TalerIcon(TalerIcons.image, size: 28, color: p.fg4),
+      ),
+    );
     final image = isHttp
-        ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder)
-        : Image.file(File(url), fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder);
+        ? TalerCachedImage(
+            url: url,
+            fit: BoxFit.cover,
+            cacheWidth: cachePx,
+            placeholder: placeholder,
+            errorWidget: placeholder,
+          )
+        : Image.file(
+            File(url),
+            fit: BoxFit.cover,
+            cacheWidth: cachePx,
+            errorBuilder: (_, _, _) => placeholder,
+          );
     final meta = overlayMeta;
     return SizedBox(
-      width: width.clamp(160.0, 360.0),
+      width: targetWidth,
       child: AspectRatio(
         aspectRatio: ratio,
         child: Stack(

@@ -1,6 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:taler/backend/taler_client.dart';
+import 'package:taler/core/privacy/privacy_firewall.dart';
+import 'package:taler/core/privacy/privacy_settings.dart';
+import 'package:taler/core/privacy/spoofing_service.dart';
 import 'package:taler/core/storage/app_preferences.dart';
 import 'package:taler/core/storage/local_store.dart';
 import 'package:taler/core/storage/taler_models.dart';
@@ -8,6 +15,7 @@ import 'package:taler/core/version.dart';
 import 'package:taler/main.dart';
 import 'package:taler/ui/icons/taler_icon.dart';
 import 'package:taler/ui/widgets/message_bubble.dart';
+import 'package:taler/ui/widgets/settings_components.dart';
 
 void main() {
   group('AppPreferences & Cache', () {
@@ -164,8 +172,11 @@ void main() {
     // Switch back to Profile tab from bottom dock.
     await tester.tap(find.text('Профиль').last);
     await tester.pumpAndSettle();
-    expect(find.text('Мой профиль'), findsOneWidget);
-    expect(find.text('Активные сессии'), findsOneWidget);
+    expect(find.text('Аккаунт'), findsOneWidget);
+    expect(find.text('Идентификатор MAX'), findsOneWidget);
+    expect(find.text('Устройства'), findsOneWidget);
+    expect(find.text('Оформление чатов'), findsOneWidget);
+    expect(find.text('Активные сессии'), findsNothing);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
@@ -268,7 +279,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 220));
     await tester.pumpAndSettle();
-    expect(find.text('Мой профиль'), findsOneWidget);
+    expect(find.text('Идентификатор MAX'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     // Switch across to Protection and back to Chats.
@@ -278,5 +289,169 @@ void main() {
     await tester.tap(find.text('Чаты').last);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  group('UI fixes, back navigation, device icons and photo viewer', () {
+    test('talerDeviceIconForClient picks accurate icons without door icon', () {
+      expect(talerDeviceIconForClient('MAX Android'), TalerIcons.smartphone);
+      expect(talerDeviceIconForClient('Taler (Pixel 8 Pro)'), TalerIcons.smartphone);
+      expect(talerDeviceIconForClient('MAX Web'), TalerIcons.settingsLanguage);
+      expect(talerDeviceIconForClient('Taler Windows Desktop'), TalerIcons.settingsDevices);
+      expect(talerDeviceIconForClient('Unknown Device'), TalerIcons.devicesOther);
+    });
+
+    test('TalerClient filters empty ghost chats and keeps active/saved dialogs', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final store = LocalStore();
+      await store.init();
+      await store.saveCredentials('tok', 10);
+      await store.saveChats([
+        const TalerChat(id: 1, type: 'DIALOG', title: 'Диалог #1'),
+        const TalerChat(
+          id: 2,
+          type: 'DIALOG',
+          title: 'Избранное',
+          peerId: 10,
+          lastMessageText: 'Заметка',
+          lastMessageTime: 1000,
+        ),
+        const TalerChat(
+          id: 3,
+          type: 'DIALOG',
+          title: 'Иван',
+          peerId: 20,
+          lastMessageText: 'Привет',
+          lastMessageTime: 2000,
+        ),
+      ]);
+
+      final client = TalerClient(
+        privacySettings: PrivacySettings(),
+        spoofingService: SpoofingService(),
+        auditLog: WireAuditLog(),
+        store: store,
+      );
+      addTearDown(client.dispose);
+
+      expect(client.chats.map((c) => c.id).toList(), [3, 2]);
+    });
+
+    testWidgets(
+      'mobile 360px: bottom sheets replace AlertDialog, back gesture switches to Chats tab, and photo opens fullscreen',
+      (tester) async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        tester.view.physicalSize = const Size(360, 760);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        // Prepare a valid 1x1 PNG file for photo viewer test.
+        final tmpDir = Directory.systemTemp.createTempSync('taler_photo_test_');
+        addTearDown(() {
+          if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+        });
+        final pngBytes = base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        );
+        final imgFile = File('${tmpDir.path}${Platform.pathSeparator}sample.png')
+          ..writeAsBytesSync(pngBytes);
+
+        final store = LocalStore();
+        await store.init();
+        final prefs = AppPreferences();
+        await prefs.load();
+        final client = TalerClient(
+          privacySettings: PrivacySettings(),
+          spoofingService: SpoofingService(),
+          auditLog: WireAuditLog(),
+          store: store,
+          appPreferences: prefs,
+        );
+        await client.enterDemoMode();
+        await store.saveMessagesBatch(5002, [
+          ...store.getMessages(5002),
+          TalerMessage(
+            id: 'photo_1',
+            chatId: 5002,
+            senderId: 2001,
+            text: 'Фото тест',
+            time: DateTime.now().millisecondsSinceEpoch,
+            attachments: [
+              TalerAttachment(
+                type: 'PHOTO',
+                url: imgFile.path,
+                width: 100,
+                height: 100,
+              ),
+            ],
+          ),
+        ]);
+        addTearDown(client.dispose);
+
+        await tester.pumpWidget(TalerApp(client: client));
+        await tester.pumpAndSettle();
+
+        // Switch to Settings -> open "Вопросы о Taler" and verify styled bottom sheet (no AlertDialog).
+        await tester.tap(find.text('Настройки').last);
+        await tester.pumpAndSettle();
+
+        await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -450));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Вопросы о Taler'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Понятно'), findsOneWidget);
+        await tester.tap(find.text('Понятно'));
+        await tester.pumpAndSettle();
+
+        // System back gesture on Settings tab must return to Chats tab instead of closing app.
+        final poppedSettings = await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(poppedSettings, isTrue);
+        expect(find.text('Елена Соколова'), findsOneWidget);
+
+        // Switch to Profile -> edit name uses styled bottom sheet (no AlertDialog).
+        await tester.tap(find.text('Профиль').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Изменить имя'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Сохранить'), findsOneWidget);
+        await tester.tap(find.text('Отмена'));
+        await tester.pumpAndSettle();
+
+        // Back gesture from Profile returns to Chats tab.
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('Елена Соколова'), findsOneWidget);
+
+        // Open direct chat and tap photo to open fullscreen viewer.
+        await tester.tap(find.text('Елена Соколова'));
+        await tester.pumpAndSettle();
+
+        // Center-aligned header pill should use Alignment.center on mobile.
+        final headerAlign = tester.widget<Align>(
+          find.ancestor(
+            of: find.text('Елена Соколова'),
+            matching: find.byType(Align),
+          ).first,
+        );
+        expect(headerAlign.alignment, Alignment.center);
+
+        // Tap the photo attachment to open fullscreen viewer and close it via Back.
+        final photoTapTarget = find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.byType(Image),
+        );
+        expect(photoTapTarget, findsWidgets);
+        await tester.tap(photoTapTarget.first);
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Сохранить'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Назад').last);
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Сохранить'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

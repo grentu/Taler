@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 
 import 'backend/taler_client.dart';
+import 'core/media/taler_media_cache.dart';
 import 'core/privacy/privacy_firewall.dart';
 import 'core/privacy/privacy_settings.dart';
 import 'core/privacy/spoofing_service.dart';
@@ -13,6 +14,9 @@ import 'ui/theme/taler_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSize = 2000;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024;
+  unawaited(TalerMediaCache.instance.warmUp());
   runApp(const TalerApp());
 }
 

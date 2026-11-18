@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../core/media/taler_media_cache.dart';
 import '../icons/taler_icon.dart';
 
 /// Палитра дизайн-системы Taler в обсидианово-графитовом стиле (Obsidian Monochrome + Muted Indigo).
@@ -271,6 +272,12 @@ class TalerTheme {
       canvasColor: p.bg2,
       dividerColor: p.line,
       splashFactory: NoSplash.splashFactory,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
       highlightColor: p.surface.withValues(alpha: 0.7),
       hoverColor: p.surface.withValues(alpha: 0.5),
       textTheme: (isDark
@@ -459,15 +466,15 @@ class TalerAvatar extends StatelessWidget {
     if (url != null && (url.startsWith('http://') || url.startsWith('https://'))) {
       final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
       face = ClipOval(
-        child: Image.network(
-          url,
+        child: TalerCachedImage(
+          url: url,
           width: size,
           height: size,
           fit: BoxFit.cover,
           cacheWidth: px,
           filterQuality: FilterQuality.medium,
-          errorBuilder: (_, _, _) => fallback,
-          frameBuilder: (context, child, frame, sync) => frame == null && !sync ? fallback : child,
+          placeholder: fallback,
+          errorWidget: fallback,
         ),
       );
     } else {

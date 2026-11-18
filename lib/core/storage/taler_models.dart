@@ -128,11 +128,12 @@ class TalerContact {
   });
 
   String get displayName {
-    final last = lastName?.trim();
-    if (last == null || last.isEmpty) {
-      return firstName.isEmpty ? 'ID $id' : firstName;
-    }
-    return '$firstName $last'.trim();
+    final f = firstName.trim();
+    final l = lastName?.trim() ?? '';
+    final full = '$f $l'.trim();
+    if (full.isNotEmpty) return full;
+    if (phone != null && phone! > 0) return '+$phone';
+    return 'ID $id';
   }
 
   String get initials {
@@ -210,9 +211,17 @@ class TalerContact {
         }
       }
       if (chosen != null) {
-        firstName = (chosen['firstName'] as String?) ?? '';
+        firstName = (chosen['firstName'] as String?) ??
+            (chosen['name'] as String?) ??
+            '';
         lastName = chosen['lastName'] as String?;
       }
+    }
+    if (firstName.trim().isEmpty) {
+      firstName = (map['firstName'] as String?) ??
+          (map['name'] as String?) ??
+          '';
+      lastName ??= map['lastName'] as String?;
     }
     final opts = map['options'];
     final isOfficial =

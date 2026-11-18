@@ -137,8 +137,9 @@ void main() {
     // Profile tab uses compact pencil icon button instead of wide 'Изменить' label.
     await tester.tap(find.text('Профиль'));
     await tester.pumpAndSettle();
-    expect(find.text('Мой профиль'), findsOneWidget);
-    expect(find.text('Активные сессии'), findsOneWidget);
+    expect(find.text('Аккаунт'), findsOneWidget);
+    expect(find.text('Устройства'), findsOneWidget);
+    expect(find.text('Активные сессии'), findsNothing);
     expect(find.textContaining('Opcode'), findsNothing);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);
     expect(find.text('Изменить'), findsNothing);

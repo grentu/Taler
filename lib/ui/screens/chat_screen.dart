@@ -15,6 +15,8 @@ import '../theme/taler_theme.dart';
 import '../widgets/chat_info_panel.dart';
 import '../widgets/message_actions_overlay.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/photo_viewer_page.dart';
+import '../widgets/settings_components.dart';
 
 /// Открытый диалог, группа или канал. На широком экране справа — профиль.
 class ChatScreen extends StatefulWidget {
@@ -454,6 +456,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 p,
                 chat,
                 messages,
+                allMessages: all,
                 topInset: topInset,
                 bottomInset: bottomInset,
               ),
@@ -481,11 +484,26 @@ class _ChatScreenState extends State<ChatScreen> {
           showPattern: prefs.showChatWallpaper && !prefs.powerSavingMode,
           child: stack,
         );
+        final hasInlineState =
+            _showSearch || _replyingTo != null || _editingMessage != null;
         final wrapped = _mobile
             ? PopScope(
+                canPop: !hasInlineState,
                 onPopInvokedWithResult: (didPop, _) {
                   if (didPop) {
                     FocusManager.instance.primaryFocus?.unfocus();
+                    return;
+                  }
+                  if (_showSearch) {
+                    _toggleSearch();
+                    return;
+                  }
+                  if (_replyingTo != null || _editingMessage != null) {
+                    setState(() {
+                      if (_editingMessage != null) _inputCtrl.clear();
+                      _replyingTo = null;
+                      _editingMessage = null;
+                    });
                   }
                 },
                 child: center,
@@ -566,7 +584,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: Alignment.center,
                 child: _glassPill(
                   p,
                   child: InkWell(
@@ -1005,6 +1023,7 @@ class _ChatScreenState extends State<ChatScreen> {
     TalerPalette p,
     TalerChat chat,
     List<TalerMessage> messages, {
+    required List<TalerMessage> allMessages,
     required double topInset,
     required double bottomInset,
   }) {
@@ -1066,6 +1085,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               onShowHistory: m.isEdited ? () => _showEditHistory(m) : null,
               onRetry: m.status == 'error' ? () => _retryMessage(m) : null,
+              onOpenPhoto: (photo) => _openPhotoViewer(allMessages, chat.id, m, photo),
               onToggleReaction: (emoji) => _toggleReaction(m, emoji),
             );
           },
@@ -1318,43 +1338,156 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _openPhotoViewer(
+    List<TalerMessage> allMessages,
+    int chatId,
+    TalerMessage targetMessage,
+    TalerAttachment targetPhoto,
+  ) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final items = <TalerPhotoViewerItem>[];
+    var initialIndex = 0;
+    for (final msg in allMessages) {
+      final sender = widget.client.senderDisplayName(msg.senderId, chatId: chatId);
+      for (final a in msg.attachments) {
+        if (a.type == 'PHOTO' && a.url != null) {
+          if (msg.id == targetMessage.id &&
+              (identical(a, targetPhoto) || a.url == targetPhoto.url)) {
+            initialIndex = items.length;
+          }
+          items.add(
+            TalerPhotoViewerItem(
+              attachment: a,
+              senderName: sender,
+              timestamp: msg.time,
+              caption: msg.text,
+            ),
+          );
+        }
+      }
+    }
+    if (items.isEmpty && targetPhoto.url != null) {
+      items.add(
+        TalerPhotoViewerItem(
+          attachment: targetPhoto,
+          senderName: widget.client.senderDisplayName(
+            targetMessage.senderId,
+            chatId: chatId,
+          ),
+          timestamp: targetMessage.time,
+          caption: targetMessage.text,
+        ),
+      );
+    }
+    unawaited(
+      showTalerPhotoViewer(context, items: items, initialIndex: initialIndex),
+    );
+  }
+
   void _showEditHistory(TalerMessage msg) {
-    showDialog<void>(
+    showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         final p = TalerTheme.paletteOf(ctx);
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
         Widget entry(String label, String text) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TalerTheme.tabularStyle(size: 12, color: p.fg3)),
+                  Text(
+                    label,
+                    style: TalerTheme.tabularStyle(size: 12, color: p.accent),
+                  ),
                   const SizedBox(height: 4),
-                  Text(text, style: TextStyle(fontSize: 14, color: p.fg)),
+                  SelectableText(
+                    text,
+                    style: TextStyle(fontSize: 14.5, height: 1.4, color: p.fg),
+                  ),
                 ],
               ),
             );
-        return AlertDialog(
-          title: Text('История правок', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: p.fg)),
-          content: SizedBox(
-            width: 420,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                entry('Сейчас', msg.text),
-                for (final rev in msg.editHistory.reversed) ...[
-                  Divider(height: 1, color: p.line),
-                  entry(
-                    DateFormat('dd.MM.yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch(rev.timestamp)),
-                    rev.text,
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.72,
+          ),
+          decoration: BoxDecoration(
+            color: p.settingsBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            border: Border(top: BorderSide(color: p.line2)),
+          ),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: p.fg.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  const TalerSettingsBadge(
+                    icon: TalerIcons.history,
+                    size: 34,
+                    iconSize: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'История правок',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: p.fg,
+                      ),
+                    ),
                   ),
                 ],
-              ],
-            ),
+              ),
+              const SizedBox(height: 14),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: TalerSettingsGroup(
+                    children: [
+                      entry('Текущая версия', msg.text),
+                      for (final rev in msg.editHistory.reversed)
+                        entry(
+                          DateFormat('dd.MM.yyyy • HH:mm').format(
+                            DateTime.fromMillisecondsSinceEpoch(rev.timestamp),
+                          ),
+                          rev.text,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 46,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: p.accent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text('Закрыть'),
+                ),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Закрыть')),
-          ],
         );
       },
     );

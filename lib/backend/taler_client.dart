@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/media/taler_media_cache.dart';
 import '../core/privacy/privacy_firewall.dart';
 import '../core/privacy/privacy_settings.dart';
 import '../core/privacy/spoofing_service.dart';
@@ -217,7 +218,15 @@ class TalerClient extends ChangeNotifier {
   List<TalerChat> get chats {
     final cached = _cachedSortedChats;
     if (cached != null) return cached;
-    final list = store.chats.values.toList()
+    final list = store.chats.values.where((c) {
+      if (_isDemoMode) return true;
+      final hasActivity = (c.lastMessageTime ?? 0) > 0 ||
+          (c.lastMessageText != null && c.lastMessageText!.trim().isNotEmpty) ||
+          c.unreadCount > 0 ||
+          c.favIndex > 0 ||
+          store.getMessages(c.id).isNotEmpty;
+      return hasActivity;
+    }).toList()
       ..sort((a, b) {
         final ap = a.favIndex > 0 ? 0 : 1;
         final bp = b.favIndex > 0 ? 0 : 1;
@@ -270,24 +279,41 @@ class TalerClient extends ChangeNotifier {
     }
     if (resolved.isEmpty) return;
     await store.saveContacts(resolved);
+    await _reconcileDialogTitles();
+    TalerMediaCache.instance.prefetchUrls(resolved.take(25).map((c) => c.avatarUrl));
+    notifyListeners();
+  }
 
+  Future<void> _reconcileDialogTitles() async {
+    final myId = store.accountId ?? currentUser?.id;
     final updated = <TalerChat>[];
     for (final chat in store.chats.values) {
+      if (!chat.isDialog) continue;
       final peer = chat.peerId;
-      if (!chat.isDialog || peer == null) continue;
+      final placeholder = chat.title.trim().isEmpty || chat.title.startsWith('Диалог #');
+      if (peer != null && myId != null && peer == myId) {
+        if (placeholder || (chat.avatarUrl == null && currentUser?.avatarUrl != null)) {
+          updated.add(chat.copyWith(
+            title: placeholder ? 'Избранное' : null,
+            avatarUrl: chat.avatarUrl ?? currentUser?.avatarUrl,
+          ));
+        }
+        continue;
+      }
+      if (peer == null) continue;
       final contact = store.contacts[peer];
       if (contact == null) continue;
-      final placeholder = chat.title.isEmpty || chat.title.startsWith('Диалог #');
       final needsAvatar = chat.avatarUrl == null && contact.avatarUrl != null;
-      if (placeholder || needsAvatar) {
+      if ((placeholder && !contact.displayName.startsWith('ID ')) || needsAvatar) {
         updated.add(chat.copyWith(
           title: placeholder ? contact.displayName : null,
           avatarUrl: chat.avatarUrl ?? contact.avatarUrl,
         ));
       }
     }
-    if (updated.isNotEmpty) await store.saveChats(updated);
-    notifyListeners();
+    if (updated.isNotEmpty) {
+      await store.saveChats(updated);
+    }
   }
 
   /// Отправители сообщений открытого чата, которых нет в контактах.
@@ -295,11 +321,47 @@ class TalerClient extends ChangeNotifier {
       resolveContacts(store.getMessages(chatId).map((m) => m.senderId));
 
   void _resolveDialogPeers() {
-    final ids = <int>[
-      for (final c in store.chats.values)
-        if (c.isDialog && c.peerId != null && store.contacts[c.peerId!] == null) c.peerId!,
-    ];
-    if (ids.isNotEmpty) unawaited(resolveContacts(ids));
+    unawaited(_reconcileDialogTitles());
+    final myId = store.accountId;
+    final missingContactIds = <int>{};
+    final unknownChatIds = <int>[];
+    for (final c in store.chats.values) {
+      if (c.isDialog && c.peerId != null && c.peerId != myId) {
+        final contact = store.contacts[c.peerId!];
+        final isPlaceholder = c.title.isEmpty || c.title.startsWith('Диалог #');
+        if (contact == null || (isPlaceholder && contact.displayName.startsWith('ID '))) {
+          missingContactIds.add(c.peerId!);
+        }
+      } else if (c.title.isEmpty || c.title.startsWith('Диалог #') || c.title.startsWith('Чат #')) {
+        unknownChatIds.add(c.id);
+      }
+    }
+    if (missingContactIds.isNotEmpty) {
+      unawaited(resolveContacts(missingContactIds));
+    }
+    if (unknownChatIds.isNotEmpty) {
+      unawaited(_resolveUnknownChats(unknownChatIds));
+    }
+    TalerMediaCache.instance.prefetchUrls(chats.take(25).map((c) => c.avatarUrl));
+  }
+
+  Future<void> _resolveUnknownChats(List<int> chatIds) async {
+    if (_isDemoMode || !session.isOnline || chatIds.isEmpty) return;
+    final accountId = store.accountId ?? 0;
+    try {
+      for (var i = 0; i < chatIds.length; i += 50) {
+        final end = i + 50 < chatIds.length ? i + 50 : chatIds.length;
+        final packet = await session.request(
+          Opcode.chatInfo,
+          <String, dynamic>{'chatIds': chatIds.sublist(i, end)},
+          throwOnError: false,
+        );
+        final list = packet.payloadAsMap?['chats'];
+        if (list is List && list.isNotEmpty) {
+          await _ingestServerChats(list, accountId: accountId);
+        }
+      }
+    } catch (_) {}
   }
 
   String senderDisplayName(int senderId, {int? chatId}) {
@@ -717,6 +779,18 @@ class TalerClient extends ChangeNotifier {
   }) async {
     final parsed = <TalerChat>[];
     for (final item in rawChats.whereType<Map>()) {
+      final id = (item['id'] as num?)?.toInt();
+      final status = item['status']?.toString().toUpperCase();
+      if (id != null &&
+          (status == 'REMOVED' ||
+              status == 'LEFT' ||
+              status == 'CLOSED' ||
+              status == 'DELETED')) {
+        if (store.chats.containsKey(id)) {
+          await store.removeChat(id);
+        }
+        continue;
+      }
       final chat = _parseServerChat(
         item,
         accountId: accountId,
@@ -747,17 +821,34 @@ class TalerClient extends ChangeNotifier {
     bool isOnline = false;
     int? lastSeen;
     bool isOfficial = false;
+    bool sawSelfParticipant = false;
 
     final participants = map['participants'];
-    if (type == 'DIALOG' && participants is Map) {
-      for (final key in participants.keys) {
-        final uid = int.tryParse(key.toString());
-        if (uid != null && uid != accountId) {
+    final Iterable<dynamic>? participantKeys = participants is Map
+        ? participants.keys
+        : (participants is List ? participants : null);
+    if (type == 'DIALOG' && participantKeys != null) {
+      for (final key in participantKeys) {
+        final uid = key is num ? key.toInt() : int.tryParse(key.toString());
+        if (uid == null) continue;
+        if (uid == accountId) {
+          sawSelfParticipant = true;
+        } else {
           peerId = uid;
           break;
         }
       }
-      if (peerId != null) {
+      if (peerId == null) {
+        final owner = (map['owner'] as num?)?.toInt();
+        if (owner != null && owner != accountId) {
+          peerId = owner;
+        } else if (sawSelfParticipant && accountId != 0) {
+          peerId = accountId;
+          if (title.isEmpty) title = 'Избранное';
+          avatarUrl ??= store.profile?.avatarUrl;
+        }
+      }
+      if (peerId != null && peerId != accountId) {
         final contact = store.contacts[peerId];
         if (contact != null) {
           if (title.isEmpty) title = contact.displayName;
