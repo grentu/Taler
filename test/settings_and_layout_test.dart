@@ -14,6 +14,8 @@ import 'package:taler/core/storage/taler_models.dart';
 import 'package:taler/core/version.dart';
 import 'package:taler/main.dart';
 import 'package:taler/ui/icons/taler_icon.dart';
+import 'package:taler/ui/theme/taler_theme.dart';
+import 'package:taler/ui/widgets/message_actions_overlay.dart';
 import 'package:taler/ui/widgets/message_bubble.dart';
 import 'package:taler/ui/widgets/settings_components.dart';
 
@@ -174,8 +176,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Аккаунт'), findsOneWidget);
     expect(find.text('Идентификатор MAX'), findsOneWidget);
-    expect(find.text('Устройства'), findsOneWidget);
-    expect(find.text('Оформление чатов'), findsOneWidget);
+    expect(find.text('О себе'), findsOneWidget);
+    expect(find.text('Редактировать'), findsOneWidget);
+    expect(find.text('Устройства'), findsNothing);
+    expect(find.text('Оформление чатов'), findsNothing);
     expect(find.text('Активные сессии'), findsNothing);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -409,15 +413,18 @@ void main() {
         expect(poppedSettings, isTrue);
         expect(find.text('Елена Соколова'), findsOneWidget);
 
-        // Switch to Profile -> edit name uses styled bottom sheet (no AlertDialog).
+        // Switch to Profile -> edit profile page supports name & bio editing (no AlertDialog).
         await tester.tap(find.text('Профиль').last);
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Изменить имя'));
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Редактировать профиль'), findsOneWidget);
         expect(find.text('Сохранить'), findsOneWidget);
-        await tester.tap(find.text('Отмена'));
+        await tester.enterText(find.byType(TextField).last, 'Разработчик Taler');
+        await tester.tap(find.text('Сохранить'));
         await tester.pumpAndSettle();
+        expect(find.text('Разработчик Taler'), findsOneWidget);
 
         // Back gesture from Profile returns to Chats tab.
         await tester.binding.handlePopRoute();
@@ -453,5 +460,278 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+
+  group('v1.2.14 polish: folders, attachments, peer profile, borderless reactions & zero-jump overlay', () {
+    testWidgets('animated folder switching updates list smoothly via tap and swipe', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const TalerApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Демо'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Открыть демо'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PageView), findsOneWidget);
+      // Tap a folder tab and pump intermediate animation frames.
+      await tester.tap(find.text('Каналы'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+      expect(find.text('Taler & Komet Community'), findsOneWidget);
+      expect(find.text('Елена Соколова'), findsNothing);
+
+      // Swipe back right to previous folder ('Приватные').
+      await tester.drag(find.byType(PageView), const Offset(280, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Елена Соколова'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('VIDEO, SHARE and AUDIO attachments render native views instead of file icons', (tester) async {
+      const videoMsg = TalerMessage(
+        id: 'v1',
+        chatId: 1,
+        senderId: 2,
+        text: '',
+        time: 1700000000000,
+        attachments: [
+          TalerAttachment(
+            type: 'VIDEO',
+            previewText: 'Обзор Taler',
+            durationMs: 84,
+          ),
+        ],
+      );
+      const shareMsg = TalerMessage(
+        id: 's1',
+        chatId: 1,
+        senderId: 2,
+        text: 'Смотри видео https://youtube.com/watch?v=123',
+        time: 1700000001000,
+        attachments: [
+          TalerAttachment(
+            type: 'SHARE',
+            url: 'https://www.youtube.com/watch?v=123',
+            previewText: 'Крутой ролик про Flutter',
+            description: 'Подробный разбор интерфейса',
+          ),
+        ],
+      );
+      const audioMsg = TalerMessage(
+        id: 'a1',
+        chatId: 1,
+        senderId: 2,
+        text: '',
+        time: 1700000002000,
+        attachments: [
+          TalerAttachment(
+            type: 'VOICE',
+            durationMs: 15000,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MessageBubble(
+                    message: videoMsg,
+                    isMine: false,
+                    firstInRun: true,
+                    showName: false,
+                    senderName: 'Анна',
+                    maxWidth: 300,
+                  ),
+                  MessageBubble(
+                    message: shareMsg,
+                    isMine: false,
+                    firstInRun: false,
+                    showName: false,
+                    senderName: 'Анна',
+                    maxWidth: 300,
+                  ),
+                  MessageBubble(
+                    message: audioMsg,
+                    isMine: false,
+                    firstInRun: false,
+                    showName: false,
+                    senderName: 'Анна',
+                    maxWidth: 300,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // None of VIDEO / SHARE / VOICE should render the document file icon.
+      expect(
+        find.byWidgetPredicate((w) => w is TalerIcon && w.icon == TalerIcons.file),
+        findsNothing,
+      );
+      expect(
+        find.byWidgetPredicate((w) => w is TalerIcon && w.icon == TalerIcons.play),
+        findsNWidgets(2),
+      );
+      expect(find.text('1:24'), findsOneWidget);
+      expect(find.text('youtube.com'), findsOneWidget);
+      expect(find.text('Крутой ролик про Flutter'), findsOneWidget);
+      expect(find.text('Подробный разбор интерфейса'), findsOneWidget);
+      expect(find.text('0:15'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('reactions render cleanly without harsh border outline', (tester) async {
+      const msg = TalerMessage(
+        id: 'r1',
+        chatId: 1,
+        senderId: 2,
+        text: 'Привет',
+        time: 1700000000000,
+        reactions: [
+          TalerReactionCounter(emoji: '🔥', count: 3, isMine: true),
+          TalerReactionCounter(emoji: '👍', count: 1, isMine: false),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: Scaffold(
+            body: MessageRow(
+              message: msg,
+              isMine: false,
+              firstInRun: true,
+              lastInRun: true,
+              showSender: false,
+              senderName: 'Анна',
+              maxBubbleWidth: 300,
+              onToggleReaction: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final reactionPills = tester.widgetList<AnimatedContainer>(
+        find.byType(AnimatedContainer),
+      );
+      expect(reactionPills.length, 2);
+      for (final pill in reactionPills) {
+        final dec = pill.decoration as BoxDecoration?;
+        expect(dec?.border, isNull);
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('peer profile page uses pure settingsBg with no grey bar and compact top offset', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const TalerApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Демо'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Открыть демо'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Елена Соколова'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Профиль чата'));
+      await tester.pumpAndSettle();
+
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).last);
+      final palette = TalerTheme.paletteOf(tester.element(find.byType(Scaffold).last));
+      expect(scaffold.backgroundColor, palette.settingsBg);
+
+      // Avatar should sit high near the top (no 48px grey bar + 24px spacer).
+      final avatarRect = tester.getRect(find.byType(TalerAvatar).last);
+      expect(avatarRect.top, lessThan(24.0));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('context menu keeps bottom-edge message anchored in place and flips menu above', (tester) async {
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      const msg = TalerMessage(
+        id: 'm_bottom',
+        chatId: 1,
+        senderId: 2,
+        text: 'Сообщение у самого нижнего края экрана',
+        time: 1700000000000,
+      );
+      const anchor = Rect.fromLTWH(16, 636, 260, 56);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: Builder(
+            builder: (ctx) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () {
+                    showTalerMessageActionsOverlay(
+                      context: ctx,
+                      message: msg,
+                      isMine: false,
+                      firstInRun: true,
+                      showName: false,
+                      senderName: 'Анна',
+                      maxBubbleWidth: 280,
+                      fontSize: 15,
+                      cornerRadius: 20,
+                      anchorRect: anchor,
+                      actions: [
+                        TalerMessageAction(icon: TalerIcons.reply, label: 'Ответить', onTap: () {}),
+                        TalerMessageAction(icon: TalerIcons.copy, label: 'Копировать', onTap: () {}),
+                        TalerMessageAction(icon: TalerIcons.pencil, label: 'Изменить', onTap: () {}),
+                        TalerMessageAction(
+                          icon: TalerIcons.trash,
+                          label: 'Удалить',
+                          destructive: true,
+                          onTap: () {},
+                        ),
+                      ],
+                      onToggleReaction: (_) {},
+                    );
+                  },
+                  child: const Text('Open Overlay'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Overlay'));
+      await tester.pumpAndSettle();
+
+      final bubbleRect = tester.getRect(find.byType(MessageBubble));
+      final replyRect = tester.getRect(find.text('Ответить'));
+      final reactionRect = tester.getRect(find.text('🔥'));
+
+      // Bubble stays pixel-locked at its original anchor position (no upward jump!).
+      expect(bubbleRect.top, closeTo(anchor.top, 0.5));
+      expect(bubbleRect.left, closeTo(anchor.left, 0.5));
+      // Menu and reactions float cleanly above the bubble.
+      expect(replyRect.bottom, lessThan(bubbleRect.top));
+      expect(reactionRect.bottom, lessThan(replyRect.top));
+      expect(tester.takeException(), isNull);
+    });
   });
 }

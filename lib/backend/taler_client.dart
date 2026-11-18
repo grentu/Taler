@@ -1812,29 +1812,53 @@ class TalerClient extends ChangeNotifier {
     }
   }
 
-  /// Обновляет имя и фамилию в профиле (`Opcode.profile`).
-  Future<void> updateProfileName(String firstName, String? lastName) async {
+  /// Обновляет имя, фамилию и описание («О себе») в профиле (`Opcode.profile`).
+  Future<void> updateProfile({
+    required String firstName,
+    String? lastName,
+    String? description,
+  }) async {
     final current = store.profile;
     if (current == null) return;
     final trimmedFirst = firstName.trim();
     final trimmedLast = lastName?.trim();
+    final trimmedDesc = description?.trim();
     if (trimmedFirst.isEmpty) return;
 
     await store.saveProfile(
       current.copyWith(
         firstName: trimmedFirst,
         lastName: (trimmedLast == null || trimmedLast.isEmpty) ? null : trimmedLast,
+        clearLastName: trimmedLast == null || trimmedLast.isEmpty,
+        description: description == null
+            ? current.description
+            : (trimmedDesc == null || trimmedDesc.isEmpty ? null : trimmedDesc),
+        clearDescription: description != null && (trimmedDesc == null || trimmedDesc.isEmpty),
       ),
     );
     notifyListeners();
 
     if (!_isDemoMode && session.isOnline) {
-      await session.request(Opcode.profile, {
+      final payload = <String, dynamic>{
         'firstName': trimmedFirst,
-        if (trimmedLast != null && trimmedLast.isNotEmpty) 'lastName': trimmedLast,
-      });
+        'lastName': trimmedLast ?? '',
+        if (description != null) 'description': trimmedDesc ?? '',
+      };
+      final packet = await session.request(Opcode.profile, payload);
+      final serverProfile = packet.payloadAsMap?['profile'];
+      if (serverProfile is Map) {
+        final updated = TalerUserProfile.fromServerProfile(serverProfile);
+        if (updated.id != 0) {
+          await store.saveProfile(updated);
+          notifyListeners();
+        }
+      }
     }
   }
+
+  /// Обновляет имя и фамилию в профиле (`Opcode.profile`).
+  Future<void> updateProfileName(String firstName, String? lastName) =>
+      updateProfile(firstName: firstName, lastName: lastName);
 
   /// Запрашивает список активных сессий (`Opcode.sessionsInfo`).
   Future<void> fetchActiveSessions() async {

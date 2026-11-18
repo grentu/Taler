@@ -64,28 +64,51 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
     final files = <TalerAttachment>[
       for (final m in widget.messages.reversed)
         for (final a in m.attachments)
-          if (a.type != 'PHOTO' && a.type != 'CONTROL') a,
+          if (a.type == 'FILE') a,
     ];
     final title = chat.isDialog ? 'Профиль' : chat.isChannel ? 'Канал' : 'Группа';
     final status = ChatTokens.chatStatus(chat);
     final statusLive = chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false);
     final anti = client.privacySettings.antiDelete;
+    final avatarUrl = chat.avatarUrl ?? peer?.avatarUrl;
+    final mediaPad = MediaQuery.paddingOf(context);
 
     final body = ListView(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.only(
+        top: widget.fullScreen ? mediaPad.top + 10 : 16,
+        bottom: widget.fullScreen ? mediaPad.bottom + 20 : 16,
+      ),
       children: [
-        const SizedBox(height: 24),
         Center(
-          child: TalerAvatar(
-            seedId: chat.peerId ?? chat.id,
-            initials: chat.initials,
-            imageUrl: chat.avatarUrl ?? peer?.avatarUrl,
-            size: widget.fullScreen ? 104 : 88,
-            isOnline: chat.isDialog && chat.isOnline,
-            onlineBorderColor: p.bg2,
+          child: GestureDetector(
+            onTap: avatarUrl != null && avatarUrl.isNotEmpty
+                ? () => unawaited(
+                      showTalerPhotoViewer(
+                        context,
+                        items: [
+                          TalerPhotoViewerItem(
+                            attachment: TalerAttachment(
+                              type: 'PHOTO',
+                              url: avatarUrl,
+                            ),
+                            senderName: chat.title,
+                            timestamp: DateTime.now().millisecondsSinceEpoch,
+                          ),
+                        ],
+                      ),
+                    )
+                : null,
+            child: TalerAvatar(
+              seedId: chat.peerId ?? chat.id,
+              initials: chat.initials,
+              imageUrl: avatarUrl,
+              size: widget.fullScreen ? 96 : 88,
+              isOnline: chat.isDialog && chat.isOnline,
+              onlineBorderColor: widget.fullScreen ? p.settingsBg : p.bg2,
+            ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Text(

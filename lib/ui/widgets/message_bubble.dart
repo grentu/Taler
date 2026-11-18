@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/media/taler_media_cache.dart';
@@ -190,30 +192,44 @@ class _ReactionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = palette;
     final mine = reaction.isMine;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 24,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: mine ? ChatTokens.accentSoft(p) : p.surface,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: mine ? p.accent.withValues(alpha: 0.45) : p.line),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(reaction.emoji, style: const TextStyle(fontSize: 13)),
-            const SizedBox(width: 4),
-            Text(
-              '${reaction.count}',
-              style: TalerTheme.tabularStyle(
-                size: 12,
-                weight: FontWeight.w500,
-                color: mine ? p.accent : p.fg2,
+    final bg = mine
+        ? p.accent
+        : (p.isDark
+            ? const Color(0xFF1F2128)
+            : Colors.black.withValues(alpha: 0.065));
+    final countColor = mine ? Colors.white : p.fg2;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: p.fg.withValues(alpha: 0.08),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          height: 26,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(reaction.emoji, style: const TextStyle(fontSize: 14.5)),
+              const SizedBox(width: 4.5),
+              Text(
+                '${reaction.count}',
+                style: TalerTheme.tabularStyle(
+                  size: 12,
+                  weight: FontWeight.w600,
+                  color: countColor,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -293,9 +309,60 @@ class MessageBubble extends StatelessWidget {
         ? p.bubbleOutText.withValues(alpha: 0.78)
         : (p.isDark ? p.fg2.withValues(alpha: 0.85) : p.fg3);
 
-    final photos = m.attachments.where((a) => a.type == 'PHOTO' && a.url != null).toList();
-    final files = m.attachments.where((a) => a.type != 'PHOTO' && a.type != 'CONTROL').toList();
+    final photos = <TalerAttachment>[];
+    final videos = <TalerAttachment>[];
+    final stickers = <TalerAttachment>[];
+    final audios = <TalerAttachment>[];
+    final shares = <TalerAttachment>[];
+    final files = <TalerAttachment>[];
+
+    for (final a in m.attachments) {
+      switch (a.type) {
+        case 'CONTROL':
+        case 'INLINE_KEYBOARD':
+        case 'REPLY_KEYBOARD':
+        case 'WIDGET':
+          break;
+        case 'PHOTO':
+          if (a.url != null) photos.add(a);
+          break;
+        case 'VIDEO':
+        case 'VIDEO_MSG':
+        case 'VIDEO_NOTE':
+          videos.add(a);
+          break;
+        case 'STICKER':
+          if ((a.thumbnailUrl ?? a.url) != null) stickers.add(a);
+          break;
+        case 'AUDIO':
+        case 'VOICE':
+          audios.add(a);
+          break;
+        case 'SHARE':
+        case 'LINK':
+        case 'MEDIA_SHARE':
+          shares.add(a);
+          break;
+        case 'FILE':
+          files.add(a);
+          break;
+        default:
+          if (a.fileName != null || a.fileSize != null || a.fileId != null) {
+            files.add(a);
+          } else if (a.url != null || a.previewText != null || a.description != null) {
+            shares.add(a);
+          }
+          break;
+      }
+    }
+
     final hasText = m.text.trim().isNotEmpty;
+    final hasAnyAttachment = photos.isNotEmpty ||
+        videos.isNotEmpty ||
+        stickers.isNotEmpty ||
+        audios.isNotEmpty ||
+        shares.isNotEmpty ||
+        files.isNotEmpty;
 
     final meta = MessageMeta(
       time: m.time,
@@ -306,6 +373,26 @@ class MessageBubble extends StatelessWidget {
       onTapEdited: onShowHistory,
       onTapRetry: failed ? onRetry : null,
     );
+
+    final metaInShare = shares.isNotEmpty;
+    final metaInText = hasText && !metaInShare;
+    final metaInFile = !hasText && !metaInShare && files.isNotEmpty;
+    final metaInAudio = !hasText && !metaInShare && files.isEmpty && audios.isNotEmpty;
+    final metaInVideo =
+        !hasText && !metaInShare && files.isEmpty && audios.isEmpty && videos.isNotEmpty;
+    final metaInSticker = !hasText &&
+        !metaInShare &&
+        files.isEmpty &&
+        audios.isEmpty &&
+        videos.isEmpty &&
+        stickers.isNotEmpty;
+    final metaInPhoto = !hasText &&
+        !metaInShare &&
+        files.isEmpty &&
+        audios.isEmpty &&
+        videos.isEmpty &&
+        stickers.isEmpty &&
+        photos.isNotEmpty;
 
     final children = <Widget>[];
     if (showName) {
@@ -339,8 +426,25 @@ class MessageBubble extends StatelessWidget {
           child: _PhotoView(
             attachment: photo,
             width: maxWidth,
-            overlayMeta: !hasText && files.isEmpty && photo == photos.last ? meta : null,
+            overlayMeta: metaInPhoto && photo == photos.last ? meta : null,
           ),
+        ),
+      );
+    }
+    for (final video in videos) {
+      children.add(
+        _VideoView(
+          attachment: video,
+          width: maxWidth,
+          overlayMeta: metaInVideo && video == videos.last ? meta : null,
+        ),
+      );
+    }
+    for (final sticker in stickers) {
+      children.add(
+        _StickerView(
+          attachment: sticker,
+          overlayMeta: metaInSticker && sticker == stickers.last ? meta : null,
         ),
       );
     }
@@ -374,6 +478,17 @@ class MessageBubble extends StatelessWidget {
         ),
       ));
     }
+    for (final audio in audios) {
+      final isLast = audio == audios.last;
+      children.add(_AudioView(
+        attachment: audio,
+        out: out,
+        palette: p,
+        metaColor: metaColor,
+        inlineMeta: metaInAudio && isLast ? meta : null,
+        bottomPadding: metaInAudio && isLast ? 8 : 0,
+      ));
+    }
     for (final file in files) {
       final isLast = file == files.last;
       children.add(_FileView(
@@ -381,29 +496,61 @@ class MessageBubble extends StatelessWidget {
         out: out,
         palette: p,
         metaColor: metaColor,
-        inlineMeta: !hasText && isLast ? meta : null,
-        bottomPadding: !hasText && isLast ? 8 : 0,
+        inlineMeta: metaInFile && isLast ? meta : null,
+        bottomPadding: metaInFile && isLast ? 8 : 0,
       ));
     }
     if (hasText) {
-      final topPad = (showName || reply != null || files.isNotEmpty || photos.isNotEmpty || forwarded != null) ? 4.0 : 7.0;
-      children.add(Stack(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(12, topPad, 12, 7),
-            child: Text.rich(
-              TextSpan(children: [
-                TextSpan(text: m.text),
-                // Невидимое место под время, чтобы оно встало в последнюю строку.
-                WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 6, height: 12)),
-              ]),
-              style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
+      final topPad = (showName ||
+              reply != null ||
+              files.isNotEmpty ||
+              audios.isNotEmpty ||
+              photos.isNotEmpty ||
+              videos.isNotEmpty ||
+              stickers.isNotEmpty ||
+              forwarded != null)
+          ? 4.0
+          : 7.0;
+      if (metaInText) {
+        children.add(Stack(
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(12, topPad, 12, 7),
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(text: m.text),
+                  // Невидимое место под время, чтобы оно встало в последнюю строку.
+                  WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 6, height: 12)),
+                ]),
+                style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
+              ),
             ),
+            Positioned(right: 10, bottom: 5, child: meta),
+          ],
+        ));
+      } else {
+        children.add(Padding(
+          padding: EdgeInsets.fromLTRB(12, topPad, 12, 6),
+          child: Text(
+            m.text,
+            style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
           ),
-          Positioned(right: 10, bottom: 5, child: meta),
-        ],
+        ));
+      }
+    }
+    for (final share in shares) {
+      final isLast = share == shares.last;
+      children.add(_SharePreviewView(
+        attachment: share,
+        out: out,
+        palette: p,
+        fg: fg,
+        width: maxWidth,
+        topMargin: hasText || children.isNotEmpty ? 2 : 8,
+        trailingMeta: metaInShare && isLast ? meta : null,
       ));
-    } else if (photos.isEmpty && files.isEmpty) {
+    }
+    if (!hasText && !hasAnyAttachment) {
       children.add(Padding(
         padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
         child: Row(
@@ -669,6 +816,566 @@ class _FileView extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatAttachmentDuration(int? raw, {bool isAudio = false}) {
+  if (raw == null || raw <= 0) return '';
+  final secs = isAudio
+      ? (raw >= 1000 ? (raw / 1000).round() : raw)
+      : (raw >= 10000 ? (raw / 1000).round() : raw);
+  final hours = secs ~/ 3600;
+  final mins = (secs % 3600) ~/ 60;
+  final rem = secs % 60;
+  final ss = rem.toString().padLeft(2, '0');
+  if (hours > 0) {
+    final mm = mins.toString().padLeft(2, '0');
+    return '$hours:$mm:$ss';
+  }
+  return '$mins:$ss';
+}
+
+bool _looksLikeVideoHost(String? host) {
+  if (host == null || host.isEmpty) return false;
+  final h = host.toLowerCase();
+  return h.contains('youtube.com') ||
+      h.contains('youtu.be') ||
+      h.contains('rutube.ru') ||
+      h.contains('vkvideo.ru') ||
+      h.contains('vimeo.com') ||
+      h.contains('tiktok.com') ||
+      h.contains('twitch.tv');
+}
+
+String? _extractDisplayHost(String? rawUrl) {
+  if (rawUrl == null || rawUrl.trim().isEmpty) return null;
+  final uri = Uri.tryParse(rawUrl.trim());
+  final host = uri?.host ?? '';
+  if (host.isEmpty) return null;
+  return host.startsWith('www.') ? host.substring(4) : host;
+}
+
+class _VideoView extends StatelessWidget {
+  final TalerAttachment attachment;
+  final double width;
+  final MessageMeta? overlayMeta;
+
+  const _VideoView({
+    required this.attachment,
+    required this.width,
+    this.overlayMeta,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNote = attachment.type == 'VIDEO_MSG' || attachment.type == 'VIDEO_NOTE';
+    final w = attachment.width;
+    final h = attachment.height;
+    final ratio = isNote
+        ? 1.0
+        : (w != null && h != null && w > 0 && h > 0)
+            ? (w / h).clamp(0.65, 1.9)
+            : 16 / 9;
+    final targetWidth = isNote
+        ? width.clamp(160.0, 224.0)
+        : width.clamp(200.0, 340.0);
+    final thumb = attachment.thumbnailUrl;
+    final dur = _formatAttachmentDuration(attachment.durationMs);
+    final badgeLabel = dur.isNotEmpty
+        ? dur
+        : (isNote ? 'Видеосообщение' : 'Видео');
+    final title = (attachment.previewText ?? attachment.fileName)?.trim() ?? '';
+    final cachePx = (targetWidth * MediaQuery.devicePixelRatioOf(context)).round();
+
+    Widget fallbackBg() => DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1D202A), Color(0xFF101218)],
+            ),
+          ),
+        );
+
+    Widget bgLayer = fallbackBg();
+    if (thumb != null && thumb.isNotEmpty) {
+      final isHttp = thumb.startsWith('http://') || thumb.startsWith('https://');
+      bgLayer = isHttp
+          ? TalerCachedImage(
+              url: thumb,
+              fit: BoxFit.cover,
+              cacheWidth: cachePx,
+              placeholder: fallbackBg(),
+              errorWidget: fallbackBg(),
+            )
+          : Image.file(
+              File(thumb),
+              fit: BoxFit.cover,
+              cacheWidth: cachePx,
+              errorBuilder: (_, _, _) => fallbackBg(),
+            );
+    }
+
+    final meta = overlayMeta;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        final link = attachment.url;
+        if (link != null && link.isNotEmpty) {
+          unawaited(Clipboard.setData(ClipboardData(text: link)));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ссылка на видео скопирована')),
+          );
+        }
+      },
+      child: SizedBox(
+        width: targetWidth,
+        child: AspectRatio(
+          aspectRatio: ratio,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              bgLayer,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.22),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.42),
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  ),
+                ),
+              ),
+              Center(
+                child: Container(
+                  width: 50,
+                  height: 50,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.56),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 2),
+                    child: TalerIcon(
+                      TalerIcons.play,
+                      size: 22,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.54),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: TalerTheme.tabularStyle(
+                      size: 11,
+                      weight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              if (title.isNotEmpty && meta == null)
+                Positioned(
+                  left: 10,
+                  right: 10,
+                  bottom: 8,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              if (meta != null)
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.48),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: MessageMeta(
+                      time: meta.time,
+                      color: Colors.white,
+                      edited: meta.edited,
+                      deleted: meta.deleted,
+                      status: meta.status,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StickerView extends StatelessWidget {
+  final TalerAttachment attachment;
+  final MessageMeta? overlayMeta;
+
+  const _StickerView({required this.attachment, this.overlayMeta});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final url = (attachment.thumbnailUrl ?? attachment.url)!;
+    final isHttp = url.startsWith('http://') || url.startsWith('https://');
+    final placeholder = Center(
+      child: TalerIcon(TalerIcons.image, size: 28, color: p.fg4),
+    );
+    final image = isHttp
+        ? TalerCachedImage(
+            url: url,
+            fit: BoxFit.contain,
+            cacheWidth: 320,
+            placeholder: placeholder,
+            errorWidget: placeholder,
+          )
+        : Image.file(
+            File(url),
+            fit: BoxFit.contain,
+            cacheWidth: 320,
+            errorBuilder: (_, _, _) => placeholder,
+          );
+    final meta = overlayMeta;
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: SizedBox(
+        width: 148,
+        height: 148,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            image,
+            if (meta != null)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: MessageMeta(
+                    time: meta.time,
+                    color: Colors.white,
+                    edited: meta.edited,
+                    deleted: meta.deleted,
+                    status: meta.status,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioView extends StatelessWidget {
+  final TalerAttachment attachment;
+  final bool out;
+  final TalerPalette palette;
+  final Color metaColor;
+  final MessageMeta? inlineMeta;
+  final double bottomPadding;
+
+  const _AudioView({
+    required this.attachment,
+    required this.out,
+    required this.palette,
+    required this.metaColor,
+    required this.inlineMeta,
+    required this.bottomPadding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = palette;
+    final isVoice = attachment.type == 'VOICE';
+    final dur = _formatAttachmentDuration(attachment.durationMs, isAudio: true);
+    final label = isVoice
+        ? (dur.isNotEmpty ? dur : 'Голосовое')
+        : (attachment.fileName ?? (dur.isNotEmpty ? dur : 'Аудио'));
+    final fg = out ? p.bubbleOutText : p.bubbleInText;
+    final barColor = out
+        ? Colors.white.withValues(alpha: 0.72)
+        : p.accent.withValues(alpha: 0.72);
+    final seed = (attachment.url ?? attachment.fileName ?? 'audio').hashCode;
+    final meta = inlineMeta;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 10, 12, bottomPadding > 0 ? bottomPadding : 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: out ? Colors.white.withValues(alpha: 0.2) : p.accent,
+              shape: BoxShape.circle,
+            ),
+            child: const Padding(
+              padding: EdgeInsets.only(left: 2),
+              child: TalerIcon(TalerIcons.play, size: 17, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < 18; i++) ...[
+                    if (i > 0) const SizedBox(width: 2.5),
+                    Container(
+                      width: 2.5,
+                      height: 5.0 + (((seed ^ (i * 31)) & 0x7) * 2.1),
+                      decoration: BoxDecoration(
+                        color: barColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 5),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TalerTheme.tabularStyle(
+                      size: 12,
+                      color: out ? fg.withValues(alpha: 0.88) : metaColor,
+                    ),
+                  ),
+                  if (meta != null) ...[
+                    const SizedBox(width: 14),
+                    meta,
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SharePreviewView extends StatelessWidget {
+  final TalerAttachment attachment;
+  final bool out;
+  final TalerPalette palette;
+  final Color fg;
+  final double width;
+  final double topMargin;
+  final MessageMeta? trailingMeta;
+
+  const _SharePreviewView({
+    required this.attachment,
+    required this.out,
+    required this.palette,
+    required this.fg,
+    required this.width,
+    required this.topMargin,
+    this.trailingMeta,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = palette;
+    final host = _extractDisplayHost(attachment.url);
+    final isVideoSite = _looksLikeVideoHost(host);
+    final title = (attachment.previewText ?? attachment.fileName)?.trim() ?? '';
+    final desc = attachment.description?.trim() ?? '';
+    final showDesc = desc.isNotEmpty && desc != title;
+    final thumb = attachment.thumbnailUrl;
+    final cardWidth = (width - 16).clamp(180.0, 320.0);
+    final accentBar = out ? Colors.white.withValues(alpha: 0.85) : p.accent;
+    final cardBg = out
+        ? Colors.white.withValues(alpha: 0.14)
+        : (p.isDark
+            ? Colors.white.withValues(alpha: 0.055)
+            : ChatTokens.accentSoft(p));
+    final cachePx = (cardWidth * MediaQuery.devicePixelRatioOf(context)).round();
+
+    Widget? thumbWidget;
+    if (thumb != null && thumb.isNotEmpty) {
+      final isHttp = thumb.startsWith('http://') || thumb.startsWith('https://');
+      final placeholder = Container(color: p.bg3);
+      final img = isHttp
+          ? TalerCachedImage(
+              url: thumb,
+              fit: BoxFit.cover,
+              cacheWidth: cachePx,
+              placeholder: placeholder,
+              errorWidget: placeholder,
+            )
+          : Image.file(
+              File(thumb),
+              fit: BoxFit.cover,
+              cacheWidth: cachePx,
+              errorBuilder: (_, _, _) => placeholder,
+            );
+      thumbWidget = Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: cardWidth - 24,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  img,
+                  if (isVideoSite)
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.56),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 2),
+                          child: TalerIcon(
+                            TalerIcons.play,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final meta = trailingMeta;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(8, topMargin, 8, meta != null ? 6 : 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: attachment.url == null || attachment.url!.isEmpty
+                ? null
+                : () {
+                    unawaited(Clipboard.setData(ClipboardData(text: attachment.url!)));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Ссылка скопирована')),
+                    );
+                  },
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: cardWidth),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    border: Border(left: BorderSide(color: accentBar, width: 3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (host != null)
+                        Text(
+                          host,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: out ? Colors.white : p.accent,
+                          ),
+                        ),
+                      if (title.isNotEmpty) ...[
+                        if (host != null) const SizedBox(height: 2),
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.28,
+                            color: fg,
+                          ),
+                        ),
+                      ],
+                      if (showDesc) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          desc,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.32,
+                            color: fg.withValues(alpha: 0.78),
+                          ),
+                        ),
+                      ],
+                      ?thumbWidget,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (meta != null) ...[
+            const SizedBox(height: 5),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: meta,
+              ),
+            ),
+          ],
         ],
       ),
     );

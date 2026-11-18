@@ -271,43 +271,65 @@ class _ChatScreenState extends State<ChatScreen> {
           MaterialPageRoute<void>(
             builder: (ctx) {
               final p = TalerTheme.paletteOf(ctx);
+              final padTop = MediaQuery.paddingOf(ctx).top;
               return Scaffold(
-                backgroundColor: p.bg2,
-                body: SafeArea(
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: 48,
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 4),
-                            TalerIconButton(
-                              icon: TalerIcons.arrowLeft,
-                              tooltip: 'Назад',
-                              iconSize: 22,
-                              color: p.accent,
-                              onPressed: () => Navigator.of(ctx).pop(),
-                            ),
-                          ],
+                backgroundColor: p.settingsBg,
+                body: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ListenableBuilder(
+                        listenable: Listenable.merge([
+                          client,
+                          client.privacySettings,
+                          client.appPreferences,
+                        ]),
+                        builder: (ctx, _) => ChatInfoPanel(
+                          client: client,
+                          chat: client.store.chats[chat.id] ?? chat,
+                          messages: client.messagesForChat(chat.id),
+                          fullScreen: true,
+                          onSearch: () {
+                            Navigator.of(ctx).pop();
+                            _openSearch();
+                          },
                         ),
                       ),
-                      Expanded(
-                        child: ListenableBuilder(
-                          listenable: Listenable.merge([client, client.privacySettings]),
-                          builder: (ctx, _) => ChatInfoPanel(
-                            client: client,
-                            chat: client.store.chats[chat.id] ?? chat,
-                            messages: client.messagesForChat(chat.id),
-                            fullScreen: true,
-                            onSearch: () {
-                              Navigator.of(ctx).pop();
-                              _openSearch();
-                            },
+                    ),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: TalerTopFadeOverlay(
+                        height: padTop + 50,
+                        backgroundColor: p.settingsBg,
+                        factor: 0.9,
+                        powerSaving: client.appPreferences.powerSavingMode,
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(
+                        bottom: false,
+                        child: SizedBox(
+                          height: 48,
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 4),
+                              TalerIconButton(
+                                icon: TalerIcons.arrowLeft,
+                                tooltip: 'Назад',
+                                iconSize: 22,
+                                color: p.fg,
+                                onPressed: () => Navigator.of(ctx).pop(),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               );
             },

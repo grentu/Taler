@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
@@ -46,14 +48,35 @@ class ChatListPane extends StatefulWidget {
 class _ChatListPaneState extends State<ChatListPane> {
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode(skipTraversal: true);
+  final PageController _pageCtrl = PageController();
+  final ValueNotifier<double> _pagePosition = ValueNotifier<double>(0.0);
   String _query = '';
   String _filterId = 'all';
+  bool _animatingToTab = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageCtrl.addListener(_onPageScroll);
+  }
 
   @override
   void dispose() {
+    _pageCtrl
+      ..removeListener(_onPageScroll)
+      ..dispose();
+    _pagePosition.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  void _onPageScroll() {
+    if (!_pageCtrl.hasClients) return;
+    final page = _pageCtrl.page;
+    if (page != null) {
+      _pagePosition.value = page;
+    }
   }
 
   List<_ChatFilter> _filters() {
@@ -72,6 +95,87 @@ class _ChatListPaneState extends State<ChatListPane> {
     ];
   }
 
+  Future<void> _selectFilter(List<_ChatFilter> filters, int index, {bool powerSaving = false}) async {
+    if (index < 0 || index >= filters.length) return;
+    _searchFocus.unfocus();
+    final targetId = filters[index].id;
+    if (_filterId != targetId) {
+      setState(() => _filterId = targetId);
+    }
+    if (!_pageCtrl.hasClients) {
+      _pagePosition.value = index.toDouble();
+      return;
+    }
+    final current = _pageCtrl.page ?? index.toDouble();
+    if ((current - index).abs() < 0.01) return;
+    if (powerSaving) {
+      _pageCtrl.jumpToPage(index);
+      _pagePosition.value = index.toDouble();
+      return;
+    }
+    _animatingToTab = true;
+    try {
+      await _pageCtrl.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      _animatingToTab = false;
+    }
+  }
+
+  Widget _buildFolderPage(
+    TalerPalette p,
+    _ChatFilter filter,
+    String q,
+    bool compactDensity,
+  ) {
+    final client = widget.client;
+    final chats = client.chats.where((c) {
+      if (!filter.test(c)) return false;
+      if (q.isEmpty) return true;
+      return c.title.toLowerCase().contains(q) ||
+          (c.lastMessageText ?? '').toLowerCase().contains(q);
+    }).toList();
+
+    if (chats.isEmpty) {
+      return Center(
+        child: Text(
+          q.isEmpty ? 'Здесь пока нет чатов' : 'Ничего не найдено',
+          style: TextStyle(fontSize: 14, color: p.fg3),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      key: PageStorageKey<String>('taler_folder_${filter.id}'),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.fromLTRB(
+        widget.compact ? 0 : 8,
+        6,
+        widget.compact ? 0 : 8,
+        8 + widget.bottomInset,
+      ),
+      itemCount: chats.length,
+      itemBuilder: (context, i) {
+        final chat = chats[i];
+        return ChatRow(
+          client: client,
+          chat: chat,
+          compact: widget.compact,
+          compactDensity: compactDensity,
+          selected: !widget.compact && chat.id == widget.selectedChatId,
+          onTap: () {
+            _searchFocus.unfocus();
+            FocusManager.instance.primaryFocus?.unfocus();
+            widget.onOpen(chat);
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
@@ -81,13 +185,21 @@ class _ChatListPaneState extends State<ChatListPane> {
       builder: (context, _) {
         final prefs = client.appPreferences;
         final filters = _filters();
-        final active = filters.firstWhere((f) => f.id == _filterId, orElse: () => filters.first);
+        var activeIndex = filters.indexWhere((f) => f.id == _filterId);
+        if (activeIndex < 0) activeIndex = 0;
+        final active = filters[activeIndex];
+        if (_pageCtrl.hasClients && !_animatingToTab) {
+          final currentPage = _pageCtrl.page;
+          if (currentPage != null && currentPage > filters.length - 1) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _pageCtrl.hasClients) {
+                _pageCtrl.jumpToPage(activeIndex);
+                _pagePosition.value = activeIndex.toDouble();
+              }
+            });
+          }
+        }
         final q = _query.toLowerCase();
-        final chats = client.chats.where((c) {
-          if (!active.test(c)) return false;
-          if (q.isEmpty) return true;
-          return c.title.toLowerCase().contains(q) || (c.lastMessageText ?? '').toLowerCase().contains(q);
-        }).toList();
         final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
         final hPad = widget.compact ? 16.0 : 12.0;
 
@@ -100,97 +212,97 @@ class _ChatListPaneState extends State<ChatListPane> {
               setState(() => _query = '');
               _searchFocus.unfocus();
             } else if (_filterId != 'all') {
-              setState(() => _filterId = 'all');
+              unawaited(
+                _selectFilter(filters, 0, powerSaving: prefs.powerSavingMode),
+              );
             }
           },
           child: Container(
             color: widget.compact ? p.settingsBg : p.bg2,
             child: SafeArea(
-            bottom: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  height: widget.compact ? 56 : 54,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: hPad),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        online ? 'Чаты' : 'Подключение…',
-                        style: TextStyle(
-                          fontSize: widget.compact ? 26 : 18,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: widget.compact ? -0.4 : -0.2,
-                          color: p.fg,
+              bottom: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: widget.compact ? 56 : 54,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: hPad),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          online ? 'Чаты' : 'Подключение…',
+                          style: TextStyle(
+                            fontSize: widget.compact ? 26 : 18,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: widget.compact ? -0.4 : -0.2,
+                            color: p.fg,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(hPad, 2, hPad, 10),
-                  child: _SearchField(
-                    controller: _searchCtrl,
-                    focusNode: _searchFocus,
-                    onChanged: (v) => setState(() => _query = v.trim()),
-                    onClear: () {
-                      _searchCtrl.clear();
-                      setState(() => _query = '');
-                      _searchFocus.unfocus();
-                    },
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(hPad, 2, hPad, 10),
+                    child: _SearchField(
+                      controller: _searchCtrl,
+                      focusNode: _searchFocus,
+                      onChanged: (v) => setState(() => _query = v.trim()),
+                      onClear: () {
+                        _searchCtrl.clear();
+                        setState(() => _query = '');
+                        _searchFocus.unfocus();
+                      },
+                    ),
                   ),
-                ),
-                _FolderTabs(
-                  filters: filters,
-                  activeId: active.id,
-                  horizontalPadding: hPad,
-                  unreadIn: (f) => prefs.showFolderBadges
-                      ? client.chats.where((c) => f.test(c) && c.unreadCount > 0 && !c.isMuted).length
-                      : 0,
-                  onSelect: (id) {
-                    _searchFocus.unfocus();
-                    setState(() => _filterId = id);
-                  },
-                ),
-                Expanded(
-                  child: chats.isEmpty
-                      ? Center(
-                          child: Text(
-                            q.isEmpty ? 'Здесь пока нет чатов' : 'Ничего не найдено',
-                            style: TextStyle(fontSize: 14, color: p.fg3),
-                          ),
-                        )
-                      : ListView.builder(
-                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                          padding: EdgeInsets.fromLTRB(
-                            widget.compact ? 0 : 8,
-                            6,
-                            widget.compact ? 0 : 8,
-                            8 + widget.bottomInset,
-                          ),
-                          itemCount: chats.length,
-                          itemBuilder: (context, i) {
-                            final chat = chats[i];
-                            return ChatRow(
-                              client: client,
-                              chat: chat,
-                              compact: widget.compact,
-                              compactDensity: prefs.compactChatList,
-                              selected: !widget.compact && chat.id == widget.selectedChatId,
-                              onTap: () {
-                                _searchFocus.unfocus();
-                                FocusManager.instance.primaryFocus?.unfocus();
-                                widget.onOpen(chat);
-                              },
-                            );
-                          },
-                        ),
-                ),
-              ],
+                  _FolderTabs(
+                    filters: filters,
+                    activeIndex: activeIndex,
+                    activeId: active.id,
+                    pagePosition: _pagePosition,
+                    horizontalPadding: hPad,
+                    unreadIn: (f) => prefs.showFolderBadges
+                        ? client.chats
+                            .where((c) => f.test(c) && c.unreadCount > 0 && !c.isMuted)
+                            .length
+                        : 0,
+                    onSelectIndex: (idx) => unawaited(
+                      _selectFilter(
+                        filters,
+                        idx,
+                        powerSaving: prefs.powerSavingMode,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: PageView.builder(
+                      controller: _pageCtrl,
+                      physics: const BouncingScrollPhysics(
+                        parent: PageScrollPhysics(),
+                      ),
+                      itemCount: filters.length,
+                      onPageChanged: (index) {
+                        if (_animatingToTab) return;
+                        if (index >= 0 && index < filters.length) {
+                          final nextId = filters[index].id;
+                          if (nextId != _filterId) {
+                            _searchFocus.unfocus();
+                            setState(() => _filterId = nextId);
+                          }
+                        }
+                      },
+                      itemBuilder: (context, index) => _buildFolderPage(
+                        p,
+                        filters[index],
+                        q,
+                        prefs.compactChatList,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         );
       },
     );
@@ -262,45 +374,197 @@ class _SearchField extends StatelessWidget {
   }
 }
 
-/// Вкладки с подчёркиванием: текст, счётчик непрочитанных и синяя линия у выбранной.
-class _FolderTabs extends StatelessWidget {
+/// Вкладки папок с плавным скользящим индикатором и живой интерполяцией цвета при свайпе.
+class _FolderTabs extends StatefulWidget {
   final List<_ChatFilter> filters;
+  final int activeIndex;
   final String activeId;
+  final ValueNotifier<double> pagePosition;
   final double horizontalPadding;
   final int Function(_ChatFilter) unreadIn;
-  final ValueChanged<String> onSelect;
+  final ValueChanged<int> onSelectIndex;
 
   const _FolderTabs({
     required this.filters,
+    required this.activeIndex,
     required this.activeId,
+    required this.pagePosition,
     required this.horizontalPadding,
     required this.unreadIn,
-    required this.onSelect,
+    required this.onSelectIndex,
   });
+
+  @override
+  State<_FolderTabs> createState() => _FolderTabsState();
+}
+
+class _FolderTabsState extends State<_FolderTabs> {
+  final GlobalKey _rowKey = GlobalKey();
+  List<GlobalKey> _tabKeys = <GlobalKey>[];
+  List<({double left, double width})> _metrics = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _syncKeys();
+    _scheduleMeasure();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FolderTabs oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final countChanged = oldWidget.filters.length != widget.filters.length;
+    final labelsChanged = !countChanged &&
+        Iterable<int>.generate(widget.filters.length).any(
+          (i) =>
+              oldWidget.filters[i].id != widget.filters[i].id ||
+              oldWidget.filters[i].label != widget.filters[i].label,
+        );
+    if (countChanged || labelsChanged) {
+      _syncKeys();
+    }
+    _scheduleMeasure();
+    if (oldWidget.activeIndex != widget.activeIndex) {
+      _scrollActiveTabIntoView();
+    }
+  }
+
+  void _syncKeys() {
+    _tabKeys = List<GlobalKey>.generate(
+      widget.filters.length,
+      (_) => GlobalKey(),
+    );
+  }
+
+  void _scheduleMeasure() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _measure();
+    });
+  }
+
+  void _measure() {
+    final rowBox = _rowKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rowBox == null || !rowBox.hasSize) return;
+    final next = <({double left, double width})>[];
+    for (final key in _tabKeys) {
+      final tabBox = key.currentContext?.findRenderObject() as RenderBox?;
+      if (tabBox == null || !tabBox.hasSize) return;
+      final offset = tabBox.localToGlobal(Offset.zero, ancestor: rowBox);
+      next.add((left: offset.dx, width: tabBox.size.width));
+    }
+    var changed = next.length != _metrics.length;
+    if (!changed) {
+      for (var i = 0; i < next.length; i++) {
+        if ((next[i].left - _metrics[i].left).abs() > 0.5 ||
+            (next[i].width - _metrics[i].width).abs() > 0.5) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed && mounted) {
+      setState(() => _metrics = next);
+    }
+  }
+
+  void _scrollActiveTabIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.activeIndex < 0 || widget.activeIndex >= _tabKeys.length) {
+        return;
+      }
+      final ctx = _tabKeys[widget.activeIndex].currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        alignment: 0.5,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final tabs = [
-      for (final f in filters)
-        _FolderTab(
-          label: f.label,
-          count: unreadIn(f),
-          selected: f.id == activeId,
-          onTap: () => onSelect(f.id),
-        ),
-    ];
-    final sideInset = math.max(0.0, horizontalPadding - 10.0);
+    final sideInset = math.max(0.0, widget.horizontalPadding - 10.0);
+    final hasMetrics = _metrics.length == widget.filters.length && _metrics.isNotEmpty;
+
     return DecoratedBox(
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
       child: SizedBox(
         height: 40,
-        child: ListView.separated(
-          padding: EdgeInsets.symmetric(horizontal: sideInset),
+        child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          itemCount: tabs.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 4),
-          itemBuilder: (_, index) => tabs[index],
+          padding: EdgeInsets.symmetric(horizontal: sideInset),
+          child: ValueListenableBuilder<double>(
+            valueListenable: widget.pagePosition,
+            builder: (context, rawPage, _) {
+              final maxIdx = math.max(0, widget.filters.length - 1);
+              final page = rawPage.clamp(0.0, maxIdx.toDouble());
+              double? indLeft;
+              double? indWidth;
+              if (hasMetrics) {
+                final floor = page.floor().clamp(0, maxIdx);
+                final ceil = page.ceil().clamp(0, maxIdx);
+                final frac = (page - floor).clamp(0.0, 1.0);
+                final a = _metrics[floor];
+                final b = _metrics[ceil];
+                // Пружинистое вытягивание индикатора при перелистывании папок.
+                final tLeft = math.pow(frac, 1.35).toDouble();
+                final tRight = math.pow(frac, 0.72).toDouble();
+                final left = ui.lerpDouble(a.left + 8, b.left + 8, tLeft)!;
+                final right = ui.lerpDouble(
+                  a.left + a.width - 8,
+                  b.left + b.width - 8,
+                  tRight,
+                )!;
+                indLeft = left;
+                indWidth = math.max(16.0, right - left);
+              }
+
+              return Stack(
+                children: [
+                  Row(
+                    key: _rowKey,
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < widget.filters.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 4),
+                        _FolderTab(
+                          key: _tabKeys[i],
+                          label: widget.filters[i].label,
+                          count: widget.unreadIn(widget.filters[i]),
+                          selectionProgress: (1.0 - (page - i).abs()).clamp(0.0, 1.0),
+                          showFallbackIndicator: !hasMetrics && i == widget.activeIndex,
+                          onTap: () => widget.onSelectIndex(i),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (indLeft != null && indWidth != null)
+                    Positioned(
+                      left: indLeft,
+                      width: indWidth,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          height: 2.5,
+                          decoration: BoxDecoration(
+                            color: p.accent,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(2.5),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -310,16 +574,30 @@ class _FolderTabs extends StatelessWidget {
 class _FolderTab extends StatelessWidget {
   final String label;
   final int count;
-  final bool selected;
+  final double selectionProgress;
+  final bool showFallbackIndicator;
   final VoidCallback onTap;
 
-  const _FolderTab({required this.label, required this.count, required this.selected, required this.onTap});
+  const _FolderTab({
+    super.key,
+    required this.label,
+    required this.count,
+    required this.selectionProgress,
+    required this.showFallbackIndicator,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
+    final t = selectionProgress;
+    final textColor = Color.lerp(p.fg3, p.fg, t)!;
+    final badgeBg = Color.lerp(p.bg3, p.accent, t)!;
+    final badgeFg = Color.lerp(p.fg2, Colors.white, t)!;
+
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
       splashFactory: NoSplash.splashFactory,
       child: Stack(
         children: [
@@ -334,8 +612,8 @@ class _FolderTab extends StatelessWidget {
                     maxLines: 1,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: selected ? p.fg : p.fg3,
+                      fontWeight: t > 0.5 ? FontWeight.w600 : FontWeight.w500,
+                      color: textColor,
                     ),
                   ),
                   if (count > 0) ...[
@@ -346,7 +624,7 @@ class _FolderTab extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 5),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: selected ? p.accent : p.bg3,
+                        color: badgeBg,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -354,7 +632,7 @@ class _FolderTab extends StatelessWidget {
                         style: TalerTheme.tabularStyle(
                           size: 11,
                           weight: FontWeight.w600,
-                          color: selected ? Colors.white : p.fg2,
+                          color: badgeFg,
                         ),
                       ),
                     ),
@@ -363,16 +641,18 @@ class _FolderTab extends StatelessWidget {
               ),
             ),
           ),
-          if (selected)
+          if (showFallbackIndicator)
             Positioned(
               left: 8,
               right: 8,
               bottom: 0,
               child: Container(
-                height: 2,
+                height: 2.5,
                 decoration: BoxDecoration(
                   color: p.accent,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(2.5),
+                  ),
                 ),
               ),
             ),

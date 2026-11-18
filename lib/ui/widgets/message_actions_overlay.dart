@@ -26,8 +26,8 @@ class TalerMessageAction {
 }
 
 /// Показывает стеклянное меню сообщения поверх размытого чата в стиле Telegram / exteraGram:
-/// сверху парящая капсула реакций, по центру подсвеченный пузырь сообщения,
-/// снизу полупрозрачная стеклянная карточка действий.
+/// пузырь остаётся точно на своём месте без прыжков, а капсула реакций и меню действий
+/// автоматически размещаются сверху или снизу в зависимости от свободного места.
 Future<void> showTalerMessageActionsOverlay({
   required BuildContext context,
   required TalerMessage message,
@@ -68,24 +68,50 @@ Future<void> showTalerMessageActionsOverlay({
       );
       final t = curve.value;
       final pad = MediaQuery.paddingOf(dialogCtx);
-      final safePad = EdgeInsets.fromLTRB(
-        math.max(12.0, pad.left + 8.0),
-        math.max(12.0, pad.top + 8.0),
-        math.max(12.0, pad.right + 8.0),
-        math.max(12.0, pad.bottom + 8.0),
-      );
       final screenSize = MediaQuery.sizeOf(dialogCtx);
-      final availW = math.max(160.0, screenSize.width - safePad.horizontal);
-      final availH = math.max(200.0, screenSize.height - safePad.vertical);
-      final menuWidth = math.min(256.0, availW);
-      final barMaxWidth = math.min(336.0, availW);
-      final bubblePreviewMaxH = (availH * 0.30).clamp(84.0, 240.0);
+      final safeLeft = math.max(12.0, pad.left + 8.0);
+      final safeRight = screenSize.width - math.max(12.0, pad.right + 8.0);
+      final safeTop = math.max(12.0, pad.top + 8.0);
+      final safeBottom = screenSize.height - math.max(12.0, pad.bottom + 8.0);
+      final availW = math.max(160.0, safeRight - safeLeft);
+      final availH = math.max(200.0, safeBottom - safeTop);
 
-      final backdropColor = (p.isDark ? Colors.black : const Color(0xFF0A0B0E))
-          .withValues(alpha: (powerSaving ? 0.68 : (p.isDark ? 0.56 : 0.34)) * t);
+      const barH = 50.0;
+      const gap = 8.0;
+      final menuWidth = math.min(256.0, availW);
+      final barWidth = math.min(332.0, availW);
+      final bubbleMaxW = math.min(maxBubbleWidth, availW);
 
       final normalActions = actions.where((a) => !a.destructive).toList();
       final destructiveActions = actions.where((a) => a.destructive).toList();
+      final rawMenuH = normalActions.length * 46.0 +
+          math.max(0, normalActions.length - 1) * 1.0 +
+          (normalActions.isNotEmpty && destructiveActions.isNotEmpty ? 4.0 : 0.0) +
+          destructiveActions.length * 46.0 +
+          math.max(0, destructiveActions.length - 1) * 1.0 +
+          2.0;
+      final menuMaxH = math.max(96.0, availH - barH - gap * 2 - 84.0);
+      final menuH = math.min(rawMenuH, menuMaxH);
+
+      final layout = _computeOverlayPlacement(
+        anchorRect: anchorRect,
+        isMine: isMine,
+        screenSize: screenSize,
+        safeLeft: safeLeft,
+        safeRight: safeRight,
+        safeTop: safeTop,
+        safeBottom: safeBottom,
+        availH: availH,
+        barW: barWidth,
+        barH: barH,
+        menuW: menuWidth,
+        menuH: menuH,
+        gap: gap,
+        t: t,
+      );
+
+      final backdropColor = (p.isDark ? Colors.black : const Color(0xFF0A0B0E))
+          .withValues(alpha: (powerSaving ? 0.68 : (p.isDark ? 0.56 : 0.34)) * t);
 
       Widget buildBackdropLayer() {
         final shade = ColoredBox(color: backdropColor);
@@ -97,236 +123,380 @@ Future<void> showTalerMessageActionsOverlay({
         );
       }
 
-      Widget buildColumn() {
-        return SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment:
-                isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              // 1. Парящая капсула реакций
-              Transform.translate(
-                offset: Offset(0, 6 * (1 - t)),
-                child: Transform.scale(
-                  scale: 0.90 + 0.10 * t,
-                  alignment:
-                      isMine ? Alignment.bottomRight : Alignment.bottomLeft,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: barMaxWidth),
-                    child: _GlassSurface(
-                      palette: p,
-                      radius: 999,
-                      powerSaving: powerSaving,
-                      child: SizedBox(
-                        height: 50,
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              for (final emoji in quickEmojis)
-                                _ReactionButton(
-                                  emoji: emoji,
-                                  selected: myReactions.contains(emoji),
-                                  accent: p.accent,
-                                  onTap: () {
-                                    Navigator.of(dialogCtx).pop();
-                                    onToggleReaction(emoji);
-                                  },
-                                ),
-                            ],
+      final reactionsWidget = Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, layout.barSlideDy * (1 - t)),
+          child: Transform.scale(
+            scale: 0.90 + 0.10 * t,
+            alignment: layout.barScaleAlignment,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: barWidth),
+              child: _GlassSurface(
+                palette: p,
+                radius: 999,
+                powerSaving: powerSaving,
+                child: SizedBox(
+                  height: barH,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final emoji in quickEmojis)
+                          _ReactionButton(
+                            emoji: emoji,
+                            selected: myReactions.contains(emoji),
+                            accent: p.accent,
+                            onTap: () {
+                              Navigator.of(dialogCtx).pop();
+                              onToggleReaction(emoji);
+                            },
                           ),
-                        ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+            ),
+          ),
+        ),
+      );
 
-              // 2. Само сообщение в фокусе (приподнято над блюром)
-              Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.38 * t),
-                      blurRadius: 28,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
+      final bubbleContent = Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.38 * t),
+              blurRadius: 28,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: layout.bubbleMaxH,
+            maxWidth: bubbleMaxW,
+          ),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: MessageBubble(
+              message: message,
+              isMine: isMine,
+              firstInRun: firstInRun,
+              showName: showName,
+              senderName: senderName,
+              maxWidth: bubbleMaxW,
+              peerReadMark: peerReadMark,
+              fontSize: fontSize,
+              cornerRadius: cornerRadius,
+              onShowHistory: onShowHistory == null
+                  ? null
+                  : () {
+                      Navigator.of(dialogCtx).pop();
+                      onShowHistory();
+                    },
+              onRetry: onRetry == null
+                  ? null
+                  : () {
+                      Navigator.of(dialogCtx).pop();
+                      onRetry();
+                    },
+            ),
+          ),
+        ),
+      );
+
+      final menuWidget = Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, layout.menuSlideDy * (1 - t)),
+          child: Transform.scale(
+            scale: 0.90 + 0.10 * t,
+            alignment: layout.menuScaleAlignment,
+            child: SizedBox(
+              width: menuWidth,
+              child: _GlassSurface(
+                palette: p,
+                radius: 18,
+                powerSaving: powerSaving,
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: bubblePreviewMaxH,
-                    maxWidth: math.min(maxBubbleWidth, availW),
-                  ),
+                  constraints: BoxConstraints(maxHeight: menuMaxH),
                   child: SingleChildScrollView(
                     physics: const ClampingScrollPhysics(),
-                    child: MessageBubble(
-                      message: message,
-                      isMine: isMine,
-                      firstInRun: firstInRun,
-                      showName: showName,
-                      senderName: senderName,
-                      maxWidth: math.min(maxBubbleWidth, availW),
-                      peerReadMark: peerReadMark,
-                      fontSize: fontSize,
-                      cornerRadius: cornerRadius,
-                      onShowHistory: onShowHistory == null
-                          ? null
-                          : () {
-                              Navigator.of(dialogCtx).pop();
-                              onShowHistory();
-                            },
-                      onRetry: onRetry == null
-                          ? null
-                          : () {
-                              Navigator.of(dialogCtx).pop();
-                              onRetry();
-                            },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // 3. Парящее стеклянное меню действий
-              Transform.translate(
-                offset: Offset(0, -6 * (1 - t)),
-                child: Transform.scale(
-                  scale: 0.90 + 0.10 * t,
-                  alignment: isMine ? Alignment.topRight : Alignment.topLeft,
-                  child: SizedBox(
-                    width: menuWidth,
-                    child: _GlassSurface(
-                      palette: p,
-                      radius: 18,
-                      powerSaving: powerSaving,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var i = 0; i < normalActions.length; i++) ...[
-                            _ActionRow(
-                              action: normalActions[i],
-                              palette: p,
-                              onClose: () => Navigator.of(dialogCtx).pop(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < normalActions.length; i++) ...[
+                          _ActionRow(
+                            action: normalActions[i],
+                            palette: p,
+                            onClose: () => Navigator.of(dialogCtx).pop(),
+                          ),
+                          if (i + 1 < normalActions.length)
+                            Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: p.line,
                             ),
-                            if (i + 1 < normalActions.length)
-                              Divider(
-                                height: 1,
-                                thickness: 0.5,
-                                color: p.line,
-                              ),
-                          ],
-                          if (normalActions.isNotEmpty &&
-                              destructiveActions.isNotEmpty)
-                            Container(
-                              height: 4,
-                              color: p.isDark
-                                  ? Colors.black.withValues(alpha: 0.35)
-                                  : Colors.black.withValues(alpha: 0.06),
-                            ),
-                          for (var i = 0; i < destructiveActions.length; i++) ...[
-                            _ActionRow(
-                              action: destructiveActions[i],
-                              palette: p,
-                              onClose: () => Navigator.of(dialogCtx).pop(),
-                            ),
-                            if (i + 1 < destructiveActions.length)
-                              Divider(
-                                height: 1,
-                                thickness: 0.5,
-                                color: p.line,
-                              ),
-                          ],
                         ],
-                      ),
+                        if (normalActions.isNotEmpty &&
+                            destructiveActions.isNotEmpty)
+                          Container(
+                            height: 4,
+                            color: p.isDark
+                                ? Colors.black.withValues(alpha: 0.35)
+                                : Colors.black.withValues(alpha: 0.06),
+                          ),
+                        for (var i = 0; i < destructiveActions.length; i++) ...[
+                          _ActionRow(
+                            action: destructiveActions[i],
+                            palette: p,
+                            onClose: () => Navigator.of(dialogCtx).pop(),
+                          ),
+                          if (i + 1 < destructiveActions.length)
+                            Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: p.line,
+                            ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-        );
-      }
+        ),
+      );
 
       return Material(
         type: MaterialType.transparency,
-        child: FadeTransition(
-          opacity: curve,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.of(dialogCtx).pop(),
-                  child: buildBackdropLayer(),
-                ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(dialogCtx).pop(),
+                child: buildBackdropLayer(),
               ),
-              Padding(
-                padding: safePad,
-                child: CustomSingleChildLayout(
-                  delegate: _AnchoredOverlayLayoutDelegate(
-                    anchorRect: anchorRect,
-                    safeTop: safePad.top,
-                    alignRight: isMine,
-                    bubbleTopOffset: 58.0,
-                  ),
-                  child: buildColumn(),
-                ),
-              ),
-            ],
-          ),
+            ),
+            Positioned(
+              left: layout.bubbleLeft,
+              right: layout.bubbleRight,
+              top: layout.bubbleTop,
+              child: bubbleContent,
+            ),
+            Positioned(
+              left: layout.barLeft,
+              top: layout.barTop,
+              child: reactionsWidget,
+            ),
+            Positioned(
+              left: layout.menuLeft,
+              top: layout.menuTop,
+              child: menuWidget,
+            ),
+          ],
         ),
       );
     },
   );
 }
 
-class _AnchoredOverlayLayoutDelegate extends SingleChildLayoutDelegate {
-  final Rect? anchorRect;
-  final double safeTop;
-  final bool alignRight;
-  final double bubbleTopOffset;
+class _OverlayPlacement {
+  final double? bubbleLeft;
+  final double? bubbleRight;
+  final double bubbleTop;
+  final double bubbleMaxH;
+  final double barLeft;
+  final double barTop;
+  final double barSlideDy;
+  final Alignment barScaleAlignment;
+  final double menuLeft;
+  final double menuTop;
+  final double menuSlideDy;
+  final Alignment menuScaleAlignment;
 
-  const _AnchoredOverlayLayoutDelegate({
-    required this.anchorRect,
-    required this.safeTop,
-    required this.alignRight,
-    required this.bubbleTopOffset,
+  const _OverlayPlacement({
+    required this.bubbleLeft,
+    required this.bubbleRight,
+    required this.bubbleTop,
+    required this.bubbleMaxH,
+    required this.barLeft,
+    required this.barTop,
+    required this.barSlideDy,
+    required this.barScaleAlignment,
+    required this.menuLeft,
+    required this.menuTop,
+    required this.menuSlideDy,
+    required this.menuScaleAlignment,
   });
+}
 
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    return BoxConstraints(
-      maxWidth: constraints.maxWidth,
-      maxHeight: constraints.maxHeight,
-    );
-  }
+_OverlayPlacement _computeOverlayPlacement({
+  required Rect? anchorRect,
+  required bool isMine,
+  required Size screenSize,
+  required double safeLeft,
+  required double safeRight,
+  required double safeTop,
+  required double safeBottom,
+  required double availH,
+  required double barW,
+  required double barH,
+  required double menuW,
+  required double menuH,
+  required double gap,
+  required double t,
+}) {
+  final maxBubbleFitH = math.max(84.0, availH - barH - menuH - gap * 2);
 
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    final dx = alignRight
-        ? math.max(0.0, size.width - childSize.width)
-        : 0.0;
-    final maxY = math.max(0.0, size.height - childSize.height);
-    if (anchorRect != null) {
-      final desiredTop = (anchorRect!.top - safeTop) - bubbleTopOffset;
-      return Offset(dx, desiredTop.clamp(0.0, maxY));
+  // Горизонтальная привязка пузыря ровно к его реальным координатам.
+  final double? bubbleLeft;
+  final double? bubbleRight;
+  final double alignEdgeX;
+  if (anchorRect != null) {
+    if (isMine) {
+      bubbleLeft = null;
+      bubbleRight = (screenSize.width - anchorRect.right)
+          .clamp(0.0, math.max(0.0, screenSize.width - 48.0));
+      alignEdgeX = anchorRect.right;
+    } else {
+      bubbleLeft = anchorRect.left
+          .clamp(0.0, math.max(0.0, screenSize.width - 48.0));
+      bubbleRight = null;
+      alignEdgeX = anchorRect.left;
     }
-    return Offset(dx, ((size.height - childSize.height) * 0.5).clamp(0.0, maxY));
+  } else {
+    if (isMine) {
+      bubbleLeft = null;
+      bubbleRight = screenSize.width - safeRight;
+      alignEdgeX = safeRight;
+    } else {
+      bubbleLeft = safeLeft;
+      bubbleRight = null;
+      alignEdgeX = safeLeft;
+    }
   }
 
-  @override
-  bool shouldRelayout(covariant _AnchoredOverlayLayoutDelegate old) =>
-      old.anchorRect != anchorRect ||
-      old.safeTop != safeTop ||
-      old.alignRight != alignRight ||
-      old.bubbleTopOffset != bubbleTopOffset;
+  final double barLeft = (isMine
+          ? (alignEdgeX - barW).clamp(safeLeft, math.max(safeLeft, safeRight - barW))
+          : alignEdgeX.clamp(safeLeft, math.max(safeLeft, safeRight - barW)))
+      .toDouble();
+  final double menuLeft = (isMine
+          ? (alignEdgeX - menuW).clamp(safeLeft, math.max(safeLeft, safeRight - menuW))
+          : alignEdgeX.clamp(safeLeft, math.max(safeLeft, safeRight - menuW)))
+      .toDouble();
+
+  final double rawTop;
+  final double rawHeight;
+  if (anchorRect != null) {
+    rawTop = anchorRect.top;
+    rawHeight = anchorRect.height;
+  } else {
+    rawHeight = math.min(96.0, maxBubbleFitH);
+    rawTop = (safeTop + (availH - rawHeight) * 0.42)
+        .clamp(safeTop + barH + gap, math.max(safeTop + barH + gap, safeBottom - rawHeight - menuH - gap));
+  }
+
+  final bubbleH = math.min(rawHeight, maxBubbleFitH);
+  final bubbleMaxH = math.max(bubbleH, math.min(rawHeight, maxBubbleFitH));
+  final bubbleBottom = rawTop + bubbleH;
+  final spaceAbove = rawTop - safeTop;
+  final spaceBelow = safeBottom - bubbleBottom;
+
+  double targetBubbleTop = rawTop;
+  double barTop;
+  double menuTop;
+  double barSlideDy;
+  double menuSlideDy;
+  Alignment barAlign;
+  Alignment menuAlign;
+
+  if (spaceAbove >= barH + gap && spaceBelow >= menuH + gap) {
+    // Стандартно: реакции над сообщением, меню под сообщением, пузырь не двигается.
+    barTop = rawTop - gap - barH;
+    menuTop = rawTop + bubbleH + gap;
+    barSlideDy = 6.0;
+    menuSlideDy = -6.0;
+    barAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+    menuAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+  } else if (spaceBelow < menuH + gap &&
+      spaceBelow >= barH + gap &&
+      spaceAbove >= menuH + gap) {
+    // Нижняя часть экрана: меню сверху, реакции снизу — сообщение остаётся на месте!
+    menuTop = rawTop - gap - menuH;
+    barTop = rawTop + bubbleH + gap;
+    barSlideDy = -6.0;
+    menuSlideDy = 6.0;
+    barAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+    menuAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+  } else if (spaceBelow < menuH + gap &&
+      spaceAbove >= menuH + gap + barH + gap) {
+    // Самый низ экрана (у поля ввода): меню и реакции над сообщением — пузырь на месте!
+    menuTop = rawTop - gap - menuH;
+    barTop = menuTop - gap - barH;
+    barSlideDy = 8.0;
+    menuSlideDy = 6.0;
+    barAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+    menuAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+  } else if (spaceAbove < barH + gap &&
+      spaceBelow >= barH + gap + menuH + gap) {
+    // Самый верх экрана (у шапки): реакции и меню под сообщением — пузырь на месте!
+    barTop = rawTop + bubbleH + gap;
+    menuTop = barTop + barH + gap;
+    barSlideDy = -6.0;
+    menuSlideDy = -8.0;
+    barAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+    menuAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+  } else {
+    // Сверхвысокое или частично скрытое за краем экрана сообщение:
+    // плавно подтягиваем на минимальное расстояние, чтобы всё поместилось.
+    final preferAbove = (rawTop + bubbleH * 0.5) > (safeTop + availH * 0.5);
+    if (preferAbove) {
+      final minTop = safeTop + barH + gap + menuH + gap;
+      final maxTop = math.max(minTop, safeBottom - bubbleH);
+      targetBubbleTop = rawTop.clamp(minTop, maxTop);
+      menuTop = targetBubbleTop - gap - menuH;
+      barTop = menuTop - gap - barH;
+      barSlideDy = 8.0;
+      menuSlideDy = 6.0;
+      barAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+      menuAlign = isMine ? Alignment.bottomRight : Alignment.bottomLeft;
+    } else {
+      final minTop = safeTop;
+      final maxTop = math.max(minTop, safeBottom - bubbleH - barH - gap - menuH - gap);
+      targetBubbleTop = rawTop.clamp(minTop, maxTop);
+      barTop = targetBubbleTop + bubbleH + gap;
+      menuTop = barTop + barH + gap;
+      barSlideDy = -6.0;
+      menuSlideDy = -8.0;
+      barAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+      menuAlign = isMine ? Alignment.topRight : Alignment.topLeft;
+    }
+  }
+
+  final currentBubbleTop = ui.lerpDouble(rawTop, targetBubbleTop, t)!;
+
+  return _OverlayPlacement(
+    bubbleLeft: bubbleLeft,
+    bubbleRight: bubbleRight,
+    bubbleTop: currentBubbleTop,
+    bubbleMaxH: bubbleMaxH,
+    barLeft: barLeft,
+    barTop: barTop.clamp(safeTop, math.max(safeTop, safeBottom - barH)).toDouble(),
+    barSlideDy: barSlideDy,
+    barScaleAlignment: barAlign,
+    menuLeft: menuLeft,
+    menuTop: menuTop.clamp(safeTop, math.max(safeTop, safeBottom - menuH)).toDouble(),
+    menuSlideDy: menuSlideDy,
+    menuScaleAlignment: menuAlign,
+  );
 }
 
 class _GlassSurface extends StatelessWidget {
@@ -414,9 +584,8 @@ class _ReactionButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: selected
               ? BoxDecoration(
-                  color: accent.withValues(alpha: 0.24),
+                  color: accent.withValues(alpha: 0.28),
                   shape: BoxShape.circle,
-                  border: Border.all(color: accent.withValues(alpha: 0.55)),
                 )
               : null,
           child: Text(emoji, style: const TextStyle(fontSize: 21)),

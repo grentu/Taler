@@ -134,11 +134,12 @@ void main() {
     expect(find.textContaining('Opcode'), findsNothing);
     expect(find.textContaining('Wire Audit'), findsNothing);
 
-    // Profile tab uses compact pencil icon button instead of wide 'Изменить' label.
+    // Profile tab shows clean profile-only data and compact pencil icon button.
     await tester.tap(find.text('Профиль'));
     await tester.pumpAndSettle();
     expect(find.text('Аккаунт'), findsOneWidget);
-    expect(find.text('Устройства'), findsOneWidget);
+    expect(find.text('О себе'), findsOneWidget);
+    expect(find.text('Устройства'), findsNothing);
     expect(find.text('Активные сессии'), findsNothing);
     expect(find.textContaining('Opcode'), findsNothing);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);

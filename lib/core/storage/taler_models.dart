@@ -37,17 +37,19 @@ class TalerUserProfile {
   TalerUserProfile copyWith({
     String? firstName,
     String? lastName,
+    bool clearLastName = false,
     String? phone,
     String? avatarUrl,
     String? description,
+    bool clearDescription = false,
   }) {
     return TalerUserProfile(
       id: id,
       firstName: firstName ?? this.firstName,
-      lastName: lastName ?? this.lastName,
+      lastName: clearLastName ? null : (lastName ?? this.lastName),
       phone: phone ?? this.phone,
       avatarUrl: avatarUrl ?? this.avatarUrl,
-      description: description ?? this.description,
+      description: clearDescription ? null : (description ?? this.description),
     );
   }
 
@@ -314,6 +316,9 @@ class TalerAttachment {
   final int? width;
   final int? height;
   final String? previewText;
+  final String? thumbnailUrl;
+  final String? description;
+  final int? durationMs;
 
   const TalerAttachment({
     required this.type,
@@ -326,6 +331,9 @@ class TalerAttachment {
     this.width,
     this.height,
     this.previewText,
+    this.thumbnailUrl,
+    this.description,
+    this.durationMs,
   });
 
   Map<String, dynamic> toJson() => {
@@ -339,6 +347,9 @@ class TalerAttachment {
         'width': width,
         'height': height,
         'previewText': previewText,
+        'thumbnailUrl': thumbnailUrl,
+        'description': description,
+        'durationMs': durationMs,
       };
 
   factory TalerAttachment.fromJson(Map<String, dynamic> json) {
@@ -353,6 +364,9 @@ class TalerAttachment {
       width: (json['width'] as num?)?.toInt(),
       height: (json['height'] as num?)?.toInt(),
       previewText: json['previewText'] as String?,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      description: json['description'] as String?,
+      durationMs: (json['durationMs'] as num?)?.toInt(),
     );
   }
 
@@ -360,17 +374,39 @@ class TalerAttachment {
     final rawType = (map['_type'] ?? map['type'] ?? 'UNKNOWN')
         .toString()
         .toUpperCase();
+    final nestedImage = map['image'] ?? map['media'];
+    final imageThumb = nestedImage is Map
+        ? (nestedImage['baseUrl'] ??
+                nestedImage['thumbnail'] ??
+                nestedImage['previewUrl'] ??
+                nestedImage['url'])
+            ?.toString()
+        : null;
+    final thumbnail = (map['thumbnail'] ??
+            map['previewUrl'] ??
+            imageThumb ??
+            (rawType == 'STICKER' ? map['url'] : null))
+        ?.toString();
+    final primaryUrl = (map['baseUrl'] ?? map['url'] ?? thumbnail)?.toString();
+    final desc = (map['description'] ?? map['body'] ?? map['subtitle'])?.toString();
+    final duration = (map['duration'] as num?)?.toInt();
+
     return TalerAttachment(
       type: rawType,
-      url: (map['baseUrl'] ?? map['url'] ?? map['previewUrl'])?.toString(),
+      url: primaryUrl,
       fileName: (map['name'] ?? map['fileName'])?.toString(),
       fileSize: (map['size'] as num?)?.toInt(),
       fileId: (map['fileId'] as num?)?.toInt(),
       photoId: (map['photoId'] as num?)?.toInt(),
       token: (map['photoToken'] ?? map['token'])?.toString(),
-      width: (map['width'] as num?)?.toInt(),
-      height: (map['height'] as num?)?.toInt(),
+      width: (map['width'] as num?)?.toInt() ??
+          (nestedImage is Map ? (nestedImage['width'] as num?)?.toInt() : null),
+      height: (map['height'] as num?)?.toInt() ??
+          (nestedImage is Map ? (nestedImage['height'] as num?)?.toInt() : null),
       previewText: (map['title'] ?? map['event'])?.toString(),
+      thumbnailUrl: thumbnail,
+      description: desc,
+      durationMs: duration,
     );
   }
 }

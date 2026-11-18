@@ -15,6 +15,7 @@ import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/settings_components.dart';
+import 'profile_settings_screen.dart';
 
 /// Экран настроек в стиле `exteraless` (`SettingsActivity` + `BaseFragmentSimpleGlass`),
 /// адаптированный под строгий чёрный AMOLED-стиль с чёрными сквирклами и фейд-кромкой.
@@ -124,13 +125,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _editNameDialog() async {
-    final user = widget.client.currentUser;
-    if (user == null) return;
-    await showTalerEditNameSheet(
-      context,
-      initialFirstName: user.firstName,
-      initialLastName: user.lastName,
-      onSave: (first, last) => widget.client.updateProfileName(first, last),
+    if (widget.client.currentUser == null) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => TalerEditProfilePage(client: widget.client),
+      ),
     );
   }
 
@@ -138,80 +137,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final user = widget.client.currentUser;
     showModalBottomSheet<void>(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         final p = TalerTheme.paletteOf(ctx);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: p.line2,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        return Container(
+          decoration: BoxDecoration(
+            color: p.settingsBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            border: Border(top: BorderSide(color: p.line2)),
+          ),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: p.fg.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                Center(
-                  child: TalerAvatar(
-                    seedId: user?.id ?? 0,
-                    initials: user?.initials ?? 'T',
-                    imageUrl: user?.avatarUrl,
-                    size: 68,
+              ),
+              Center(
+                child: TalerAvatar(
+                  seedId: user?.id ?? 0,
+                  initials: user?.initials ?? 'T',
+                  imageUrl: user?.avatarUrl,
+                  size: 68,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                user?.fullName ?? 'Профиль Taler',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _formatUserPhone(user?.phone),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, color: p.fg3),
+              ),
+              const SizedBox(height: 16),
+              TalerSettingsGroup(
+                children: [
+                  TalerSettingsTile(
+                    icon: TalerIcons.pencil,
+                    title: 'Редактировать профиль',
+                    subtitle: 'Имя, фамилия и о себе',
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(_editNameDialog());
+                    },
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  user?.fullName ?? 'Профиль Taler',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.fg),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _formatUserPhone(user?.phone),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13.5, color: p.fg3),
-                ),
-                const SizedBox(height: 16),
-                TalerSettingsGroup(
-                  children: [
+                  if (user != null)
                     TalerSettingsTile(
-                      icon: TalerIcons.pencil,
-                      title: 'Изменить имя',
+                      icon: TalerIcons.qrCode,
+                      title: 'ID: ${user.id}',
+                      subtitle: 'Нажмите, чтобы скопировать',
                       onTap: () {
                         Navigator.of(ctx).pop();
-                        _editNameDialog();
+                        unawaited(_copyAndNotify('${user.id}', 'ID ${user.id} скопирован'));
                       },
                     ),
-                    if (user != null)
-                      TalerSettingsTile(
-                        icon: TalerIcons.qrCode,
-                        title: 'ID: ${user.id}',
-                        onTap: () {
-                          Navigator.of(ctx).pop();
-                          _copyAndNotify('${user.id}', 'ID ${user.id} скопирован');
-                        },
-                      ),
-                    TalerSettingsTile(
-                      icon: TalerIcons.logOut,
-                      iconColor: p.danger,
-                      title: 'Выйти',
-                      titleColor: p.danger,
-                      onTap: () {
-                        Navigator.of(ctx).pop();
-                        unawaited(widget.client.logout());
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  TalerSettingsTile(
+                    icon: TalerIcons.logOut,
+                    iconColor: p.danger,
+                    title: 'Выйти',
+                    titleColor: p.danger,
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(widget.client.logout());
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         );
       },
