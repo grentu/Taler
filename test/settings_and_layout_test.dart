@@ -6,6 +6,7 @@ import 'package:taler/core/storage/local_store.dart';
 import 'package:taler/core/storage/taler_models.dart';
 import 'package:taler/core/version.dart';
 import 'package:taler/main.dart';
+import 'package:taler/ui/icons/taler_icon.dart';
 import 'package:taler/ui/widgets/message_bubble.dart';
 
 void main() {
@@ -222,5 +223,60 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+      'mobile 360px: dock sliding pill, settings gear morph and profile ring animate cleanly',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TalerApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Демо'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Открыть демо'));
+    await tester.pumpAndSettle();
+
+    // Initially settings uses outline gear.
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TalerIcon && w.icon == TalerIcons.settings,
+      ),
+      findsOneWidget,
+    );
+
+    // Switch to Settings and pump intermediate animation frames.
+    await tester.tap(find.text('Настройки').last);
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TalerIcon && w.icon == TalerIcons.settingsActive,
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+
+    // Switch to Profile (triggers sliding pill stretch + avatar pop/ring + halo).
+    await tester.tap(find.text('Профиль').last);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pumpAndSettle();
+    expect(find.text('Мой профиль'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Switch across to Protection and back to Chats.
+    await tester.tap(find.text('Защита').last);
+    await tester.pump(const Duration(milliseconds: 140));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Чаты').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }

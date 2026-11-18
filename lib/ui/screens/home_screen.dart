@@ -298,7 +298,18 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 12),
           _RailButton(icon: selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
           _RailButton(icon: selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
-          _RailButton(icon: TalerIcons.settings, label: 'Настройки', selected: selected == 2, dotBadge: hasUpdate, onTap: () => onSelect(2)),
+          _RailButton(
+            icon: selected == 2 ? TalerIcons.settingsActive : TalerIcons.settings,
+            iconWidget: _AnimatedSettingsIcon(
+              selected: selected == 2,
+              size: 20,
+              color: selected == 2 ? p.fg : p.fg3,
+            ),
+            label: 'Настройки',
+            selected: selected == 2,
+            dotBadge: hasUpdate,
+            onTap: () => onSelect(2),
+          ),
           _RailButton(icon: TalerIcons.user, label: 'Профиль', selected: selected == 3, onTap: () => onSelect(3)),
           const Spacer(),
           _RailButton(
@@ -331,6 +342,7 @@ class _Rail extends StatelessWidget {
 
 class _RailButton extends StatelessWidget {
   final TalerIconData icon;
+  final Widget? iconWidget;
   final String label;
   final bool selected;
   final int badge;
@@ -341,6 +353,7 @@ class _RailButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.iconWidget,
     this.selected = false,
     this.badge = 0,
     this.dotBadge = false,
@@ -368,7 +381,7 @@ class _RailButton extends StatelessWidget {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Center(child: TalerIcon(icon, size: 20, color: selected ? p.fg : p.fg3)),
+                  Center(child: iconWidget ?? TalerIcon(icon, size: 20, color: selected ? p.fg : p.fg3)),
                   if (badge > 0)
                     Positioned(
                       right: -2,
@@ -438,8 +451,8 @@ class _Badge extends StatelessWidget {
   }
 }
 
-/// Плавающее меню-островок: почти чёрное стекло с размытием, как в Telegram.
-class _Dock extends StatelessWidget {
+/// Плавающее меню-островок: почти чёрное стекло с размытием и пружинной пилюлей.
+class _Dock extends StatefulWidget {
   final int selected;
   final int unread;
   final bool hasUpdate;
@@ -457,13 +470,75 @@ class _Dock extends StatelessWidget {
   });
 
   @override
+  State<_Dock> createState() => _DockState();
+}
+
+class _DockState extends State<_Dock> with SingleTickerProviderStateMixin {
+  late final AnimationController _pillCtrl;
+  double _fromTab = 0;
+  double _toTab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fromTab = widget.selected.toDouble();
+    _toTab = widget.selected.toDouble();
+    _pillCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 440),
+      value: 1.0,
+    );
+  }
+
+  double _currentPos() {
+    final raw = _pillCtrl.value;
+    final t = const _DockSpringCurve().transform(raw);
+    return ui.lerpDouble(_fromTab, _toTab, t) ?? _toTab;
+  }
+
+  @override
+  void didUpdateWidget(covariant _Dock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      final reduceMotion =
+          widget.powerSaving || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+      _fromTab = _currentPos();
+      _toTab = widget.selected.toDouble();
+      if (reduceMotion) {
+        _fromTab = _toTab;
+        _pillCtrl.value = 1.0;
+      } else {
+        _pillCtrl.forward(from: 0.0);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pillCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
+    final selected = widget.selected;
+    final unread = widget.unread;
+    final hasUpdate = widget.hasUpdate;
+    final user = widget.user;
+    final powerSaving = widget.powerSaving;
+    final onSelect = widget.onSelect;
+    final disableAnim =
+        powerSaving || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+
     final glass = p.isDark
         ? Color(powerSaving ? 0xF718181A : 0xE618181A)
         : Color(powerSaving ? 0xF7FAFAFA : 0xC7FAFAFA);
     final solid = p.isDark ? const Color(0xFF18181A) : const Color(0xFFF4F4F5);
     final border = p.isDark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.07);
+    final pillFill = p.fg.withValues(alpha: p.isDark ? 0.095 : 0.085);
+    final pillRim = p.fg.withValues(alpha: p.isDark ? 0.08 : 0.06);
+
     final inner = Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
@@ -471,70 +546,115 @@ class _Dock extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: border),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _DockItem(
-              label: 'Чаты',
-              selected: selected == 0,
-              onTap: () => onSelect(0),
-              badge: unread > 0 ? _Badge(count: unread, ring: solid) : null,
-              icon: TalerIcon(
-                selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle,
-                size: 24,
-                color: selected == 0 ? p.accent : p.fg,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxW = constraints.maxWidth;
+          final slotW = maxW / 4;
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: _pillCtrl,
+                  builder: (context, _) {
+                    final raw = _pillCtrl.value.clamp(0.0, 1.0);
+                    final curved = _pillCtrl.isAnimating
+                        ? const _DockSpringCurve().transform(raw)
+                        : 1.0;
+                    final pos = ui.lerpDouble(_fromTab, _toTab, curved) ?? _toTab;
+                    final travel = (_toTab - _fromTab).abs();
+                    final stretch = disableAnim || !_pillCtrl.isAnimating
+                        ? 0.0
+                        : math.sin(math.pi * raw) * math.min(18.0, travel * 6.5);
+                    final pillW = math.max(0.0, slotW + stretch);
+                    final maxLeft = math.max(0.0, maxW - pillW);
+                    final left = (pos * slotW + slotW / 2 - pillW / 2).clamp(0.0, maxLeft);
+
+                    return Stack(
+                      children: [
+                        Positioned(
+                          left: left,
+                          top: 0,
+                          bottom: 0,
+                          width: pillW,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: pillFill,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: pillRim, width: 0.75),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          ),
-          Expanded(
-            child: _DockItem(
-              label: 'Защита',
-              selected: selected == 1,
-              onTap: () => onSelect(1),
-              icon: TalerIcon(
-                selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield,
-                size: 24,
-                color: selected == 1 ? p.accent : p.fg,
-              ),
-            ),
-          ),
-          Expanded(
-            child: _DockItem(
-              label: 'Настройки',
-              selected: selected == 2,
-              onTap: () => onSelect(2),
-              badge: hasUpdate ? _UpdateDot(ring: solid) : null,
-              icon: TalerIcon(
-                TalerIcons.settings,
-                size: 24,
-                color: selected == 2 ? p.accent : p.fg,
-              ),
-            ),
-          ),
-          Expanded(
-            child: _DockItem(
-              label: 'Профиль',
-              selected: selected == 3,
-              onTap: () => onSelect(3),
-              icon: Container(
-                padding: const EdgeInsets.all(1.5),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selected == 3 ? p.accent : Colors.transparent,
-                    width: 1.5,
+              Row(
+                children: [
+                  Expanded(
+                    child: _DockItem(
+                      label: 'Чаты',
+                      selected: selected == 0,
+                      disableAnimations: disableAnim,
+                      onTap: () => onSelect(0),
+                      badge: unread > 0 ? _Badge(count: unread, ring: solid) : null,
+                      icon: TalerIcon(
+                        selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle,
+                        size: 24,
+                        color: selected == 0 ? p.accent : p.fg,
+                      ),
+                    ),
                   ),
-                ),
-                child: TalerAvatar(
-                  seedId: user?.id ?? 0,
-                  initials: user?.initials ?? 'T',
-                  imageUrl: user?.avatarUrl,
-                  size: 22,
-                ),
+                  Expanded(
+                    child: _DockItem(
+                      label: 'Защита',
+                      selected: selected == 1,
+                      disableAnimations: disableAnim,
+                      onTap: () => onSelect(1),
+                      icon: TalerIcon(
+                        selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield,
+                        size: 24,
+                        color: selected == 1 ? p.accent : p.fg,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _DockItem(
+                      label: 'Настройки',
+                      selected: selected == 2,
+                      disableAnimations: disableAnim,
+                      onTap: () => onSelect(2),
+                      badge: hasUpdate ? _UpdateDot(ring: solid) : null,
+                      icon: _AnimatedSettingsIcon(
+                        selected: selected == 2,
+                        disableAnimations: disableAnim,
+                        size: 24,
+                        color: selected == 2 ? p.accent : p.fg,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _DockItem(
+                      label: 'Профиль',
+                      selected: selected == 3,
+                      disableAnimations: disableAnim,
+                      onTap: () => onSelect(3),
+                      icon: _AnimatedProfileIcon(
+                        selected: selected == 3,
+                        disableAnimations: disableAnim,
+                        accentColor: p.accent,
+                        user: user,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
 
@@ -556,26 +676,74 @@ class _Dock extends StatelessWidget {
   }
 }
 
-class _DockItem extends StatelessWidget {
+class _DockItem extends StatefulWidget {
   final String label;
   final bool selected;
+  final bool disableAnimations;
   final VoidCallback onTap;
   final Widget icon;
   final Widget? badge;
 
-  const _DockItem({required this.label, required this.selected, required this.onTap, required this.icon, this.badge});
+  const _DockItem({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.icon,
+    this.disableAnimations = false,
+    this.badge,
+  });
+
+  @override
+  State<_DockItem> createState() => _DockItemState();
+}
+
+class _DockItemState extends State<_DockItem> with TickerProviderStateMixin {
+  late final AnimationController _bounceCtrl;
+  bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bounceCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _DockItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.selected && widget.selected && !widget.disableAnimations) {
+      _bounceCtrl.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _bounceCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final b = badge;
-    return Material(
-      color: selected ? p.fg.withValues(alpha: 0.08) : Colors.transparent,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const StadiumBorder(),
-        splashFactory: NoSplash.splashFactory,
+    final b = widget.badge;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) {
+        if (!widget.disableAnimations) setState(() => _pressed = true);
+      },
+      onTapUp: (_) {
+        if (_pressed) setState(() => _pressed = false);
+      },
+      onTapCancel: () {
+        if (_pressed) setState(() => _pressed = false);
+      },
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.90 : 1.0,
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOutCubic,
         child: SizedBox(
           height: 54,
           child: Column(
@@ -587,28 +755,328 @@ class _DockItem extends StatelessWidget {
                   clipBehavior: Clip.none,
                   alignment: Alignment.center,
                   children: [
-                    icon,
-                    if (b != null)
-                      Positioned(
-                        left: 16,
-                        top: b is _UpdateDot ? 0 : -4,
-                        child: b,
+                    AnimatedBuilder(
+                      animation: _bounceCtrl,
+                      builder: (context, child) {
+                        final raw = _bounceCtrl.value;
+                        final pop = _bounceCtrl.isAnimating
+                            ? 1.0 + math.sin(math.pi * raw) * 0.11 * (1.0 - raw * 0.35)
+                            : 1.0;
+                        return Transform.scale(scale: pop, child: child);
+                      },
+                      child: widget.icon,
+                    ),
+                    Positioned(
+                      left: 16,
+                      top: b is _UpdateDot ? 0 : -4,
+                      child: AnimatedSwitcher(
+                        duration: widget.disableAnimations
+                            ? Duration.zero
+                            : const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutBack,
+                        switchOutCurve: Curves.easeIn,
+                        transitionBuilder: (child, anim) => FadeTransition(
+                          opacity: anim,
+                          child: ScaleTransition(scale: anim, child: child),
+                        ),
+                        child: b == null
+                            ? const SizedBox.shrink(key: ValueKey('no_badge'))
+                            : KeyedSubtree(
+                                key: ValueKey(b is _UpdateDot ? 'dot' : 'count'),
+                                child: b,
+                              ),
                       ),
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.fade,
-                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: selected ? p.accent : p.fg),
+              AnimatedDefaultTextStyle(
+                duration: widget.disableAnimations
+                    ? Duration.zero
+                    : const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w500,
+                  color: widget.selected ? p.accent : p.fg,
+                ),
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.fade,
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+/// Анимированная шестерёнка настроек: морфинг контура -> заливка + пружинный поворот на зубец (60°).
+class _AnimatedSettingsIcon extends StatefulWidget {
+  final bool selected;
+  final bool disableAnimations;
+  final double size;
+  final Color color;
+
+  const _AnimatedSettingsIcon({
+    required this.selected,
+    required this.size,
+    required this.color,
+    this.disableAnimations = false,
+  });
+
+  @override
+  State<_AnimatedSettingsIcon> createState() => _AnimatedSettingsIconState();
+}
+
+class _AnimatedSettingsIconState extends State<_AnimatedSettingsIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+      value: widget.selected ? 1.0 : 0.0,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedSettingsIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      if (widget.disableAnimations ||
+          (MediaQuery.maybeDisableAnimationsOf(context) ?? false)) {
+        _ctrl.value = widget.selected ? 1.0 : 0.0;
+      } else if (widget.selected) {
+        _ctrl.forward();
+      } else {
+        _ctrl.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        final raw = _ctrl.value;
+        final curved = _ctrl.isAnimating
+            ? const _DockSpringCurve().transform(raw)
+            : raw;
+        final angle = (math.pi / 3) * curved;
+        final pulse = _ctrl.isAnimating ? 1.0 + 0.07 * math.sin(math.pi * raw) : 1.0;
+        return Transform.rotate(
+          angle: angle,
+          child: Transform.scale(scale: pulse, child: child),
+        );
+      },
+      child: TalerIcon(
+        widget.selected ? TalerIcons.settingsActive : TalerIcons.settings,
+        size: widget.size,
+        color: widget.color,
+      ),
+    );
+  }
+}
+
+/// Анимация вкладки «Профиль»: spring-pop + микро-наклон аватара, прорисовывающееся кольцо и волна.
+class _AnimatedProfileIcon extends StatefulWidget {
+  final bool selected;
+  final bool disableAnimations;
+  final Color accentColor;
+  final TalerUserProfile? user;
+
+  const _AnimatedProfileIcon({
+    required this.selected,
+    required this.accentColor,
+    required this.user,
+    this.disableAnimations = false,
+  });
+
+  @override
+  State<_AnimatedProfileIcon> createState() => _AnimatedProfileIconState();
+}
+
+class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
+    with TickerProviderStateMixin {
+  late final AnimationController _ringCtrl;
+  late final AnimationController _popCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ringCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+      value: widget.selected ? 1.0 : 0.0,
+    );
+    _popCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 560),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedProfileIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      final noAnim = widget.disableAnimations ||
+          (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+      if (noAnim) {
+        _ringCtrl.value = widget.selected ? 1.0 : 0.0;
+        _popCtrl.value = 0.0;
+      } else if (widget.selected) {
+        _ringCtrl.forward();
+        _popCtrl.forward(from: 0.0);
+      } else {
+        _ringCtrl.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ringCtrl.dispose();
+    _popCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 27,
+      height: 27,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_ringCtrl, _popCtrl]),
+        builder: (context, avatarChild) {
+          final ringProgress = Curves.easeOutCubic.transform(_ringCtrl.value);
+          final popT = _popCtrl.value;
+          final isPopping = _popCtrl.isAnimating;
+
+          final avatarScale = isPopping
+              ? 1.0 + math.sin(math.pi * popT) * 0.14 * (1.0 - popT * 0.3)
+              : 1.0;
+          final tilt = isPopping
+              ? math.sin(2.0 * math.pi * popT) * math.exp(-4.0 * popT) * 0.14
+              : 0.0;
+          final waveScale = 1.0 + popT * 0.45;
+          final waveAlpha = isPopping ? (1.0 - popT).clamp(0.0, 1.0) * 0.48 : 0.0;
+
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              if (waveAlpha > 0.01)
+                Transform.scale(
+                  scale: waveScale,
+                  child: Container(
+                    width: 27,
+                    height: 27,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.accentColor.withValues(alpha: waveAlpha),
+                        width: 1.5 * (1.0 - popT * 0.5),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _ProfileRingPainter(
+                    progress: ringProgress,
+                    color: widget.accentColor,
+                  ),
+                ),
+              ),
+              Transform.rotate(
+                angle: tilt,
+                child: Transform.scale(
+                  scale: avatarScale,
+                  child: avatarChild,
+                ),
+              ),
+            ],
+          );
+        },
+        child: TalerAvatar(
+          seedId: widget.user?.id ?? 0,
+          initials: widget.user?.initials ?? 'T',
+          imageUrl: widget.user?.avatarUrl,
+          size: 22,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileRingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  const _ProfileRingPainter({
+    required this.progress,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0.01) return;
+    final stroke = 1.8;
+    final rect = Offset.zero & size;
+    final arcRect = rect.deflate(stroke / 2);
+    final paint = Paint()
+      ..color = color.withValues(alpha: (progress * 1.4).clamp(0.0, 1.0))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    canvas.drawArc(
+      arcRect,
+      -math.pi / 2,
+      2 * math.pi * progress.clamp(0.0, 1.0),
+      false,
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProfileRingPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
+/// Упругая пружина (stiffness ~ 210, damping ~ 0.64) для островка и шестерёнки.
+class _DockSpringCurve extends Curve {
+  const _DockSpringCurve();
+
+  static const double _zeta = 0.64;
+  static const double _omega = 14.5;
+  static const double _seconds = 0.46;
+
+  @override
+  double transformInternal(double t) {
+    final omegaD = _omega * math.sqrt(1 - _zeta * _zeta);
+    final s = t * _seconds;
+    final decay = math.exp(-_zeta * _omega * s);
+    return 1 -
+        decay *
+            (math.cos(omegaD * s) +
+                (_zeta * _omega / omegaD) * math.sin(omegaD * s));
   }
 }
