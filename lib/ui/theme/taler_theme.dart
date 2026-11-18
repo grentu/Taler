@@ -530,9 +530,7 @@ class TelegramIconBadge extends StatelessWidget {
       ),
       child: TalerIcon(
         icon,
-        size: size * 0.52,
-        strokeWidth: 2.0,
-        duotone: true,
+        size: size * 0.56,
         color: fg,
       ),
     );
@@ -627,14 +625,6 @@ class _ChatDoodlePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const tile = 216.0;
-    final paint = Paint()
-      ..color = strokeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.45
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..isAntiAlias = true;
-
     final cols = (size.width / tile).ceil() + 1;
     final rows = (size.height / tile).ceil() + 1;
 
@@ -654,7 +644,13 @@ class _ChatDoodlePainter extends CustomPainter {
           canvas.rotate(angle);
           canvas.scale(scale);
           canvas.translate(-12, -12);
-          canvas.drawPath(icon.path, paint);
+          TalerIcon.paintIconLayers(
+            canvas,
+            icon,
+            color: strokeColor,
+            scale: scale,
+            strokeOverride: 1.5,
+          );
           canvas.restore();
         }
       }

@@ -208,7 +208,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
       child: Column(
         children: [
           _PrivacySwitchRow(
-            icon: TalerIcons.eyeOff,
+            icon: TalerIcons.ghost,
             badgeColor: const Color(0xFF8E6CEF),
             title: 'Невидимый статус',
             subtitle: 'Не показывать другим пользователям, когда вы в сети',

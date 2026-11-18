@@ -7,25 +7,21 @@ import 'taler_icon_data.dart';
 export 'taler_icon_data.dart';
 export 'taler_icons.dart';
 
-/// Crisp vector line icon with a morph transition between glyphs.
-///
-/// Inspired by morphicons (https://www.morphicons.com): when [icon] changes,
-/// every contour of the old glyph is resampled and flows into the matching
-/// contour of the new one on a spring curve. Icons are drawn as strokes, so
-/// they stay sharp at any size and DPI.
+/// Vector icon widget backed by multi-layer Solar paths with spring glyph morphing.
 class TalerIcon extends StatefulWidget {
   final TalerIconData? icon;
   final double? size;
   final Color? color;
 
-  /// Stroke width in icon units (24x24 box). Never thinner than 1.2 px on screen.
-  final double strokeWidth;
+  /// Optional stroke width multiplier baseline (24x24 box).
+  /// When null, each icon uses its native Solar stroke weight (typically 1.67–2.0).
+  final double? strokeWidth;
   final String? semanticLabel;
 
   /// Set to false to swap glyphs without the morph animation.
   final bool morph;
 
-  /// Draws a subtle tinted fill inside closed contours for badge icons.
+  /// Adds a subtle interior tint on pure stroke-only icons when true.
   final bool duotone;
 
   const TalerIcon(
@@ -33,11 +29,63 @@ class TalerIcon extends StatefulWidget {
     super.key,
     this.size,
     this.color,
-    this.strokeWidth = 1.85,
+    this.strokeWidth,
     this.semanticLabel,
     this.morph = true,
     this.duotone = false,
   });
+
+  /// Draws [icon] inside a 24x24 logical canvas coordinate space.
+  static void paintIconLayers(
+    Canvas canvas,
+    TalerIconData icon, {
+    required Color color,
+    double scale = 1.0,
+    double? strokeOverride,
+    bool duotone = false,
+  }) {
+    final layers = icon.layers;
+    final paths = icon.layerPaths;
+    for (var i = 0; i < layers.length; i++) {
+      final layer = layers[i];
+      final path = paths[i];
+      final layerColor = color.withValues(alpha: color.a * layer.opacity);
+      if (layer.isFill) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = layerColor
+            ..style = PaintingStyle.fill
+            ..isAntiAlias = true,
+        );
+      } else {
+        final baseSw = strokeOverride != null && layer.strokeWidth != null
+            ? layer.strokeWidth! * (strokeOverride / 1.85)
+            : (strokeOverride ?? layer.strokeWidth ?? 1.67);
+        final pixelStroke = math.max(1.15, baseSw * scale);
+        if (duotone) {
+          final fillPath = Path.from(path)..fillType = PathFillType.evenOdd;
+          canvas.drawPath(
+            fillPath,
+            Paint()
+              ..color = layerColor.withValues(alpha: layerColor.a * 0.20)
+              ..style = PaintingStyle.fill
+              ..isAntiAlias = true,
+          );
+        }
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = layerColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = pixelStroke / scale
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round
+            ..isAntiAlias = true,
+        );
+      }
+    }
+  }
 
   @override
   State<TalerIcon> createState() => _TalerIconState();
@@ -101,7 +149,7 @@ class _TalerIconState extends State<TalerIcon>
                 to: widget.icon!,
                 t: t,
                 color: color,
-                strokeWidth: widget.strokeWidth,
+                strokeOverride: widget.strokeWidth,
                 duotone: widget.duotone,
               ),
             ),
@@ -210,7 +258,7 @@ class _TalerIconPainter extends CustomPainter {
   final TalerIconData to;
   final double t;
   final Color color;
-  final double strokeWidth;
+  final double? strokeOverride;
   final bool duotone;
 
   const _TalerIconPainter({
@@ -218,7 +266,7 @@ class _TalerIconPainter extends CustomPainter {
     required this.to,
     required this.t,
     required this.color,
-    required this.strokeWidth,
+    required this.strokeOverride,
     required this.duotone,
   });
 
@@ -226,14 +274,6 @@ class _TalerIconPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final scale = size.shortestSide / 24.0;
     if (scale <= 0) return;
-    final pixelStroke = math.max(1.2, strokeWidth * scale);
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = pixelStroke / scale
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..isAntiAlias = true;
 
     canvas.save();
     canvas.translate(
@@ -243,16 +283,43 @@ class _TalerIconPainter extends CustomPainter {
     canvas.scale(scale);
 
     final source = from;
-    final path = (source == null || t >= 1.0) ? to.path : _morphPath(source, to, t);
-    if (duotone) {
-      final fillPath = Path.from(path)..fillType = PathFillType.evenOdd;
-      final fillPaint = Paint()
-        ..color = color.withValues(alpha: color.a * 0.22)
-        ..style = PaintingStyle.fill
-        ..isAntiAlias = true;
-      canvas.drawPath(fillPath, fillPaint);
+    if (source == null || t >= 1.0) {
+      TalerIcon.paintIconLayers(
+        canvas,
+        to,
+        color: color,
+        scale: scale,
+        strokeOverride: strokeOverride,
+        duotone: duotone,
+      );
+    } else {
+      final morphed = _morphPath(source, to, t);
+      final clamped = t.clamp(0.0, 1.0);
+      final fillAlpha = source.hasFillLayers && to.hasFillLayers
+          ? 1.0
+          : (to.hasFillLayers ? clamped : (source.hasFillLayers ? 1.0 - clamped : 0.0));
+      if (fillAlpha > 0.01) {
+        canvas.drawPath(
+          morphed,
+          Paint()
+            ..color = color.withValues(alpha: color.a * fillAlpha)
+            ..style = PaintingStyle.fill
+            ..isAntiAlias = true,
+        );
+      }
+      final strokeAlpha = 1.0 - fillAlpha * 0.65;
+      final pixelStroke = math.max(1.15, (strokeOverride ?? 1.67) * scale);
+      canvas.drawPath(
+        morphed,
+        Paint()
+          ..color = color.withValues(alpha: color.a * strokeAlpha)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = pixelStroke / scale
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..isAntiAlias = true,
+      );
     }
-    canvas.drawPath(path, paint);
     canvas.restore();
   }
 
@@ -260,7 +327,7 @@ class _TalerIconPainter extends CustomPainter {
     final ca = _MorphGeometry.contoursOf(a);
     final cb = _MorphGeometry.contoursOf(b);
     final count = math.max(ca.length, cb.length);
-    final path = Path();
+    final path = Path()..fillType = PathFillType.evenOdd;
     for (var k = 0; k < count; k++) {
       final src = k < ca.length ? ca[k] : null;
       final dst = k < cb.length ? cb[k] : null;
@@ -272,13 +339,11 @@ class _TalerIconPainter extends CustomPainter {
         pb = _MorphGeometry.align(pa, dst.points, dst.closed && src.closed);
         closed = t > 0.5 ? dst.closed : src.closed;
       } else if (src != null) {
-        // Contour disappears: shrink into its own centre.
         final c = src.centroid;
         pa = src.points;
         pb = List<Offset>.filled(pa.length, c);
         closed = src.closed;
       } else {
-        // New contour appears: grow out of its centre.
         final c = dst!.centroid;
         pb = dst.points;
         pa = List<Offset>.filled(pb.length, c);
@@ -304,6 +369,6 @@ class _TalerIconPainter extends CustomPainter {
       old.from != from ||
       old.t != t ||
       old.color != color ||
-      old.strokeWidth != strokeWidth ||
+      old.strokeOverride != strokeOverride ||
       old.duotone != duotone;
 }

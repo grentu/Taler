@@ -7,9 +7,11 @@ import 'package:taler/ui/icons/taler_icon.dart';
 
 void main() {
   group('TalerIcons', () {
-    test('every icon draws inside the 24x24 box', () {
-      expect(TalerIcons.values, isNotEmpty);
+    test('every icon has layers and draws inside the 24x24 box', () {
+      expect(TalerIcons.values.length, greaterThanOrEqualTo(67));
       for (final icon in TalerIcons.values) {
+        expect(icon.layers, isNotEmpty, reason: icon.name);
+        expect(icon.layerPaths.length, icon.layers.length, reason: icon.name);
         final bounds = icon.path.getBounds();
         expect(bounds.width + bounds.height, greaterThan(0), reason: icon.name);
         expect(bounds.left, greaterThanOrEqualTo(-0.5), reason: icon.name);
@@ -25,12 +27,18 @@ void main() {
     });
   });
 
-  testWidgets('TalerIcon morphs cleanly in stroke and duotone modes',
+  testWidgets('TalerIcon morphs cleanly between stroke and filled Solar glyphs',
       (tester) async {
     Widget host(TalerIconData icon, {bool duotone = false}) => Directionality(
           textDirection: TextDirection.ltr,
           child: Center(child: TalerIcon(icon, size: 24, duotone: duotone)),
         );
+
+    await tester.pumpWidget(host(TalerIcons.messageCircle));
+    await tester.pumpWidget(host(TalerIcons.chatsActive));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
 
     await tester.pumpWidget(host(TalerIcons.eye, duotone: true));
     await tester.pumpWidget(host(TalerIcons.shieldCheck, duotone: true));

@@ -244,8 +244,8 @@ class _Rail extends StatelessWidget {
             child: Text('T', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.bg)),
           ),
           const SizedBox(height: 12),
-          _RailButton(icon: TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
-          _RailButton(icon: TalerIcons.shieldCheck, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
+          _RailButton(icon: selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
+          _RailButton(icon: selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
           _RailButton(icon: TalerIcons.settings, label: 'Настройки', selected: selected == 2, onTap: () => onSelect(2)),
           const Spacer(),
           _RailButton(
@@ -389,7 +389,7 @@ class _Dock extends StatelessWidget {
                     selected: selected == 0,
                     onTap: () => onSelect(0),
                     badge: unread > 0 ? _Badge(count: unread, ring: solid) : null,
-                    icon: TalerIcon(TalerIcons.messageCircle, size: 26, color: selected == 0 ? p.accent : p.fg),
+                    icon: TalerIcon(selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, size: 25, color: selected == 0 ? p.accent : p.fg),
                   ),
                 ),
                 Expanded(
@@ -397,7 +397,7 @@ class _Dock extends StatelessWidget {
                     label: 'Защита',
                     selected: selected == 1,
                     onTap: () => onSelect(1),
-                    icon: TalerIcon(TalerIcons.shieldCheck, size: 26, color: selected == 1 ? p.accent : p.fg),
+                    icon: TalerIcon(selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, size: 25, color: selected == 1 ? p.accent : p.fg),
                   ),
                 ),
                 Expanded(
