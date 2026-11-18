@@ -25,14 +25,18 @@ class TalerIcon extends StatefulWidget {
   /// Set to false to swap glyphs without the morph animation.
   final bool morph;
 
+  /// Draws a subtle tinted fill inside closed contours for badge icons.
+  final bool duotone;
+
   const TalerIcon(
     this.icon, {
     super.key,
     this.size,
     this.color,
-    this.strokeWidth = 1.6,
+    this.strokeWidth = 1.85,
     this.semanticLabel,
     this.morph = true,
+    this.duotone = false,
   });
 
   @override
@@ -98,6 +102,7 @@ class _TalerIconState extends State<TalerIcon>
                 t: t,
                 color: color,
                 strokeWidth: widget.strokeWidth,
+                duotone: widget.duotone,
               ),
             ),
     );
@@ -206,6 +211,7 @@ class _TalerIconPainter extends CustomPainter {
   final double t;
   final Color color;
   final double strokeWidth;
+  final bool duotone;
 
   const _TalerIconPainter({
     required this.from,
@@ -213,6 +219,7 @@ class _TalerIconPainter extends CustomPainter {
     required this.t,
     required this.color,
     required this.strokeWidth,
+    required this.duotone,
   });
 
   @override
@@ -236,11 +243,16 @@ class _TalerIconPainter extends CustomPainter {
     canvas.scale(scale);
 
     final source = from;
-    if (source == null || t >= 1.0) {
-      canvas.drawPath(to.path, paint);
-    } else {
-      canvas.drawPath(_morphPath(source, to, t), paint);
+    final path = (source == null || t >= 1.0) ? to.path : _morphPath(source, to, t);
+    if (duotone) {
+      final fillPath = Path.from(path)..fillType = PathFillType.evenOdd;
+      final fillPaint = Paint()
+        ..color = color.withValues(alpha: color.a * 0.22)
+        ..style = PaintingStyle.fill
+        ..isAntiAlias = true;
+      canvas.drawPath(fillPath, fillPaint);
     }
+    canvas.drawPath(path, paint);
     canvas.restore();
   }
 
@@ -292,5 +304,6 @@ class _TalerIconPainter extends CustomPainter {
       old.from != from ||
       old.t != t ||
       old.color != color ||
-      old.strokeWidth != strokeWidth;
+      old.strokeWidth != strokeWidth ||
+      old.duotone != duotone;
 }

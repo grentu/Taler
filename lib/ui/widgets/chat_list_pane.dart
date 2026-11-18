@@ -85,7 +85,7 @@ class _ChatListPaneState extends State<ChatListPane> {
     final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
 
     return Container(
-      color: p.bg2,
+      color: widget.compact ? p.settingsBg : p.bg2,
       child: SafeArea(
         bottom: false,
         child: Column(
@@ -192,9 +192,12 @@ class _SearchField extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     return Container(
-      height: 36,
-      padding: const EdgeInsets.only(left: 12, right: 4),
-      decoration: BoxDecoration(color: p.bg3, borderRadius: BorderRadius.circular(10)),
+      height: 38,
+      padding: const EdgeInsets.only(left: 14, right: 4),
+      decoration: BoxDecoration(
+        color: p.isDark ? p.surface : p.bg3,
+        borderRadius: BorderRadius.circular(999),
+      ),
       child: Row(
         children: [
           TalerIcon(TalerIcons.search, size: 16, color: p.fg3),

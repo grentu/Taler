@@ -65,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(
           MaterialPageRoute<void>(
             builder: (ctx) => Scaffold(
-              backgroundColor: TalerTheme.paletteOf(ctx).bg2,
+              backgroundColor: ChatTokens.chatBackground(TalerTheme.paletteOf(ctx)),
               body: ChatScreen(client: client, chat: chat, showBackButton: true),
             ),
           ),
@@ -131,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return Focus(
           focusNode: _rootFocus,
           child: Scaffold(
-            backgroundColor: p.bg2,
+            backgroundColor: p.settingsBg,
             resizeToAvoidBottomInset: false,
             body: Stack(
               children: [

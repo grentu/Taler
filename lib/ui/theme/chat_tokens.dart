@@ -6,9 +6,9 @@ import 'taler_theme.dart';
 
 /// Цвета и форматирование, общие для списка чатов, переписки и профиля.
 abstract final class ChatTokens {
-  /// Фон ленты сообщений: чуть темнее (светлее) панелей вокруг.
+  /// Фон ленты сообщений: глубокий OLED-тёмный или мягкий светлый под дудл-паттерн.
   static Color chatBackground(TalerPalette p) =>
-      p.isDark ? const Color(0xFF111113) : const Color(0xFFF4F4F5);
+      p.isDark ? const Color(0xFF07080B) : const Color(0xFFEDEFF3);
 
   static Color hover(TalerPalette p) => p.fg.withValues(alpha: 0.04);
 

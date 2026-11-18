@@ -343,16 +343,99 @@ class _ChatScreenState extends State<ChatScreen> {
         final messages = q.isEmpty ? all : all.where((m) => m.text.toLowerCase().contains(q)).toList();
         final canDock = !_mobile && MediaQuery.sizeOf(context).width >= 1100;
         final mediaPad = MediaQuery.paddingOf(context);
-        final topInset = (_mobile ? mediaPad.top + 56.0 : 60.0) + (_showSearch ? 53.0 : 0.0);
+        final topInset = _mobile
+            ? (mediaPad.top + 60.0 + (_showSearch ? 52.0 : 0.0))
+            : (60.0 + (_showSearch ? 53.0 : 0.0));
         final fallbackBottom = (_mobile ? 62.0 + mediaPad.bottom : 74.0) +
-            ((_replyingTo != null || _editingMessage != null) ? 48.0 : 0.0);
+            ((_replyingTo != null || _editingMessage != null) ? 54.0 : 0.0);
         final bottomInset = _measuredBottomHeight ?? fallbackBottom;
         final glassBg = p.bg2.withValues(alpha: p.isDark ? 0.78 : 0.84);
-        final bottomGlassBg = (_mobile ? p.bg2 : ChatTokens.chatBackground(p)).withValues(
-          alpha: p.isDark ? 0.76 : 0.84,
+        final bottomGlassBg = ChatTokens.chatBackground(p).withValues(
+          alpha: p.isDark ? 0.78 : 0.86,
         );
 
         _syncBottomHeight();
+
+        final Widget topOverlay = _mobile
+            ? Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      ChatTokens.chatBackground(p).withValues(alpha: 0.72),
+                      ChatTokens.chatBackground(p).withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _mobileFloatingHeader(p, chat, canDock),
+                    if (_showSearch) _mobileFloatingSearchBar(p),
+                  ],
+                ),
+              )
+            : ClipRect(
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ColoredBox(
+                    color: glassBg,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _header(p, chat, canDock),
+                        if (_showSearch) _searchBar(p),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+
+        final Widget bottomOverlay = _mobile
+            ? Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      ChatTokens.chatBackground(p).withValues(alpha: 0.88),
+                      ChatTokens.chatBackground(p).withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_replyingTo != null || _editingMessage != null) ...[
+                          _mobileReplyBar(p, chat),
+                          const SizedBox(height: 6),
+                        ],
+                        _mobileComposer(p),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            : ClipRect(
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ColoredBox(
+                    color: bottomGlassBg,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
+                        _composer(p),
+                      ],
+                    ),
+                  ),
+                ),
+              );
 
         final stack = Stack(
           children: [
@@ -369,21 +452,7 @@ class _ChatScreenState extends State<ChatScreen> {
               top: 0,
               left: 0,
               right: 0,
-              child: ClipRect(
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: ColoredBox(
-                    color: glassBg,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _header(p, chat, canDock),
-                        if (_showSearch) _searchBar(p),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              child: topOverlay,
             ),
             Positioned(
               left: 0,
@@ -391,27 +460,16 @@ class _ChatScreenState extends State<ChatScreen> {
               bottom: 0,
               child: KeyedSubtree(
                 key: _bottomBarKey,
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                    child: ColoredBox(
-                      color: bottomGlassBg,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
-                          _composer(p),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                child: bottomOverlay,
               ),
             ),
           ],
         );
 
-        final center = ColoredBox(color: ChatTokens.chatBackground(p), child: stack);
+        final center = TelegramChatBackground(
+          baseColor: ChatTokens.chatBackground(p),
+          child: stack,
+        );
         final wrapped = _mobile
             ? PopScope(
                 onPopInvokedWithResult: (didPop, _) {
@@ -440,6 +498,345 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _glassPill(
+    TalerPalette p, {
+    required Widget child,
+    double radius = 999,
+  }) {
+    final bg = p.isDark
+        ? const Color(0xCC181A22)
+        : const Color(0xDCFFFFFF);
+    final border = (p.isDark ? Colors.white : Colors.black).withValues(alpha: 0.08);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: border),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileFloatingHeader(TalerPalette p, TalerChat chat, bool canDock) {
+    final peer = chat.peerId != null ? widget.client.contactById(chat.peerId!) : null;
+    final offline = !widget.client.isDemoMode && !widget.client.isSessionReady;
+    final live = !offline && (chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false));
+    final subtitle = offline ? 'Подключение…' : ChatTokens.chatStatus(chat);
+
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Row(
+          children: [
+            _glassPill(
+              p,
+              child: TalerIconButton(
+                icon: TalerIcons.arrowLeft,
+                tooltip: 'Назад',
+                size: 44,
+                iconSize: 20,
+                color: p.fg,
+                onPressed: () {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  (widget.onBack ?? () => Navigator.of(context).maybePop())();
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _glassPill(
+                  p,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () => _toggleInfo(canDock, chat),
+                    child: SizedBox(
+                      height: 44,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 0, 14, 0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TalerAvatar(
+                              seedId: chat.peerId ?? chat.id,
+                              initials: chat.initials,
+                              imageUrl: chat.avatarUrl ?? peer?.avatarUrl,
+                              size: 32,
+                              onlineBorderColor: p.surface,
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          chat.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 14.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: p.fg,
+                                          ),
+                                        ),
+                                      ),
+                                      if (chat.isOfficial) ...[
+                                        const SizedBox(width: 4),
+                                        TalerIcon(
+                                          TalerIcons.badgeCheck,
+                                          size: 14,
+                                          color: p.accent,
+                                          strokeWidth: 2.1,
+                                          duotone: true,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  Text(
+                                    subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: live ? p.accent : p.fg2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _glassPill(
+              p,
+              child: SizedBox(
+                height: 44,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TalerIconButton(
+                        icon: TalerIcons.search,
+                        tooltip: 'Поиск в чате',
+                        size: 40,
+                        iconSize: 19,
+                        color: _showSearch ? p.accent : p.fg,
+                        onPressed: _toggleSearch,
+                      ),
+                      TalerIconButton(
+                        icon: TalerIcons.more,
+                        tooltip: 'Профиль чата',
+                        size: 40,
+                        iconSize: 19,
+                        color: p.fg,
+                        onPressed: () => _toggleInfo(canDock, chat),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileFloatingSearchBar(TalerPalette p) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+      child: _glassPill(
+        p,
+        child: SizedBox(
+          height: 42,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 14, right: 4),
+            child: Row(
+              children: [
+                TalerIcon(TalerIcons.search, size: 17, color: p.fg3),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    focusNode: _searchFocus,
+                    autofocus: true,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (v) => setState(() => _query = v.trim()),
+                    onSubmitted: (_) => _searchFocus.unfocus(),
+                    style: TextStyle(fontSize: 14, color: p.fg),
+                    decoration: InputDecoration(
+                      hintText: 'Поиск по переписке',
+                      hintStyle: TextStyle(fontSize: 14, color: p.fg3),
+                      isDense: true,
+                      filled: false,
+                      contentPadding: EdgeInsets.zero,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+                TalerIconButton(
+                  icon: TalerIcons.close,
+                  tooltip: 'Закрыть поиск',
+                  size: 34,
+                  iconSize: 16,
+                  color: p.fg3,
+                  onPressed: _toggleSearch,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileReplyBar(TalerPalette p, TalerChat chat) {
+    final editing = _editingMessage;
+    final target = editing ?? _replyingTo!;
+    final title = editing != null
+        ? 'Изменение сообщения'
+        : 'Ответ ${widget.client.senderDisplayName(target.senderId, chatId: chat.id)}';
+    return _glassPill(
+      p,
+      radius: 18,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+        child: Row(
+          children: [
+            TalerIcon(editing != null ? TalerIcons.pencil : TalerIcons.reply, size: 17, color: p.accent),
+            const SizedBox(width: 10),
+            Container(
+              width: 3,
+              height: 30,
+              decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: p.accent),
+                  ),
+                  Text(
+                    target.text.isEmpty ? 'Вложение' : target.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: p.fg2),
+                  ),
+                ],
+              ),
+            ),
+            TalerIconButton(
+              icon: TalerIcons.close,
+              tooltip: 'Отменить',
+              size: 32,
+              iconSize: 16,
+              color: p.fg3,
+              onPressed: () => setState(() {
+                if (_editingMessage != null) _inputCtrl.clear();
+                _replyingTo = null;
+                _editingMessage = null;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileComposer(TalerPalette p) {
+    final textField = TextField(
+      controller: _inputCtrl,
+      focusNode: _inputFocus,
+      onChanged: _onTextChanged,
+      minLines: 1,
+      maxLines: 6,
+      textCapitalization: TextCapitalization.sentences,
+      keyboardType: TextInputType.multiline,
+      style: TextStyle(fontSize: 15, color: p.fg),
+      decoration: InputDecoration(
+        hintText: 'Сообщение',
+        hintStyle: TextStyle(fontSize: 15, color: p.fg3),
+        isDense: true,
+        filled: false,
+        contentPadding: const EdgeInsets.symmetric(vertical: 11),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+      ),
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: _glassPill(
+            p,
+            radius: 24,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(child: textField),
+                  const SizedBox(width: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: TalerIconButton(
+                      icon: TalerIcons.paperclip,
+                      tooltip: 'Прикрепить файл',
+                      size: 38,
+                      iconSize: 20,
+                      color: p.fg2,
+                      onPressed: _pickAttachment,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TalerIconButton(
+          icon: _editingMessage != null ? TalerIcons.check : TalerIcons.send,
+          tooltip: _editingMessage != null ? 'Сохранить' : 'Отправить',
+          circle: true,
+          size: 46,
+          iconSize: 20,
+          color: Colors.white,
+          backgroundColor: p.accent,
+          onPressed: _send,
+        ),
+      ],
     );
   }
 

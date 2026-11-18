@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -27,12 +29,31 @@ class ProfileSettingsScreen extends StatefulWidget {
 }
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
+  final ScrollController _scrollCtrl = ScrollController();
+  bool _showBarTitle = false;
+
   @override
   void initState() {
     super.initState();
+    _scrollCtrl.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.client.fetchActiveSessions();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    final next = _scrollCtrl.hasClients && _scrollCtrl.offset > 72;
+    if (next != _showBarTitle && mounted) {
+      setState(() => _showBarTitle = next);
+    }
   }
 
   Future<void> _editNameDialog() async {
@@ -113,16 +134,122 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         final sessions = widget.client.activeSessions;
         final isDemo = widget.client.isDemoMode;
 
+        if (!isWide) {
+          final topPad = MediaQuery.paddingOf(context).top;
+          return Container(
+            color: p.settingsBg,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: SingleChildScrollView(
+                    controller: _scrollCtrl,
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      topPad + 16,
+                      16,
+                      widget.bottomInset + 16,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 640),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildMobileProfileHero(p, user, isDemo),
+                            const SizedBox(height: 18),
+                            _buildMyProfileTile(p, user),
+                            const SizedBox(height: 18),
+                            _buildAppearanceCard(p),
+                            const SizedBox(height: 18),
+                            _buildSessionsCard(p, sessions),
+                            const SizedBox(height: 18),
+                            _buildAboutCard(p),
+                            const SizedBox(height: 14),
+                            _buildLogoutCard(p),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Taler · v1.2.4',
+                              textAlign: TextAlign.center,
+                              style: TalerTheme.tabularStyle(
+                                size: 12,
+                                color: p.fg3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Builder(
+                    builder: (context) {
+                      final bar = Container(
+                        padding: EdgeInsets.only(top: topPad),
+                        color: _showBarTitle
+                            ? p.settingsBg.withValues(alpha: 0.78)
+                            : Colors.transparent,
+                        child: SizedBox(
+                          height: 54,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 42),
+                                Expanded(
+                                  child: AnimatedOpacity(
+                                    duration: TalerTheme.fastDuration,
+                                    opacity: _showBarTitle ? 1 : 0,
+                                    child: Text(
+                                      'Настройки',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 16.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: p.fg,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                _GlassCircleAction(
+                                  icon: TalerIcons.pencil,
+                                  tooltip: 'Изменить имя',
+                                  onPressed:
+                                      user == null ? null : _editNameDialog,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                      if (!_showBarTitle) return bar;
+                      return ClipRect(
+                        child: BackdropFilter(
+                          filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                          child: bar,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         return Container(
           color: p.settingsBg,
           child: Column(
             children: [
-              // Верхняя панель 56px в стиле Telegram Settings
+              // Верхняя панель 56px на широком экране
               Container(
                 color: p.bg2,
                 child: SafeArea(
                   bottom: false,
-                  top: !isWide,
+                  top: false,
                   child: Container(
                     height: 56,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -134,8 +261,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       children: [
                         TelegramIconBadge(
                           icon: TalerIcons.settings,
-                          color: p.accent,
-                          size: 30,
+                          size: 34,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -154,12 +280,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: p.bg3,
+                            color: p.surface2,
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: p.line),
                           ),
                           child: Text(
-                            'v1.2.3',
+                            'v1.2.4',
                             style: TalerTheme.tabularStyle(
                               size: 11.5,
                               weight: FontWeight.w600,
@@ -194,7 +319,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           const SizedBox(height: 18),
                           _buildSessionsCard(p, sessions),
                           const SizedBox(height: 18),
-                          _buildAboutAndLogoutCard(p),
+                          _buildAboutCard(p),
+                          const SizedBox(height: 14),
+                          _buildLogoutCard(p),
                           const SizedBox(height: 12),
                         ],
                       ),
@@ -206,6 +333,94 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMobileProfileHero(
+    TalerPalette p,
+    TalerUserProfile? user,
+    bool isDemo,
+  ) {
+    final name = user?.fullName ?? 'Пользователь Taler';
+    final phoneText = user?.phone != null && user!.phone!.isNotEmpty
+        ? user.phone!
+        : 'Телефон скрыт';
+    final online = isDemo || widget.client.isSessionReady;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Column(
+        children: [
+          TalerAvatar(
+            seedId: user?.id ?? 1,
+            initials: user?.initials ?? 'T',
+            imageUrl: user?.avatarUrl,
+            size: 88,
+            isOnline: online,
+            onlineBorderColor: p.settingsBg,
+          ),
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+                color: p.fg,
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            isDemo ? 'Демо-режим' : (online ? 'В сети' : 'Подключение…'),
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+              color: online ? p.accent : p.fg2,
+            ),
+          ),
+          if (phoneText.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              phoneText,
+              style: TalerTheme.tabularStyle(size: 13, color: p.fg2),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMyProfileTile(TalerPalette p, TalerUserProfile? user) {
+    return TalerTableShell(
+      child: InkWell(
+        onTap: user == null ? null : _editNameDialog,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              const TelegramIconBadge(icon: TalerIcons.user, size: 34),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'Мой профиль',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: p.fg,
+                  ),
+                ),
+              ),
+              TalerIcon(TalerIcons.chevronRight, size: 17, color: p.fg3),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -311,10 +526,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               children: [
                 TelegramIconBadge(
                   icon: TalerIcons.palette,
-                  color: p.accent,
-                  size: 30,
+                  size: 34,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,7 +614,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: sessions.length,
               separatorBuilder: (_, _) =>
-                  Divider(height: 1, indent: 56, color: p.line),
+                  Divider(height: 1, indent: 62, color: p.line),
               itemBuilder: (context, index) {
                 final s = sessions[index];
                 final formattedTime = s.time > 0
@@ -425,10 +639,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         icon: s.current
                             ? TalerIcons.shieldCheck
                             : TalerIcons.devices,
-                        color: s.current ? p.statusLive : p.accent,
-                        size: 30,
+                        size: 34,
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -504,50 +717,119 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
-  Widget _buildAboutAndLogoutCard(TalerPalette p) {
+  Widget _buildAboutCard(TalerPalette p) {
     return TalerTableShell(
       title: 'О клиенте Taler',
-      bodyPadding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      bodyPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
         children: [
-          Row(
+          const TalerLogo(size: 34, showShieldBadge: true),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Taler для MAX',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w500,
+                    color: p.fg,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'github.com/grentu/Taler',
+                  style: TextStyle(fontSize: 12, color: p.fg2),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            'v1.2.4',
+            style: TalerTheme.tabularStyle(size: 13, color: p.fg3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoutCard(TalerPalette p) {
+    return TalerTableShell(
+      child: InkWell(
+        onTap: () => widget.client.logout(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
             children: [
-              const TalerLogo(size: 38, showShieldBadge: true),
+              const TelegramIconBadge(
+                icon: TalerIcons.logOut,
+                size: 34,
+                isDanger: true,
+              ),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Taler v1.2.3 — приватный клиент для MAX',
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                        color: p.fg,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'github.com/grentu/Taler',
-                      style: TextStyle(fontSize: 12, color: p.fg2),
-                    ),
-                  ],
+                child: Text(
+                  widget.client.isDemoMode
+                      ? 'Выйти из демо-режима'
+                      : 'Выйти из аккаунта',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: p.danger,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          TalerTactileButton(
-            label: widget.client.isDemoMode
-                ? 'Выйти из демо-режима'
-                : 'Выйти из аккаунта',
-            icon: TalerIcons.logOut,
-            variant: TalerButtonVariant.danger,
-            onPressed: () => widget.client.logout(),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassCircleAction extends StatelessWidget {
+  final TalerIconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  const _GlassCircleAction({
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final bg = p.isDark ? const Color(0xCC191B23) : const Color(0xDCFFFFFF);
+    final border = (p.isDark ? Colors.white : Colors.black).withValues(alpha: 0.08);
+    return Tooltip(
+      message: tooltip,
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Material(
+            color: bg,
+            shape: CircleBorder(side: BorderSide(color: border)),
+            child: InkWell(
+              onTap: onPressed,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: 42,
+                height: 42,
+                child: Center(
+                  child: TalerIcon(
+                    icon,
+                    size: 19,
+                    strokeWidth: 2.0,
+                    color: p.fg,
+                  ),
+                ),
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }

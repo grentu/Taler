@@ -21,6 +21,8 @@ abstract final class TalerIcons {
   static const TalerIconData chevronDown = TalerIconData('chevronDown', <double>[0, 6, 9, 1, 12, 15, 1, 18, 9]);
   /// lucide: chevron-up
   static const TalerIconData chevronUp = TalerIconData('chevronUp', <double>[0, 18, 15, 1, 12, 9, 1, 6, 15]);
+  /// lucide: chevron-right
+  static const TalerIconData chevronRight = TalerIconData('chevronRight', <double>[0, 9, 18, 1, 15, 12, 1, 9, 6]);
   /// lucide: message-square-text
   static const TalerIconData messageCode = TalerIconData('messageCode', <double>[0, 22, 17, 2, 22, 18.105, 21.105, 19, 20, 19, 1, 6.828, 19, 2, 6.298, 19, 5.789, 19.211, 5.414, 19.586, 1, 3.212, 21.788, 2, 3.009, 21.991, 2.704, 22.052, 2.438, 21.942, 2, 2.173, 21.832, 2, 21.573, 2, 21.286, 1, 2, 5, 2, 2, 3.895, 2.895, 3, 4, 3, 1, 20, 3, 2, 21.105, 3, 22, 3.895, 22, 5, 3, 0, 7, 11, 1, 17, 11, 0, 7, 15, 1, 13, 15, 0, 7, 7, 1, 15, 7]);
   /// lucide: arrow-left
@@ -145,6 +147,7 @@ abstract final class TalerIcons {
     globe,
     chevronDown,
     chevronUp,
+    chevronRight,
     messageCode,
     arrowLeft,
     arrowRight,

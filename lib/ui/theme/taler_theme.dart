@@ -132,46 +132,46 @@ class TalerTheme {
 
   static const TalerPalette darkPalette = TalerPalette(
     brightness: Brightness.dark,
-    bg: Color(0xFF09090B),
-    settingsBg: Color(0xFF09090B),
-    bg2: Color(0xFF0C0C0E),
-    bg3: Color(0xFF222226),
-    surfaceHigh: Color(0xFF27272A),
-    bubbleOut: Color(0xFF2563EB),
-    bubbleIn: Color(0xFF1C1C20),
+    bg: Color(0xFF000000),
+    settingsBg: Color(0xFF000000),
+    bg2: Color(0xFF0A0B0E),
+    bg3: Color(0xFF1D1F27),
+    surfaceHigh: Color(0xFF282A34),
+    bubbleOut: Color(0xFF266CF2),
+    bubbleIn: Color(0xFF191B22),
     bubbleOutText: Color(0xFFFFFFFF),
-    bubbleInText: Color(0xFFF4F4F5),
-    accent: Color(0xFF4C8DFF),
-    accentMuted: Color(0x244C8DFF),
-    fg: Color(0xFFFAFAFA),
-    fg2: Color(0xFFA1A1AA),
-    fg3: Color(0xFF71717A),
-    fg4: Color(0x3871717A),
-    surface: Color(0xFF18181B),
-    surface2: Color(0xFF222226),
-    surface3: Color(0xFF2A2A2E),
-    line: Color(0x12FFFFFF),
-    line2: Color(0x1FFFFFFF),
+    bubbleInText: Color(0xFFF5F6FA),
+    accent: Color(0xFF3282FF),
+    accentMuted: Color(0x243282FF),
+    fg: Color(0xFFF7F8FA),
+    fg2: Color(0xFF9EA2B0),
+    fg3: Color(0xFF6B7080),
+    fg4: Color(0x386B7080),
+    surface: Color(0xFF13141A),
+    surface2: Color(0xFF21232B),
+    surface3: Color(0xFF2B2D37),
+    line: Color(0x0FFFFFFF),
+    line2: Color(0x1CFFFFFF),
     solid: Color(0xFFFAFAFA),
     onSolid: Color(0xFF09090B),
-    glass: Color(0xE618181A),
+    glass: Color(0xCC17181E),
     statusLive: Color(0xFF22C55E),
     statusLiveSurface: Color(0x1F22C55E),
     warning: Color(0xFFF59E0B),
     warningSurface: Color(0x1FF59E0B),
     warningLine: Color(0x40F59E0B),
     danger: Color(0xFFEF4444),
-    dangerSurface: Color(0x1AEF4444),
+    dangerSurface: Color(0x1FEF4444),
     dangerLine: Color(0x40EF4444),
   );
 
   static const TalerPalette lightPalette = TalerPalette(
     brightness: Brightness.light,
     bg: Color(0xFFFFFFFF),
-    settingsBg: Color(0xFFF4F4F5),
+    settingsBg: Color(0xFFF2F3F7),
     bg2: Color(0xFFFFFFFF),
-    bg3: Color(0xFFF4F4F5),
-    surfaceHigh: Color(0xFFE4E4E7),
+    bg3: Color(0xFFECEEF3),
+    surfaceHigh: Color(0xFFE2E4EC),
     bubbleOut: Color(0xFF2563EB),
     bubbleIn: Color(0xFFFFFFFF),
     bubbleOutText: Color(0xFFFFFFFF),
@@ -183,13 +183,13 @@ class TalerTheme {
     fg3: Color(0xFF71717A),
     fg4: Color(0x3871717A),
     surface: Color(0xFFFFFFFF),
-    surface2: Color(0xFFF4F4F5),
-    surface3: Color(0xFFE4E4E7),
-    line: Color(0x1409090B),
-    line2: Color(0x2409090B),
+    surface2: Color(0xFFECEEF3),
+    surface3: Color(0xFFE2E4EC),
+    line: Color(0x1209090B),
+    line2: Color(0x2009090B),
     solid: Color(0xFF09090B),
     onSolid: Color(0xFFFFFFFF),
-    glass: Color(0xC7FAFAFA),
+    glass: Color(0xCCFFFFFF),
     statusLive: Color(0xFF16A34A),
     statusLiveSurface: Color(0x1A16A34A),
     warning: Color(0xFFB45309),
@@ -500,35 +500,40 @@ class TalerAvatar extends StatelessWidget {
   }
 }
 
-/// Монохромный тактильный бокс для иконки настройки без цветной заливки.
+/// Круглый монохромный значок настройки с плотной двухтоновой иконкой.
 class TelegramIconBadge extends StatelessWidget {
   final TalerIconData icon;
   final Color? color;
   final double size;
+  final bool isDanger;
 
   const TelegramIconBadge({
     super.key,
     required this.icon,
     this.color,
-    this.size = 30,
+    this.size = 34,
+    this.isDanger = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
+    final circleBg = isDanger ? p.dangerSurface : p.surface2;
+    final fg = isDanger ? p.danger : (p.isDark ? p.fg : p.fg2);
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: p.bg3,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: p.line2),
+        color: circleBg,
+        shape: BoxShape.circle,
       ),
       child: TalerIcon(
         icon,
-        size: size * 0.54,
-        color: p.fg2,
+        size: size * 0.52,
+        strokeWidth: 2.0,
+        duotone: true,
+        color: fg,
       ),
     );
   }
@@ -558,17 +563,107 @@ class TalerStatusDot extends StatelessWidget {
   }
 }
 
-/// Сверхлёгкий статический точечный холст чата в стиле Hoplite (нулевая нагрузка на CPU).
+/// Статический фон чата с тонким дудл-паттерном в стиле Telegram, кэшируется через [RepaintBoundary].
 class TelegramChatBackground extends StatelessWidget {
+  final Color baseColor;
   final Widget child;
 
-  const TelegramChatBackground({super.key, required this.child});
+  const TelegramChatBackground({
+    super.key,
+    required this.baseColor,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    return ColoredBox(color: p.bg, child: child);
+    final stroke = (p.isDark ? Colors.white : Colors.black).withValues(
+      alpha: p.isDark ? 0.045 : 0.055,
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(color: baseColor),
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: CustomPaint(painter: _ChatDoodlePainter(stroke)),
+          ),
+        ),
+        child,
+      ],
+    );
   }
+}
+
+class _ChatDoodlePainter extends CustomPainter {
+  final Color strokeColor;
+
+  const _ChatDoodlePainter(this.strokeColor);
+
+  static const _tileIcons = <TalerIconData>[
+    TalerIcons.messageCircle,
+    TalerIcons.shield,
+    TalerIcons.moon,
+    TalerIcons.sun,
+    TalerIcons.send,
+    TalerIcons.lock,
+    TalerIcons.bell,
+    TalerIcons.image,
+    TalerIcons.phone,
+  ];
+
+  static const List<(double, double, double, double)> _slots = [
+    (22, 20, -0.25, 19),
+    (96, 36, 0.30, 17),
+    (168, 18, -0.15, 20),
+    (48, 92, 0.22, 18),
+    (132, 102, -0.32, 19),
+    (194, 84, 0.14, 16),
+    (20, 160, 0.28, 18),
+    (96, 168, -0.20, 20),
+    (168, 152, 0.35, 17),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const tile = 216.0;
+    final paint = Paint()
+      ..color = strokeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.45
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
+
+    final cols = (size.width / tile).ceil() + 1;
+    final rows = (size.height / tile).ceil() + 1;
+
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        final ox = c * tile;
+        final oy = r * tile;
+        for (var i = 0; i < _slots.length; i++) {
+          final (dx, dy, angle, iconSize) = _slots[i];
+          final px = ox + dx;
+          final py = oy + dy;
+          if (px > size.width + 24 || py > size.height + 24) continue;
+          final icon = _tileIcons[(i + r * 3 + c * 5) % _tileIcons.length];
+          final scale = iconSize / 24.0;
+          canvas.save();
+          canvas.translate(px, py);
+          canvas.rotate(angle);
+          canvas.scale(scale);
+          canvas.translate(-12, -12);
+          canvas.drawPath(icon.path, paint);
+          canvas.restore();
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChatDoodlePainter old) =>
+      old.strokeColor != strokeColor;
 }
 
 /// Описание сегмента для скользящего переключателя [TalerSlidingPillSwitch].
@@ -954,7 +1049,7 @@ class _TalerIconButtonState extends State<TalerIconButton> {
   }
 }
 
-/// Секционная карточка настроек в стиле Monochrome Tactile UI (`1px solid line`, `p.bg2`).
+/// Секционная карточка настроек: мягкие скругления без шумной рамки.
 class TalerTableShell extends StatelessWidget {
   final String? title;
   final Widget? titleLeading;
@@ -982,7 +1077,7 @@ class TalerTableShell extends StatelessWidget {
       children: [
         if (hasHeader)
           Padding(
-            padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
             child: Row(
               children: [
                 if (titleLeading != null) ...[
@@ -996,7 +1091,7 @@ class TalerTableShell extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
-                        color: p.fg2,
+                        color: p.fg3,
                       ),
                     ),
                   )
@@ -1007,13 +1102,13 @@ class TalerTableShell extends StatelessWidget {
             ),
           ),
         ClipRRect(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(18),
           child: Container(
             padding: bodyPadding,
             decoration: BoxDecoration(
-              color: p.bg2,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: p.line),
+              color: p.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: p.isDark ? null : Border.all(color: p.line),
             ),
             child: child,
           ),

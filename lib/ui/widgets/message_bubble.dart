@@ -20,14 +20,14 @@ class ChatDayChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
-            color: p.surface.withValues(alpha: 0.88),
+            color: p.surface.withValues(alpha: p.isDark ? 0.88 : 0.92),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
             label,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: p.fg2),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: p.fg2),
           ),
         ),
       ),
@@ -220,7 +220,7 @@ class MessageBubble extends StatelessWidget {
     this.onRetry,
   });
 
-  static const double _big = 18;
+  static const double _big = 20;
   static const double _small = 6;
 
   String? _resolvedStatus(TalerMessage m) {
@@ -257,7 +257,9 @@ class MessageBubble extends StatelessWidget {
     final failed = isMine && m.status == 'error';
     final bg = out ? p.bubbleOut : p.bubbleIn;
     final fg = out ? p.bubbleOutText : p.bubbleInText;
-    final metaColor = out ? p.bubbleOutText.withValues(alpha: 0.72) : p.fg3;
+    final metaColor = out
+        ? p.bubbleOutText.withValues(alpha: 0.78)
+        : (p.isDark ? p.fg2.withValues(alpha: 0.85) : p.fg3);
 
     final photos = m.attachments.where((a) => a.type == 'PHOTO' && a.url != null).toList();
     final files = m.attachments.where((a) => a.type != 'PHOTO' && a.type != 'CONTROL').toList();

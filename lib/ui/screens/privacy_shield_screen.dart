@@ -51,7 +51,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
             children: [
               // Верхняя панель
               Container(
-                color: p.bg2,
+                color: isWide ? p.bg2 : p.settingsBg,
                 child: SafeArea(
                   bottom: false,
                   top: !isWide,
@@ -59,15 +59,17 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
                     height: 56,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: p.bg2,
-                      border: Border(bottom: BorderSide(color: p.line)),
+                      color: isWide ? p.bg2 : p.settingsBg,
+                      border: isWide
+                          ? Border(bottom: BorderSide(color: p.line))
+                          : null,
                     ),
                     child: Row(
                       children: [
                         TelegramIconBadge(
                           icon: TalerIcons.shieldCheck,
                           color: p.statusLive,
-                          size: 30,
+                          size: 34,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -216,7 +218,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
               widget.client.session.sendPing();
             },
           ),
-          Divider(height: 1, indent: 58, color: p.line),
+          Divider(height: 1, indent: 62, color: p.line),
           _PrivacySwitchRow(
             icon: TalerIcons.pencilOff,
             badgeColor: const Color(0xFF2AABEE),
@@ -225,7 +227,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
             value: privacy.hideTyping as bool,
             onChanged: privacy.setHideTyping,
           ),
-          Divider(height: 1, indent: 58, color: p.line),
+          Divider(height: 1, indent: 62, color: p.line),
           _PrivacySwitchRow(
             icon: TalerIcons.checkCheck,
             badgeColor: const Color(0xFF26A69A),
@@ -234,7 +236,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
             value: privacy.hideReadReceipts as bool,
             onChanged: privacy.setHideReadReceipts,
           ),
-          Divider(height: 1, indent: 58, color: p.line),
+          Divider(height: 1, indent: 62, color: p.line),
           _PrivacySwitchRow(
             icon: TalerIcons.timerOff,
             badgeColor: const Color(0xFFF5A623),
@@ -243,7 +245,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
             value: privacy.antiDelete as bool,
             onChanged: privacy.setAntiDelete,
           ),
-          Divider(height: 1, indent: 58, color: p.line),
+          Divider(height: 1, indent: 62, color: p.line),
           _PrivacySwitchRow(
             icon: TalerIcons.fingerprint,
             badgeColor: const Color(0xFF4ECC5E),
@@ -362,7 +364,7 @@ class _PrivacySwitchRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            TelegramIconBadge(icon: icon, color: badgeColor, size: 30),
+            TelegramIconBadge(icon: icon, color: badgeColor, size: 34),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

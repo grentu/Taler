@@ -137,10 +137,27 @@ void main() {
     // Profile tab uses compact pencil icon button instead of wide 'Изменить' label.
     await tester.tap(find.text('Профиль'));
     await tester.pumpAndSettle();
+    expect(find.text('Мой профиль'), findsOneWidget);
     expect(find.text('Активные сессии'), findsOneWidget);
     expect(find.textContaining('Opcode'), findsNothing);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);
     expect(find.text('Изменить'), findsNothing);
+
+    // Chat screen on mobile shows floating search and info actions cleanly.
+    await tester.tap(find.text('Чаты').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Елена Соколова'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Поиск в чате'), findsOneWidget);
+    expect(find.byTooltip('Профиль чата'), findsOneWidget);
+    expect(find.byTooltip('Отправить'), findsOneWidget);
+    await tester.tap(find.byTooltip('Поиск в чате'));
+    await tester.pumpAndSettle();
+    expect(find.text('Поиск по переписке'), findsOneWidget);
+    await tester.tap(find.byTooltip('Закрыть поиск'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Назад'));
+    await tester.pumpAndSettle();
 
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();

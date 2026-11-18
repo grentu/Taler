@@ -119,8 +119,8 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
           margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             color: p.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: p.line),
+            borderRadius: BorderRadius.circular(18),
+            border: p.isDark ? null : Border.all(color: p.line),
           ),
           child: Column(
             children: [
@@ -213,7 +213,7 @@ class _ChatInfoPanelState extends State<ChatInfoPanel> {
     );
 
     if (widget.fullScreen) {
-      return ColoredBox(color: p.bg2, child: body);
+      return ColoredBox(color: p.settingsBg, child: body);
     }
     return Container(
       decoration: BoxDecoration(color: p.bg2, border: Border(left: BorderSide(color: p.line))),
@@ -316,10 +316,13 @@ class _ActionTile extends StatelessWidget {
     final p = TalerTheme.paletteOf(context);
     return Material(
       color: p.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: p.line)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: p.isDark ? BorderSide.none : BorderSide(color: p.line),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         hoverColor: ChatTokens.hover(p),
         splashFactory: NoSplash.splashFactory,
         child: Padding(

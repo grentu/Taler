@@ -25,14 +25,15 @@ void main() {
     });
   });
 
-  testWidgets('TalerIcon morphs from one glyph into another', (tester) async {
-    Widget host(TalerIconData icon) => Directionality(
+  testWidgets('TalerIcon morphs cleanly in stroke and duotone modes',
+      (tester) async {
+    Widget host(TalerIconData icon, {bool duotone = false}) => Directionality(
           textDirection: TextDirection.ltr,
-          child: Center(child: TalerIcon(icon, size: 24)),
+          child: Center(child: TalerIcon(icon, size: 24, duotone: duotone)),
         );
 
-    await tester.pumpWidget(host(TalerIcons.eye));
-    await tester.pumpWidget(host(TalerIcons.eyeOff));
+    await tester.pumpWidget(host(TalerIcons.eye, duotone: true));
+    await tester.pumpWidget(host(TalerIcons.shieldCheck, duotone: true));
     await tester.pump(const Duration(milliseconds: 120));
     expect(tester.takeException(), isNull);
     await tester.pumpAndSettle();
