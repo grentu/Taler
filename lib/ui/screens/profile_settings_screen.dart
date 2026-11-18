@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../../core/transport/taler_session.dart';
+import '../../core/version.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
@@ -292,7 +293,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           const SizedBox(height: 18),
                           Center(
                             child: Text(
-                              'Taler 1.2.10 (16)',
+                              kTalerVersionLabel,
                               style: TextStyle(fontSize: 13, color: p.fg3),
                             ),
                           ),

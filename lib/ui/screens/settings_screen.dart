@@ -7,6 +7,8 @@ import 'package:material_ui/material_ui.dart';
 import '../../backend/taler_client.dart';
 import '../../core/storage/app_preferences.dart';
 import '../../core/storage/taler_models.dart';
+import '../../core/update/app_updater.dart';
+import '../../core/version.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
@@ -325,6 +327,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _openUpdates() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _UpdatePage(client: widget.client),
+      ),
+    );
+  }
+
   void _openLanguageDialog() {
     final p = TalerTheme.paletteOf(context);
     showDialog<void>(
@@ -407,17 +417,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  List<_SettingsItemSpec> _buildAllItems(
+  ({
+    List<_SettingsItemSpec> highlight,
+    List<_SettingsItemSpec> main,
+    List<_SettingsItemSpec> help,
+    List<_SettingsItemSpec> all,
+  }) _buildSections(
     int sessionsCount,
     AppPreferences prefs,
+    AppUpdater updater,
   ) {
-    return [
+    final highlight = [
       _SettingsItemSpec(
         icon: TalerIcons.settingsGram,
         title: 'Настройки Taler',
         keywords: 'защита приватность призрак anti delete маскировка shield taler',
         onTap: () => _openShield(context),
       ),
+      _SettingsItemSpec(
+        icon: TalerIcons.refresh,
+        title: 'Обновление Taler',
+        keywords: 'обновление ота ota update версия релиз скачать установить',
+        valueText: updater.hasUpdate ? 'v${updater.release?.version ?? ''}' : null,
+        onTap: _openUpdates,
+      ),
+    ];
+    final main = [
       _SettingsItemSpec(
         icon: TalerIcons.settingsAccount,
         title: 'Аккаунт',
@@ -474,6 +499,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         valueText: prefs.languageLabel,
         onTap: _openLanguageDialog,
       ),
+    ];
+    final help = [
       _SettingsItemSpec(
         icon: TalerIcons.settingsAsk,
         title: 'Задать вопрос',
@@ -513,6 +540,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     ];
+    return (
+      highlight: highlight,
+      main: main,
+      help: help,
+      all: [...highlight, ...main, ...help],
+    );
   }
 
   Widget _buildHeaderHero(TalerPalette p) {
@@ -591,22 +624,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       listenable: Listenable.merge([
         widget.client,
         widget.client.appPreferences,
+        widget.client.updater,
       ]),
       builder: (context, _) {
         final prefs = widget.client.appPreferences;
+        final updater = widget.client.updater;
         final sessionsCount = widget.client.activeSessions.isEmpty
             ? 1
             : widget.client.activeSessions.length;
 
-        final allItems = _buildAllItems(sessionsCount, prefs);
-        final highlight = allItems.first;
-        final mainItems = allItems.sublist(1, 10);
-        final helpItems = allItems.sublist(10);
+        final sections = _buildSections(sessionsCount, prefs, updater);
 
         final q = _query.trim().toLowerCase();
         final filtered = q.isEmpty
             ? const <_SettingsItemSpec>[]
-            : allItems
+            : sections.all
                 .where((item) =>
                     item.title.toLowerCase().contains(q) ||
                     item.keywords.contains(q))
@@ -642,12 +674,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 _buildHeaderHero(p),
                                 const SizedBox(height: 16),
                                 TalerSettingsGroup(
-                                  children: [_toTile(highlight)],
+                                  children: [
+                                    for (final item in sections.highlight)
+                                      _toTile(item),
+                                  ],
                                 ),
                                 const SizedBox(height: 12),
                                 TalerSettingsGroup(
                                   children: [
-                                    for (final item in mainItems) _toTile(item),
+                                    for (final item in sections.main)
+                                      _toTile(item),
                                   ],
                                 ),
                                 const SizedBox(height: 14),
@@ -655,13 +691,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   title: 'Помощь',
                                   accentTitle: true,
                                   children: [
-                                    for (final item in helpItems) _toTile(item),
+                                    for (final item in sections.help)
+                                      _toTile(item),
                                   ],
                                 ),
                                 const SizedBox(height: 18),
                                 Center(
                                   child: Text(
-                                    'Taler 1.2.10 (16)',
+                                    kTalerVersionLabel,
                                     style: TextStyle(fontSize: 13, color: p.fg3),
                                   ),
                                 ),
@@ -1537,6 +1574,223 @@ class _PowerSavingPage extends StatelessWidget {
                     icon: TalerIcons.palette,
                     title: 'Узор на фоне чатов',
                     valueText: prefs.powerSavingMode ? 'Откл' : 'Вкл',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _UpdatePage extends StatefulWidget {
+  final TalerClient client;
+
+  const _UpdatePage({required this.client});
+
+  @override
+  State<_UpdatePage> createState() => _UpdatePageState();
+}
+
+class _UpdatePageState extends State<_UpdatePage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = widget.client.updater;
+      if (updater.status == UpdateStatus.idle) {
+        unawaited(updater.checkForUpdates(silent: false));
+      }
+    });
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 МБ';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} КБ';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} МБ';
+  }
+
+  String _statusTitle(AppUpdater updater) {
+    return switch (updater.status) {
+      UpdateStatus.idle => 'Текущая версия',
+      UpdateStatus.checking => 'Проверка обновлений...',
+      UpdateStatus.upToDate => 'Установлена последняя версия',
+      UpdateStatus.available => 'Доступно обновление',
+      UpdateStatus.downloading => 'Скачивание обновления...',
+      UpdateStatus.needsPermission => 'Требуется разрешение',
+      UpdateStatus.readyToInstall => 'Готово к установке',
+      UpdateStatus.error => 'Ошибка обновления',
+    };
+  }
+
+  String _statusSubtitle(AppUpdater updater) {
+    final release = updater.release;
+    return switch (updater.status) {
+      UpdateStatus.idle || UpdateStatus.upToDate => kTalerVersionLabel,
+      UpdateStatus.checking => 'Подключение к GitHub Releases (grentu/Taler)',
+      UpdateStatus.available => release?.matchedAsset != null
+          ? '${release!.matchedAsset!.name} • ${_formatBytes(release.matchedAsset!.sizeBytes)}'
+          : 'Доступен релиз ${release?.tag ?? ''}',
+      UpdateStatus.downloading => updater.totalBytes > 0
+          ? '${_formatBytes(updater.downloadedBytes)} / ${_formatBytes(updater.totalBytes)} • ${(updater.progress * 100).round()}%'
+          : '${_formatBytes(updater.downloadedBytes)} загружено',
+      UpdateStatus.needsPermission =>
+        'Разрешите установку из этого источника в настройках Android и нажмите «Установить сейчас».',
+      UpdateStatus.readyToInstall =>
+        'Пакет загружен (${release?.tag ?? ''}). Нажмите «Установить сейчас».',
+      UpdateStatus.error => updater.errorMessage ?? 'Не удалось выполнить обновление',
+    };
+  }
+
+  TalerIconData _statusIcon(UpdateStatus status) {
+    return switch (status) {
+      UpdateStatus.available || UpdateStatus.readyToInstall => TalerIcons.badgeCheck,
+      UpdateStatus.needsPermission || UpdateStatus.error => TalerIcons.alertCircle,
+      _ => TalerIcons.refresh,
+    };
+  }
+
+  void _copyLink(BuildContext context, String url) {
+    unawaited(Clipboard.setData(ClipboardData(text: url)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Ссылка на релиз скопирована'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final updater = widget.client.updater;
+    final prefs = widget.client.appPreferences;
+    return ListenableBuilder(
+      listenable: Listenable.merge([updater, prefs]),
+      builder: (context, _) {
+        final p = TalerTheme.paletteOf(context);
+        final status = updater.status;
+        final release = updater.release;
+        final isDownloading = status == UpdateStatus.downloading;
+        final isChecking = status == UpdateStatus.checking;
+
+        return _SettingsSubScaffold(
+          title: 'Обновление Taler',
+          bodyBuilder: (controller, padding) => ListView(
+            controller: controller,
+            padding: padding,
+            children: [
+              TalerSettingsGroup(
+                children: [
+                  TalerSettingsTile(
+                    icon: _statusIcon(status),
+                    title: _statusTitle(updater),
+                    subtitle: _statusSubtitle(updater),
+                    valueText: release != null ? 'v${release.version}' : null,
+                  ),
+                  if (isDownloading || isChecking)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(56, 2, 16, 14),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          minHeight: 4,
+                          value: isDownloading && updater.totalBytes > 0
+                              ? updater.progress
+                              : null,
+                          backgroundColor: p.fg.withValues(alpha: 0.1),
+                          valueColor: AlwaysStoppedAnimation<Color>(p.accent),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TalerSettingsGroup(
+                children: [
+                  if (isDownloading)
+                    TalerSettingsTile(
+                      icon: TalerIcons.close,
+                      iconColor: p.danger,
+                      title: 'Отменить загрузку',
+                      titleColor: p.danger,
+                      onTap: updater.cancelDownload,
+                    )
+                  else ...[
+                    if (status == UpdateStatus.needsPermission ||
+                        status == UpdateStatus.readyToInstall)
+                      TalerSettingsTile(
+                        icon: TalerIcons.check,
+                        title: 'Установить сейчас',
+                        valueText: release != null ? 'v${release.version}' : null,
+                        onTap: () => unawaited(updater.downloadAndInstall()),
+                      )
+                    else if (status == UpdateStatus.available &&
+                        release?.matchedAsset != null)
+                      TalerSettingsTile(
+                        icon: TalerIcons.arrowDownLeft,
+                        title: 'Скачать и установить',
+                        valueText: _formatBytes(release!.matchedAsset!.sizeBytes),
+                        onTap: () => unawaited(updater.downloadAndInstall()),
+                      ),
+                    TalerSettingsTile(
+                      icon: TalerIcons.refresh,
+                      title: isChecking
+                          ? 'Идёт проверка...'
+                          : 'Проверить обновления',
+                      onTap: isChecking
+                          ? null
+                          : () => unawaited(updater.checkForUpdates(silent: false)),
+                    ),
+                    if (release != null && release.htmlUrl.isNotEmpty)
+                      TalerSettingsTile(
+                        icon: TalerIcons.copy,
+                        title: 'Скопировать ссылку на релиз',
+                        onTap: () => _copyLink(context, release.htmlUrl),
+                      ),
+                  ],
+                ],
+              ),
+              if (release != null && release.notes.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                TalerSettingsGroup(
+                  title: 'Что нового',
+                  accentTitle: true,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      child: SelectableText(
+                        release.notes,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          height: 1.45,
+                          color: p.fg2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              TalerSettingsGroup(
+                title: 'Параметры',
+                children: [
+                  TalerSettingsTile(
+                    icon: TalerIcons.refresh,
+                    title: 'Проверять при запуске',
+                    subtitle: 'Фоновая проверка новых релизов на GitHub',
+                    trailing: Switch(
+                      value: prefs.autoCheckUpdates,
+                      onChanged: (v) => unawaited(prefs.setAutoCheckUpdates(v)),
+                    ),
+                    onTap: () => unawaited(
+                      prefs.setAutoCheckUpdates(!prefs.autoCheckUpdates),
+                    ),
                   ),
                 ],
               ),

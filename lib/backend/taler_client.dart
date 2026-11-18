@@ -14,6 +14,7 @@ import '../core/storage/app_preferences.dart';
 import '../core/storage/local_store.dart';
 import '../core/storage/taler_models.dart';
 import '../core/transport/taler_session.dart';
+import '../core/update/app_updater.dart';
 
 enum OtpVerifyStatus { authenticated, needs2fa, needsRegistration }
 
@@ -57,6 +58,8 @@ class TalerClient extends ChangeNotifier {
   final WireAuditLog auditLog;
   final LocalStore store;
   final AppPreferences appPreferences;
+  final AppUpdater updater;
+  final bool _ownsUpdater;
 
   late final PrivacyFirewall firewall;
   late final TalerSession session;
@@ -89,7 +92,10 @@ class TalerClient extends ChangeNotifier {
     required this.auditLog,
     required this.store,
     AppPreferences? appPreferences,
-  }) : appPreferences = appPreferences ?? AppPreferences() {
+    AppUpdater? updater,
+  })  : appPreferences = appPreferences ?? AppPreferences(),
+        _ownsUpdater = updater == null,
+        updater = updater ?? AppUpdater() {
     firewall = PrivacyFirewall(
       settings: privacySettings,
       auditLog: auditLog,
@@ -315,6 +321,9 @@ class TalerClient extends ChangeNotifier {
     await spoofingService.load();
     await appPreferences.load();
     await store.init();
+    if (appPreferences.autoCheckUpdates) {
+      unawaited(updater.checkForUpdates(silent: true));
+    }
 
     final savedToken = store.authToken;
     if (savedToken != null && savedToken.isNotEmpty) {
@@ -2443,6 +2452,9 @@ class TalerClient extends ChangeNotifier {
       t.cancel();
     }
     _typingClearTimers.clear();
+    if (_ownsUpdater) {
+      updater.dispose();
+    }
     unawaited(store.flush());
     unawaited(session.dispose());
     super.dispose();

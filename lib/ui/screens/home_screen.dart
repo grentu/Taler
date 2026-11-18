@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -6,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../backend/taler_client.dart';
 import '../../core/storage/taler_models.dart';
 import '../../core/transport/taler_session.dart';
+import '../../core/update/app_updater.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
@@ -40,6 +42,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _tab = 0;
   int? _selectedChatId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final client = widget.client;
+      if (client.appPreferences.autoCheckUpdates &&
+          client.updater.status == UpdateStatus.idle) {
+        unawaited(client.updater.checkForUpdates(silent: true));
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -87,12 +102,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final client = widget.client;
     return ListenableBuilder(
-      listenable: Listenable.merge([client, client.privacySettings]),
+      listenable: Listenable.merge([
+        client,
+        client.privacySettings,
+        client.updater,
+      ]),
       builder: (context, _) {
         final p = TalerTheme.paletteOf(context);
         final wide = MediaQuery.sizeOf(context).width >= 900;
         final unread = client.chats.where((c) => c.unreadCount > 0 && !c.isMuted).length;
         final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
+        final hasUpdate = client.updater.hasUpdate;
         final settings = SettingsScreen(
           client: client,
           themeMode: widget.themeMode,
@@ -117,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _Rail(
                   selected: _tab,
                   unread: unread,
+                  hasUpdate: hasUpdate,
                   isDark: p.isDark,
                   user: client.currentUser,
                   online: online,
@@ -181,10 +202,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   right: 12,
                   bottom: 12 + bottom,
                   child: ListenableBuilder(
-                    listenable: client.appPreferences,
+                    listenable: Listenable.merge([
+                      client.appPreferences,
+                      client.updater,
+                    ]),
                     builder: (context, _) => _Dock(
                       selected: _tab,
                       unread: unread,
+                      hasUpdate: client.updater.hasUpdate,
                       user: client.currentUser,
                       powerSaving: client.appPreferences.powerSavingMode,
                       onSelect: _selectTab,
@@ -234,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
 class _Rail extends StatelessWidget {
   final int selected;
   final int unread;
+  final bool hasUpdate;
   final bool isDark;
   final TalerUserProfile? user;
   final bool online;
@@ -244,6 +270,7 @@ class _Rail extends StatelessWidget {
   const _Rail({
     required this.selected,
     required this.unread,
+    this.hasUpdate = false,
     required this.isDark,
     required this.user,
     required this.online,
@@ -271,7 +298,7 @@ class _Rail extends StatelessWidget {
           const SizedBox(height: 12),
           _RailButton(icon: selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
           _RailButton(icon: selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
-          _RailButton(icon: TalerIcons.settings, label: 'Настройки', selected: selected == 2, onTap: () => onSelect(2)),
+          _RailButton(icon: TalerIcons.settings, label: 'Настройки', selected: selected == 2, dotBadge: hasUpdate, onTap: () => onSelect(2)),
           _RailButton(icon: TalerIcons.user, label: 'Профиль', selected: selected == 3, onTap: () => onSelect(3)),
           const Spacer(),
           _RailButton(
@@ -307,6 +334,7 @@ class _RailButton extends StatelessWidget {
   final String label;
   final bool selected;
   final int badge;
+  final bool dotBadge;
   final VoidCallback onTap;
 
   const _RailButton({
@@ -315,6 +343,7 @@ class _RailButton extends StatelessWidget {
     required this.onTap,
     this.selected = false,
     this.badge = 0,
+    this.dotBadge = false,
   });
 
   @override
@@ -345,12 +374,38 @@ class _RailButton extends StatelessWidget {
                       right: -2,
                       top: -2,
                       child: _Badge(count: badge, ring: p.settingsBg),
+                    )
+                  else if (dotBadge)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: _UpdateDot(ring: p.settingsBg),
                     ),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _UpdateDot extends StatelessWidget {
+  final Color ring;
+
+  const _UpdateDot({required this.ring});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: p.accent,
+        shape: BoxShape.circle,
+        border: Border.all(color: ring, width: 1.5),
       ),
     );
   }
@@ -387,6 +442,7 @@ class _Badge extends StatelessWidget {
 class _Dock extends StatelessWidget {
   final int selected;
   final int unread;
+  final bool hasUpdate;
   final TalerUserProfile? user;
   final bool powerSaving;
   final ValueChanged<int> onSelect;
@@ -394,6 +450,7 @@ class _Dock extends StatelessWidget {
   const _Dock({
     required this.selected,
     required this.unread,
+    this.hasUpdate = false,
     required this.user,
     required this.onSelect,
     this.powerSaving = false,
@@ -446,6 +503,7 @@ class _Dock extends StatelessWidget {
               label: 'Настройки',
               selected: selected == 2,
               onTap: () => onSelect(2),
+              badge: hasUpdate ? _UpdateDot(ring: solid) : null,
               icon: TalerIcon(
                 TalerIcons.settings,
                 size: 24,
@@ -530,7 +588,12 @@ class _DockItem extends StatelessWidget {
                   alignment: Alignment.center,
                   children: [
                     icon,
-                    if (b != null) Positioned(left: 16, top: -4, child: b),
+                    if (b != null)
+                      Positioned(
+                        left: 16,
+                        top: b is _UpdateDot ? 0 : -4,
+                        child: b,
+                      ),
                   ],
                 ),
               ),

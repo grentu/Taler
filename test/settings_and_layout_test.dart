@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taler/core/storage/app_preferences.dart';
 import 'package:taler/core/storage/local_store.dart';
 import 'package:taler/core/storage/taler_models.dart';
+import 'package:taler/core/version.dart';
 import 'package:taler/main.dart';
 import 'package:taler/ui/widgets/message_bubble.dart';
 
@@ -22,6 +23,7 @@ void main() {
       expect(prefs.showFolderBadges, isTrue);
       expect(prefs.showNotificationPreview, isTrue);
       expect(prefs.powerSavingMode, isFalse);
+      expect(prefs.autoCheckUpdates, isTrue);
       expect(prefs.languageLabel, 'Русский');
 
       await prefs.setThemeMode(ThemeMode.light);
@@ -32,6 +34,7 @@ void main() {
       await prefs.setShowFolderBadges(false);
       await prefs.setShowNotificationPreview(false);
       await prefs.setPowerSavingMode(true);
+      await prefs.setAutoCheckUpdates(false);
 
       final reloaded = AppPreferences();
       await reloaded.load();
@@ -43,6 +46,7 @@ void main() {
       expect(reloaded.showFolderBadges, isFalse);
       expect(reloaded.showNotificationPreview, isFalse);
       expect(reloaded.powerSavingMode, isTrue);
+      expect(reloaded.autoCheckUpdates, isFalse);
     });
 
     test('estimates cache stats and clears message cache without logging out', () async {
@@ -103,6 +107,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Настройки Taler'), findsOneWidget);
+    expect(find.text('Обновление Taler'), findsOneWidget);
     expect(find.text('Аккаунт'), findsOneWidget);
     expect(find.text('Настройки чатов'), findsOneWidget);
     expect(find.text('Конфиденциальность'), findsOneWidget);
@@ -148,12 +153,12 @@ void main() {
     await tester.pumpAndSettle();
 
     // Help section and footer appear on scroll.
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -350));
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -450));
     await tester.pumpAndSettle();
     expect(find.text('Помощь'), findsOneWidget);
     expect(find.text('Возможности Taler'), findsOneWidget);
     expect(find.text('Политика конфиденциальности'), findsOneWidget);
-    expect(find.text('Taler 1.2.10 (16)'), findsOneWidget);
+    expect(find.text(kTalerVersionLabel), findsOneWidget);
 
     // Switch back to Profile tab from bottom dock.
     await tester.tap(find.text('Профиль').last);

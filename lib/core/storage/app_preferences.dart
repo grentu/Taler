@@ -12,6 +12,7 @@ class AppPreferences extends ChangeNotifier {
   static const _kShowNotificationPreview = 'taler_pref_notif_preview';
   static const _kPowerSavingMode = 'taler_pref_power_saving';
   static const _kAutoDownloadMedia = 'taler_pref_auto_download_media';
+  static const _kAutoCheckUpdates = 'taler_pref_auto_check_updates';
 
   SharedPreferences? _prefs;
 
@@ -24,6 +25,7 @@ class AppPreferences extends ChangeNotifier {
   bool _showNotificationPreview = true;
   bool _powerSavingMode = false;
   bool _autoDownloadMedia = true;
+  bool _autoCheckUpdates = true;
 
   ThemeMode get themeMode => _themeMode;
   double get messageFontSize => _messageFontSize;
@@ -34,6 +36,7 @@ class AppPreferences extends ChangeNotifier {
   bool get showNotificationPreview => _showNotificationPreview;
   bool get powerSavingMode => _powerSavingMode;
   bool get autoDownloadMedia => _autoDownloadMedia;
+  bool get autoCheckUpdates => _autoCheckUpdates;
   String get languageLabel => 'Русский';
 
   Future<void> load([SharedPreferences? prefs]) async {
@@ -53,6 +56,7 @@ class AppPreferences extends ChangeNotifier {
     _showNotificationPreview = _prefs?.getBool(_kShowNotificationPreview) ?? true;
     _powerSavingMode = _prefs?.getBool(_kPowerSavingMode) ?? false;
     _autoDownloadMedia = _prefs?.getBool(_kAutoDownloadMedia) ?? true;
+    _autoCheckUpdates = _prefs?.getBool(_kAutoCheckUpdates) ?? true;
     notifyListeners();
   }
 
@@ -124,5 +128,12 @@ class AppPreferences extends ChangeNotifier {
     _autoDownloadMedia = value;
     notifyListeners();
     await _prefs?.setBool(_kAutoDownloadMedia, value);
+  }
+
+  Future<void> setAutoCheckUpdates(bool value) async {
+    if (_autoCheckUpdates == value) return;
+    _autoCheckUpdates = value;
+    notifyListeners();
+    await _prefs?.setBool(_kAutoCheckUpdates, value);
   }
 }
