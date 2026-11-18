@@ -5,6 +5,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'taler_models.dart';
 
+/// Снимок объёма локального кэша.
+class CacheStats {
+  final int chatsCount;
+  final int contactsCount;
+  final int messagesCount;
+  final int approxBytes;
+
+  const CacheStats({
+    required this.chatsCount,
+    required this.contactsCount,
+    required this.messagesCount,
+    required this.approxBytes,
+  });
+}
+
 /// Локальное хранилище аккаунта, кэша чатов/сообщений, Anti-Delete и истории правок.
 class LocalStore {
   static const _kAuthToken = 'taler_auth_token';
@@ -423,6 +438,94 @@ class LocalStore {
     for (final id in chatIds) {
       await _prefs?.remove(_msgKey(id));
     }
+  }
+
+  /// Оценивает размер локально сохранённого кэша чатов, контактов и сообщений.
+  CacheStats estimateCacheStats() {
+    var msgCount = 0;
+    var bytes = 0;
+
+    final chatsJson = _prefs?.getString(_kChats);
+    if (chatsJson != null) {
+      bytes += chatsJson.length * 2;
+    } else if (_chats.isNotEmpty) {
+      bytes += _chats.length * 320;
+    }
+
+    final contactsJson = _prefs?.getString(_kContacts);
+    if (contactsJson != null) {
+      bytes += contactsJson.length * 2;
+    } else if (_contacts.isNotEmpty) {
+      bytes += _contacts.length * 240;
+    }
+
+    final seenChatIds = <int>{};
+    if (_prefs != null) {
+      for (final key in _prefs!.getKeys()) {
+        if (key.startsWith('taler_messages_') && key.endsWith('_v1')) {
+          final raw = _prefs!.getString(key);
+          if (raw != null) {
+            bytes += raw.length * 2;
+          }
+          final idStr = key.substring(
+            'taler_messages_'.length,
+            key.length - '_v1'.length,
+          );
+          final chatId = int.tryParse(idStr);
+          if (chatId != null) {
+            seenChatIds.add(chatId);
+            msgCount += _messages[chatId]?.length ??
+                getMessages(chatId).length;
+          }
+        }
+      }
+    }
+    for (final entry in _messages.entries) {
+      if (!seenChatIds.contains(entry.key)) {
+        msgCount += entry.value.length;
+        bytes += entry.value.length * 280;
+      }
+    }
+
+    return CacheStats(
+      chatsCount: _chats.length,
+      contactsCount: _contacts.length,
+      messagesCount: msgCount,
+      approxBytes: bytes,
+    );
+  }
+
+  /// Очищает кэш сообщений с диска и из памяти, сохраняя токен входа, профиль и список чатов.
+  Future<int> clearMessageCache() async {
+    for (final t in _msgSaveTimers.values) {
+      t.cancel();
+    }
+    _msgSaveTimers.clear();
+
+    var removedMessages = 0;
+    for (final list in _messages.values) {
+      removedMessages += list.length;
+    }
+    _messages.clear();
+
+    if (_prefs != null) {
+      final msgKeys = _prefs!
+          .getKeys()
+          .where((k) => k.startsWith('taler_messages_') && k.endsWith('_v1'))
+          .toList();
+      for (final key in msgKeys) {
+        if (removedMessages == 0) {
+          final raw = _prefs!.getString(key);
+          if (raw != null && raw.isNotEmpty) {
+            try {
+              removedMessages += (jsonDecode(raw) as List).length;
+            } catch (_) {}
+          }
+        }
+        await _prefs!.remove(key);
+      }
+    }
+    return removedMessages;
   }
 
   /// Немедленно сбрасывает отложенные буферы чатов, контактов и сообщений на диск.

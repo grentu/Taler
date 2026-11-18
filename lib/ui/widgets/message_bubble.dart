@@ -48,6 +48,8 @@ class MessageRow extends StatelessWidget {
   final String? senderAvatarUrl;
   final double maxBubbleWidth;
   final int? peerReadMark;
+  final double messageFontSize;
+  final double bubbleRadius;
   final VoidCallback onActions;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
@@ -65,6 +67,8 @@ class MessageRow extends StatelessWidget {
     required this.onActions,
     required this.onToggleReaction,
     this.peerReadMark,
+    this.messageFontSize = 15.0,
+    this.bubbleRadius = 20.0,
     this.senderAvatarUrl,
     this.onShowHistory,
     this.onRetry,
@@ -89,6 +93,8 @@ class MessageRow extends StatelessWidget {
         senderName: senderName,
         maxWidth: maxBubbleWidth,
         peerReadMark: peerReadMark,
+        fontSize: messageFontSize,
+        cornerRadius: bubbleRadius,
         onShowHistory: onShowHistory,
         onRetry: onRetry,
       ),
@@ -204,6 +210,8 @@ class MessageBubble extends StatelessWidget {
   final String senderName;
   final double maxWidth;
   final int? peerReadMark;
+  final double fontSize;
+  final double cornerRadius;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
 
@@ -216,11 +224,12 @@ class MessageBubble extends StatelessWidget {
     required this.senderName,
     required this.maxWidth,
     this.peerReadMark,
+    this.fontSize = 15.0,
+    this.cornerRadius = 20.0,
     this.onShowHistory,
     this.onRetry,
   });
 
-  static const double _big = 20;
   static const double _small = 6;
 
   String? _resolvedStatus(TalerMessage m) {
@@ -239,17 +248,18 @@ class MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final m = message;
+    final big = cornerRadius;
     final radius = isMine
         ? BorderRadius.only(
-            topLeft: const Radius.circular(_big),
-            topRight: Radius.circular(firstInRun ? _big : _small),
+            topLeft: Radius.circular(big),
+            topRight: Radius.circular(firstInRun ? big : _small),
             bottomRight: const Radius.circular(_small),
-            bottomLeft: const Radius.circular(_big),
+            bottomLeft: Radius.circular(big),
           )
         : BorderRadius.only(
-            topLeft: Radius.circular(firstInRun ? _big : _small),
-            topRight: const Radius.circular(_big),
-            bottomRight: const Radius.circular(_big),
+            topLeft: Radius.circular(firstInRun ? big : _small),
+            topRight: Radius.circular(big),
+            bottomRight: Radius.circular(big),
             bottomLeft: const Radius.circular(_small),
           );
     final deleted = m.deletedByPeer;
@@ -359,7 +369,7 @@ class MessageBubble extends StatelessWidget {
                 // Невидимое место под время, чтобы оно встало в последнюю строку.
                 WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 6, height: 12)),
               ]),
-              style: TextStyle(fontSize: 15, height: 21 / 15, color: fg),
+              style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
             ),
           ),
           Positioned(right: 10, bottom: 5, child: meta),

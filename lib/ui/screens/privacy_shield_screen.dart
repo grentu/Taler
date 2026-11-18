@@ -107,9 +107,9 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
                     16,
+                    12,
                     16,
-                    16,
-                    widget.bottomInset + 12,
+                    widget.bottomInset + 16,
                   ),
                   child: Center(
                     child: ConstrainedBox(
@@ -272,7 +272,7 @@ class _PrivacyShieldScreenState extends State<PrivacyShieldScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            padding: const EdgeInsets.all(16),
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -361,7 +361,7 @@ class _PrivacySwitchRow extends StatelessWidget {
     return InkWell(
       onTap: () => onChanged(!value),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             TelegramIconBadge(icon: icon, color: badgeColor, size: 34),
@@ -418,7 +418,7 @@ class _PresetChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: TalerTheme.fastDuration,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? p.accent.withValues(alpha: 0.16) : p.bg3,
           borderRadius: BorderRadius.circular(10),

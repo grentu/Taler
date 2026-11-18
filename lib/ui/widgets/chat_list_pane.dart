@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
@@ -74,103 +76,110 @@ class _ChatListPaneState extends State<ChatListPane> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     final client = widget.client;
-    final filters = _filters();
-    final active = filters.firstWhere((f) => f.id == _filterId, orElse: () => filters.first);
-    final q = _query.toLowerCase();
-    final chats = client.chats.where((c) {
-      if (!active.test(c)) return false;
-      if (q.isEmpty) return true;
-      return c.title.toLowerCase().contains(q) || (c.lastMessageText ?? '').toLowerCase().contains(q);
-    }).toList();
-    final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
+    return ListenableBuilder(
+      listenable: client.appPreferences,
+      builder: (context, _) {
+        final prefs = client.appPreferences;
+        final filters = _filters();
+        final active = filters.firstWhere((f) => f.id == _filterId, orElse: () => filters.first);
+        final q = _query.toLowerCase();
+        final chats = client.chats.where((c) {
+          if (!active.test(c)) return false;
+          if (q.isEmpty) return true;
+          return c.title.toLowerCase().contains(q) || (c.lastMessageText ?? '').toLowerCase().contains(q);
+        }).toList();
+        final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
+        final hPad = widget.compact ? 16.0 : 12.0;
 
-    return Container(
-      color: widget.compact ? p.settingsBg : p.bg2,
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: widget.compact ? 60 : 56,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
+        return Container(
+          color: widget.compact ? p.settingsBg : p.bg2,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: widget.compact ? 56 : 54,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: hPad),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
                       child: Text(
                         online ? 'Чаты' : 'Подключение…',
                         style: TextStyle(
-                          fontSize: widget.compact ? 28 : 18,
+                          fontSize: widget.compact ? 26 : 18,
                           fontWeight: FontWeight.w600,
-                          letterSpacing: widget.compact ? -0.5 : -0.2,
+                          letterSpacing: widget.compact ? -0.4 : -0.2,
                           color: p.fg,
                         ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(widget.compact ? 16 : 12, 0, widget.compact ? 16 : 12, 12),
-              child: _SearchField(
-                controller: _searchCtrl,
-                focusNode: _searchFocus,
-                onChanged: (v) => setState(() => _query = v.trim()),
-                onClear: () {
-                  _searchCtrl.clear();
-                  setState(() => _query = '');
-                  _searchFocus.unfocus();
-                },
-              ),
-            ),
-            _FolderTabs(
-              filters: filters,
-              activeId: active.id,
-              horizontalPadding: widget.compact ? 16 : 12,
-              unreadIn: (f) => client.chats.where((c) => f.test(c) && c.unreadCount > 0 && !c.isMuted).length,
-              onSelect: (id) {
-                _searchFocus.unfocus();
-                setState(() => _filterId = id);
-              },
-            ),
-            Expanded(
-              child: chats.isEmpty
-                  ? Center(
-                      child: Text(
-                        q.isEmpty ? 'Здесь пока нет чатов' : 'Ничего не найдено',
-                        style: TextStyle(fontSize: 14, color: p.fg3),
-                      ),
-                    )
-                  : ListView.builder(
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.fromLTRB(
-                        widget.compact ? 0 : 6,
-                        6,
-                        widget.compact ? 0 : 6,
-                        8 + widget.bottomInset,
-                      ),
-                      itemCount: chats.length,
-                      itemBuilder: (context, i) {
-                        final chat = chats[i];
-                        return ChatRow(
-                          client: client,
-                          chat: chat,
-                          compact: widget.compact,
-                          selected: !widget.compact && chat.id == widget.selectedChatId,
-                          onTap: () {
-                            _searchFocus.unfocus();
-                            FocusManager.instance.primaryFocus?.unfocus();
-                            widget.onOpen(chat);
+                Padding(
+                  padding: EdgeInsets.fromLTRB(hPad, 2, hPad, 10),
+                  child: _SearchField(
+                    controller: _searchCtrl,
+                    focusNode: _searchFocus,
+                    onChanged: (v) => setState(() => _query = v.trim()),
+                    onClear: () {
+                      _searchCtrl.clear();
+                      setState(() => _query = '');
+                      _searchFocus.unfocus();
+                    },
+                  ),
+                ),
+                _FolderTabs(
+                  filters: filters,
+                  activeId: active.id,
+                  horizontalPadding: hPad,
+                  unreadIn: (f) => prefs.showFolderBadges
+                      ? client.chats.where((c) => f.test(c) && c.unreadCount > 0 && !c.isMuted).length
+                      : 0,
+                  onSelect: (id) {
+                    _searchFocus.unfocus();
+                    setState(() => _filterId = id);
+                  },
+                ),
+                Expanded(
+                  child: chats.isEmpty
+                      ? Center(
+                          child: Text(
+                            q.isEmpty ? 'Здесь пока нет чатов' : 'Ничего не найдено',
+                            style: TextStyle(fontSize: 14, color: p.fg3),
+                          ),
+                        )
+                      : ListView.builder(
+                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: EdgeInsets.fromLTRB(
+                            widget.compact ? 0 : 8,
+                            6,
+                            widget.compact ? 0 : 8,
+                            8 + widget.bottomInset,
+                          ),
+                          itemCount: chats.length,
+                          itemBuilder: (context, i) {
+                            final chat = chats[i];
+                            return ChatRow(
+                              client: client,
+                              chat: chat,
+                              compact: widget.compact,
+                              compactDensity: prefs.compactChatList,
+                              selected: !widget.compact && chat.id == widget.selectedChatId,
+                              onTap: () {
+                                _searchFocus.unfocus();
+                                FocusManager.instance.primaryFocus?.unfocus();
+                                widget.onOpen(chat);
+                              },
+                            );
                           },
-                        );
-                      },
-                    ),
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -268,15 +277,18 @@ class _FolderTabs extends StatelessWidget {
           onTap: () => onSelect(f.id),
         ),
     ];
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
+    final sideInset = math.max(0.0, horizontalPadding - 10.0);
+    return DecoratedBox(
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: tabs.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 4),
-        itemBuilder: (_, index) => tabs[index],
+      child: SizedBox(
+        height: 40,
+        child: ListView.separated(
+          padding: EdgeInsets.symmetric(horizontal: sideInset),
+          scrollDirection: Axis.horizontal,
+          itemCount: tabs.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 4),
+          itemBuilder: (_, index) => tabs[index],
+        ),
       ),
     );
   }
@@ -299,7 +311,7 @@ class _FolderTab extends StatelessWidget {
       child: Stack(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Center(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -362,6 +374,7 @@ class ChatRow extends StatelessWidget {
   final TalerClient client;
   final TalerChat chat;
   final bool compact;
+  final bool compactDensity;
   final bool selected;
   final VoidCallback onTap;
 
@@ -372,6 +385,7 @@ class ChatRow extends StatelessWidget {
     required this.compact,
     required this.selected,
     required this.onTap,
+    this.compactDensity = false,
   });
 
   @override
@@ -381,6 +395,9 @@ class ChatRow extends StatelessWidget {
     final avatarUrl = chat.avatarUrl ?? peer?.avatarUrl;
     final hasUnread = chat.unreadCount > 0;
     final timeColor = hasUnread && !chat.isMuted ? p.accent : p.fg3;
+    final avatarSize = compact ? (compactDensity ? 44.0 : 52.0) : (compactDensity ? 42.0 : 48.0);
+    final vPad = compact ? (compactDensity ? 7.0 : 10.0) : (compactDensity ? 6.0 : 8.0);
+    final dividerIndent = 16.0 + avatarSize + 12.0;
 
     final content = Row(
       children: [
@@ -388,18 +405,15 @@ class ChatRow extends StatelessWidget {
           seedId: chat.peerId ?? chat.id,
           initials: chat.initials,
           imageUrl: avatarUrl,
-          size: compact ? 52 : 48,
+          size: avatarSize,
           isOnline: chat.isDialog && chat.isOnline,
           onlineBorderColor: selected ? p.bg3 : p.bg2,
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Container(
-            padding: compact ? const EdgeInsets.only(top: 2, bottom: 10) : EdgeInsets.zero,
-            decoration: compact ? BoxDecoration(border: Border(bottom: BorderSide(color: p.line))) : null,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                 Row(
                   children: [
                     Expanded(
@@ -468,27 +482,41 @@ class ChatRow extends StatelessWidget {
                 ),
               ],
             ),
-          ),
         ),
       ],
     );
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: compact ? 0 : 2),
-      child: Material(
-        color: selected ? ChatTokens.active(p) : Colors.transparent,
-        borderRadius: BorderRadius.circular(compact ? 0 : 12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          hoverColor: ChatTokens.hover(p),
-          splashFactory: NoSplash.splashFactory,
-          child: Padding(
-            padding: compact ? const EdgeInsets.fromLTRB(16, 8, 16, 0) : const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: content,
-          ),
+    final row = Material(
+      color: selected ? ChatTokens.active(p) : Colors.transparent,
+      borderRadius: BorderRadius.circular(compact ? 0 : 12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: ChatTokens.hover(p),
+        splashFactory: NoSplash.splashFactory,
+        child: Padding(
+          padding: compact
+              ? EdgeInsets.fromLTRB(16, vPad, 16, vPad)
+              : EdgeInsets.fromLTRB(10, vPad, 10, vPad),
+          child: content,
         ),
       ),
+    );
+
+    if (!compact) {
+      return Padding(padding: const EdgeInsets.only(bottom: 2), child: row);
+    }
+
+    return Stack(
+      children: [
+        row,
+        Positioned(
+          left: dividerIndent,
+          right: 16,
+          bottom: 0,
+          child: Divider(height: 1, thickness: 1, color: p.line),
+        ),
+      ],
     );
   }
 }

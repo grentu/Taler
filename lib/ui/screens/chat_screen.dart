@@ -335,8 +335,13 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     return ListenableBuilder(
-      listenable: Listenable.merge([widget.client, widget.client.privacySettings]),
+      listenable: Listenable.merge([
+        widget.client,
+        widget.client.privacySettings,
+        widget.client.appPreferences,
+      ]),
       builder: (context, _) {
+        final prefs = widget.client.appPreferences;
         final chat = widget.client.store.chats[widget.chat.id] ?? widget.chat;
         final all = widget.client.messagesForChat(widget.chat.id);
         final q = _query.toLowerCase();
@@ -344,17 +349,27 @@ class _ChatScreenState extends State<ChatScreen> {
         final canDock = !_mobile && MediaQuery.sizeOf(context).width >= 1100;
         final mediaPad = MediaQuery.paddingOf(context);
         final topInset = _mobile
-            ? (mediaPad.top + 60.0 + (_showSearch ? 52.0 : 0.0))
+            ? (mediaPad.top + 60.0 + (_showSearch ? 50.0 : 0.0))
             : (60.0 + (_showSearch ? 53.0 : 0.0));
         final fallbackBottom = (_mobile ? 62.0 + mediaPad.bottom : 74.0) +
             ((_replyingTo != null || _editingMessage != null) ? 54.0 : 0.0);
         final bottomInset = _measuredBottomHeight ?? fallbackBottom;
-        final glassBg = p.bg2.withValues(alpha: p.isDark ? 0.78 : 0.84);
+        final glassBg = p.bg2.withValues(
+          alpha: prefs.powerSavingMode ? 0.96 : (p.isDark ? 0.78 : 0.84),
+        );
         final bottomGlassBg = ChatTokens.chatBackground(p).withValues(
-          alpha: p.isDark ? 0.78 : 0.86,
+          alpha: prefs.powerSavingMode ? 0.96 : (p.isDark ? 0.78 : 0.86),
         );
 
         _syncBottomHeight();
+
+        final Widget desktopTopBar = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _header(p, chat, canDock),
+            if (_showSearch) _searchBar(p),
+          ],
+        );
 
         final Widget topOverlay = _mobile
             ? Container(
@@ -376,21 +391,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               )
-            : ClipRect(
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: ColoredBox(
-                    color: glassBg,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _header(p, chat, canDock),
-                        if (_showSearch) _searchBar(p),
-                      ],
+            : prefs.powerSavingMode
+                ? ColoredBox(color: glassBg, child: desktopTopBar)
+                : ClipRect(
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: ColoredBox(color: glassBg, child: desktopTopBar),
                     ),
-                  ),
-                ),
-              );
+                  );
+
+        final Widget desktopBottomBar = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
+            _composer(p),
+          ],
+        );
 
         final Widget bottomOverlay = _mobile
             ? Container(
@@ -407,7 +423,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: SafeArea(
                   top: false,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -421,21 +437,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               )
-            : ClipRect(
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: ColoredBox(
-                    color: bottomGlassBg,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
-                        _composer(p),
-                      ],
+            : prefs.powerSavingMode
+                ? ColoredBox(color: bottomGlassBg, child: desktopBottomBar)
+                : ClipRect(
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: ColoredBox(color: bottomGlassBg, child: desktopBottomBar),
                     ),
-                  ),
-                ),
-              );
+                  );
 
         final stack = Stack(
           children: [
@@ -468,6 +477,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
         final center = TelegramChatBackground(
           baseColor: ChatTokens.chatBackground(p),
+          showPattern: prefs.showChatWallpaper && !prefs.powerSavingMode,
           child: stack,
         );
         final wrapped = _mobile
@@ -535,7 +545,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         child: Row(
           children: [
             _glassPill(
@@ -667,7 +677,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _mobileFloatingSearchBar(TalerPalette p) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: _glassPill(
         p,
         child: SizedBox(
@@ -775,6 +785,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _mobileComposer(TalerPalette p) {
+    final fontSize = widget.client.appPreferences.messageFontSize;
     final textField = TextField(
       controller: _inputCtrl,
       focusNode: _inputFocus,
@@ -783,13 +794,13 @@ class _ChatScreenState extends State<ChatScreen> {
       maxLines: 6,
       textCapitalization: TextCapitalization.sentences,
       keyboardType: TextInputType.multiline,
-      style: TextStyle(fontSize: 15, color: p.fg),
+      style: TextStyle(fontSize: fontSize, color: p.fg),
       decoration: InputDecoration(
         hintText: 'Сообщение',
-        hintStyle: TextStyle(fontSize: 15, color: p.fg3),
+        hintStyle: TextStyle(fontSize: fontSize, color: p.fg3),
         isDense: true,
         filled: false,
-        contentPadding: const EdgeInsets.symmetric(vertical: 11),
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
@@ -801,26 +812,29 @@ class _ChatScreenState extends State<ChatScreen> {
         Expanded(
           child: _glassPill(
             p,
-            radius: 24,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(child: textField),
-                  const SizedBox(width: 4),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: TalerIconButton(
-                      icon: TalerIcons.paperclip,
-                      tooltip: 'Прикрепить файл',
-                      size: 38,
-                      iconSize: 20,
-                      color: p.fg2,
-                      onPressed: _pickAttachment,
+            radius: 22,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(child: textField),
+                    const SizedBox(width: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: TalerIconButton(
+                        icon: TalerIcons.paperclip,
+                        tooltip: 'Прикрепить файл',
+                        size: 38,
+                        iconSize: 20,
+                        color: p.fg2,
+                        onPressed: _pickAttachment,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -830,8 +844,8 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: _editingMessage != null ? TalerIcons.check : TalerIcons.send,
           tooltip: _editingMessage != null ? 'Сохранить' : 'Отправить',
           circle: true,
-          size: 46,
-          iconSize: 20,
+          size: 44,
+          iconSize: 19,
           color: Colors.white,
           backgroundColor: p.accent,
           onPressed: _send,
@@ -850,7 +864,7 @@ class _ChatScreenState extends State<ChatScreen> {
       top: _mobile,
       child: Container(
         height: _mobile ? 56 : 60,
-        padding: EdgeInsets.only(left: _mobile ? 4 : 20, right: 12),
+        padding: EdgeInsets.only(left: _mobile ? 8 : 20, right: 16),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
           child: Row(
             children: [
@@ -1000,18 +1014,19 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     final myId = widget.client.currentUser?.id ?? 1;
+    final prefs = widget.client.appPreferences;
     final entries = _entries(messages);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final side = _mobile ? 10.0 : math.max(24.0, (width - 760) / 2);
+        final side = _mobile ? 12.0 : math.max(20.0, (width - 760) / 2);
         final content = width - side * 2;
         final maxBubble = content * (_mobile ? 0.82 : 0.68);
         return ListView.builder(
           controller: _scrollCtrl,
           reverse: true,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(side, topInset + 12, side, bottomInset + 10),
+          padding: EdgeInsets.fromLTRB(side, topInset + 10, side, bottomInset + 10),
           itemCount: entries.length,
           itemBuilder: (context, index) {
             final e = entries[entries.length - 1 - index];
@@ -1034,6 +1049,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 group && !isMine ? maxBubble - 44 : maxBubble,
               ),
               peerReadMark: chat.peerReadMark,
+              messageFontSize: prefs.messageFontSize,
+              bubbleRadius: prefs.bubbleRadius,
               onActions: () => _showMessageActions(m, isMine),
               onShowHistory: m.isEdited ? () => _showEditHistory(m) : null,
               onRetry: m.status == 'error' ? () => _retryMessage(m) : null,
@@ -1164,7 +1181,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     return Container(
       decoration: _mobile ? BoxDecoration(border: Border(top: BorderSide(color: p.line))) : null,
-      padding: _mobile ? const EdgeInsets.fromLTRB(8, 6, 8, 8) : const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      padding: _mobile ? const EdgeInsets.fromLTRB(12, 6, 12, 8) : const EdgeInsets.fromLTRB(20, 4, 20, 16),
       child: SafeArea(
         top: false,
         child: Center(

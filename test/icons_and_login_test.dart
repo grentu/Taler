@@ -8,7 +8,7 @@ import 'package:taler/ui/icons/taler_icon.dart';
 void main() {
   group('TalerIcons', () {
     test('every icon has layers and draws inside the 24x24 box', () {
-      expect(TalerIcons.values.length, greaterThanOrEqualTo(67));
+      expect(TalerIcons.values.length, greaterThanOrEqualTo(75));
       for (final icon in TalerIcons.values) {
         expect(icon.layers, isNotEmpty, reason: icon.name);
         expect(icon.layerPaths.length, icon.layers.length, reason: icon.name);

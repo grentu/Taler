@@ -10,6 +10,7 @@ import '../core/privacy/spoofing_service.dart';
 import '../core/protocol/fingerprint.dart';
 import '../core/protocol/opcode.dart';
 import '../core/protocol/packet.dart';
+import '../core/storage/app_preferences.dart';
 import '../core/storage/local_store.dart';
 import '../core/storage/taler_models.dart';
 import '../core/transport/taler_session.dart';
@@ -55,6 +56,7 @@ class TalerClient extends ChangeNotifier {
   final SpoofingService spoofingService;
   final WireAuditLog auditLog;
   final LocalStore store;
+  final AppPreferences appPreferences;
 
   late final PrivacyFirewall firewall;
   late final TalerSession session;
@@ -86,7 +88,8 @@ class TalerClient extends ChangeNotifier {
     required this.spoofingService,
     required this.auditLog,
     required this.store,
-  }) {
+    AppPreferences? appPreferences,
+  }) : appPreferences = appPreferences ?? AppPreferences() {
     firewall = PrivacyFirewall(
       settings: privacySettings,
       auditLog: auditLog,
@@ -310,6 +313,7 @@ class TalerClient extends ChangeNotifier {
   Future<void> initialize() async {
     await privacySettings.load();
     await spoofingService.load();
+    await appPreferences.load();
     await store.init();
 
     final savedToken = store.authToken;
@@ -1782,6 +1786,15 @@ class TalerClient extends ChangeNotifier {
     if (!session.isOnline) return;
     await session.request(Opcode.sessionsClose, {});
     await fetchActiveSessions();
+  }
+
+  /// Очищает локальный кэш сообщений, сохраняя авторизацию и список чатов.
+  Future<int> clearMessageCache() async {
+    final removed = await store.clearMessageCache();
+    _chatHasMore.clear();
+    _loadingMoreChats.clear();
+    notifyListeners();
+    return removed;
   }
 
   /// Пробная отправка телеметрии через [PrivacyFirewall] для демонстрации

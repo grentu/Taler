@@ -565,11 +565,13 @@ class TalerStatusDot extends StatelessWidget {
 class TelegramChatBackground extends StatelessWidget {
   final Color baseColor;
   final Widget child;
+  final bool showPattern;
 
   const TelegramChatBackground({
     super.key,
     required this.baseColor,
     required this.child,
+    this.showPattern = true,
   });
 
   @override
@@ -582,11 +584,12 @@ class TelegramChatBackground extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         ColoredBox(color: baseColor),
-        Positioned.fill(
-          child: RepaintBoundary(
-            child: CustomPaint(painter: _ChatDoodlePainter(stroke)),
+        if (showPattern)
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(painter: _ChatDoodlePainter(stroke)),
+            ),
           ),
-        ),
         child,
       ],
     );
@@ -1073,7 +1076,7 @@ class TalerTableShell extends StatelessWidget {
       children: [
         if (hasHeader)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Row(
               children: [
                 if (titleLeading != null) ...[
@@ -1085,9 +1088,9 @@ class TalerTableShell extends StatelessWidget {
                     child: Text(
                       title!,
                       style: TextStyle(
-                        fontSize: 12.5,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w600,
-                        color: p.fg3,
+                        color: p.fg2,
                       ),
                     ),
                   )

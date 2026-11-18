@@ -29,7 +29,6 @@ class TalerApp extends StatefulWidget {
 class _TalerAppState extends State<TalerApp> with WidgetsBindingObserver {
   late final TalerClient _client;
   late final bool _ownsClient;
-  ThemeMode _themeMode = ThemeMode.dark;
   bool _initialized = false;
 
   @override
@@ -77,30 +76,36 @@ class _TalerAppState extends State<TalerApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Taler',
-      debugShowCheckedModeBanner: false,
-      theme: TalerTheme.light(),
-      darkTheme: TalerTheme.dark(),
-      themeMode: _themeMode,
-      home: !_initialized
-          ? const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            )
-          : ListenableBuilder(
-              listenable: _client,
-              builder: (context, _) {
-                if (!_client.isAuthenticated) {
-                  return AuthScreen(client: _client);
-                }
-                return HomeScreen(
-                  client: _client,
-                  themeMode: _themeMode,
-                  onThemeModeChanged: (next) =>
-                      setState(() => _themeMode = next),
-                );
-              },
-            ),
+    return ListenableBuilder(
+      listenable: _client.appPreferences,
+      builder: (context, _) {
+        final themeMode = _client.appPreferences.themeMode;
+        return MaterialApp(
+          title: 'Taler',
+          debugShowCheckedModeBanner: false,
+          theme: TalerTheme.light(),
+          darkTheme: TalerTheme.dark(),
+          themeMode: themeMode,
+          home: !_initialized
+              ? const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                )
+              : ListenableBuilder(
+                  listenable: _client,
+                  builder: (context, _) {
+                    if (!_client.isAuthenticated) {
+                      return AuthScreen(client: _client);
+                    }
+                    return HomeScreen(
+                      client: _client,
+                      themeMode: themeMode,
+                      onThemeModeChanged: (next) =>
+                          unawaited(_client.appPreferences.setThemeMode(next)),
+                    );
+                  },
+                ),
+        );
+      },
     );
   }
 }

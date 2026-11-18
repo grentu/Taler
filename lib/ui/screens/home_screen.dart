@@ -14,6 +14,7 @@ import '../widgets/message_bubble.dart';
 import 'chat_screen.dart';
 import 'privacy_shield_screen.dart';
 import 'profile_settings_screen.dart';
+import 'settings_screen.dart';
 
 /// Главный экран. Компьютер: узкое меню слева, список чатов, переписка и профиль.
 /// Телефон: список чатов на весь экран и плавающее меню-островок снизу.
@@ -92,10 +93,20 @@ class _HomeScreenState extends State<HomeScreen> {
         final wide = MediaQuery.sizeOf(context).width >= 900;
         final unread = client.chats.where((c) => c.unreadCount > 0 && !c.isMuted).length;
         final online = client.isDemoMode || client.connectionState == TalerConnectionState.online;
-        final settings = ProfileSettingsScreen(
+        final settings = SettingsScreen(
           client: client,
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
+          onOpenShield: () => _selectTab(1),
+          onOpenProfile: () => _selectTab(3),
+          bottomInset: wide ? 24 : _dockSpace,
+        );
+        final profile = ProfileSettingsScreen(
+          client: client,
+          themeMode: widget.themeMode,
+          onThemeModeChanged: widget.onThemeModeChanged,
+          onOpenSettings: () => _selectTab(2),
+          bottomInset: wide ? 24 : _dockSpace,
         );
 
         if (wide) {
@@ -116,8 +127,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: switch (_tab) {
                     0 => _desktopChats(p),
-                    1 => PrivacyShieldScreen(client: client),
-                    _ => settings,
+                    1 => PrivacyShieldScreen(client: client, bottomInset: 24),
+                    2 => settings,
+                    _ => profile,
                   },
                 ),
               ],
@@ -127,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final bottom = MediaQuery.paddingOf(context).bottom;
         final keyboard = MediaQuery.viewInsetsOf(context).bottom;
-        final listBottomInset = math.max(_dockSpace, keyboard + 12);
+        final listBottomInset = math.max(_dockSpace + bottom, keyboard + 12);
         return Focus(
           focusNode: _rootFocus,
           child: Scaffold(
@@ -147,10 +159,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         client: client,
                         bottomInset: _dockSpace + bottom,
                       ),
+                    2 => SettingsScreen(
+                        client: client,
+                        themeMode: widget.themeMode,
+                        onThemeModeChanged: widget.onThemeModeChanged,
+                        onOpenShield: () => _selectTab(1),
+                        onOpenProfile: () => _selectTab(3),
+                        bottomInset: _dockSpace + bottom,
+                      ),
                     _ => ProfileSettingsScreen(
                         client: client,
                         themeMode: widget.themeMode,
                         onThemeModeChanged: widget.onThemeModeChanged,
+                        onOpenSettings: () => _selectTab(2),
                         bottomInset: _dockSpace + bottom,
                       ),
                   },
@@ -159,11 +180,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   left: 12,
                   right: 12,
                   bottom: 12 + bottom,
-                  child: _Dock(
-                    selected: _tab,
-                    unread: unread,
-                    user: client.currentUser,
-                    onSelect: _selectTab,
+                  child: ListenableBuilder(
+                    listenable: client.appPreferences,
+                    builder: (context, _) => _Dock(
+                      selected: _tab,
+                      unread: unread,
+                      user: client.currentUser,
+                      powerSaving: client.appPreferences.powerSavingMode,
+                      onSelect: _selectTab,
+                    ),
                   ),
                 ),
               ],
@@ -247,6 +272,7 @@ class _Rail extends StatelessWidget {
           _RailButton(icon: selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
           _RailButton(icon: selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
           _RailButton(icon: TalerIcons.settings, label: 'Настройки', selected: selected == 2, onTap: () => onSelect(2)),
+          _RailButton(icon: TalerIcons.user, label: 'Профиль', selected: selected == 3, onTap: () => onSelect(3)),
           const Spacer(),
           _RailButton(
             icon: isDark ? TalerIcons.sun : TalerIcons.moon,
@@ -255,13 +281,20 @@ class _Rail extends StatelessWidget {
           ),
           _RailButton(icon: TalerIcons.logOut, label: 'Выйти', onTap: onLogout),
           const SizedBox(height: 8),
-          TalerAvatar(
-            seedId: user?.id ?? 0,
-            initials: user?.initials ?? 'T',
-            imageUrl: user?.avatarUrl,
-            size: 36,
-            isOnline: online,
-            onlineBorderColor: p.settingsBg,
+          Tooltip(
+            message: 'Профиль',
+            child: InkWell(
+              onTap: () => onSelect(3),
+              borderRadius: BorderRadius.circular(999),
+              child: TalerAvatar(
+                seedId: user?.id ?? 0,
+                initials: user?.initials ?? 'T',
+                imageUrl: user?.avatarUrl,
+                size: 36,
+                isOnline: online,
+                onlineBorderColor: p.settingsBg,
+              ),
+            ),
           ),
         ],
       ),
@@ -355,16 +388,98 @@ class _Dock extends StatelessWidget {
   final int selected;
   final int unread;
   final TalerUserProfile? user;
+  final bool powerSaving;
   final ValueChanged<int> onSelect;
 
-  const _Dock({required this.selected, required this.unread, required this.user, required this.onSelect});
+  const _Dock({
+    required this.selected,
+    required this.unread,
+    required this.user,
+    required this.onSelect,
+    this.powerSaving = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
-    final glass = p.isDark ? const Color(0xE618181A) : const Color(0xC7FAFAFA);
+    final glass = p.isDark
+        ? Color(powerSaving ? 0xF718181A : 0xE618181A)
+        : Color(powerSaving ? 0xF7FAFAFA : 0xC7FAFAFA);
     final solid = p.isDark ? const Color(0xFF18181A) : const Color(0xFFF4F4F5);
     final border = p.isDark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.07);
+    final inner = Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: glass,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _DockItem(
+              label: 'Чаты',
+              selected: selected == 0,
+              onTap: () => onSelect(0),
+              badge: unread > 0 ? _Badge(count: unread, ring: solid) : null,
+              icon: TalerIcon(
+                selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle,
+                size: 24,
+                color: selected == 0 ? p.accent : p.fg,
+              ),
+            ),
+          ),
+          Expanded(
+            child: _DockItem(
+              label: 'Защита',
+              selected: selected == 1,
+              onTap: () => onSelect(1),
+              icon: TalerIcon(
+                selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield,
+                size: 24,
+                color: selected == 1 ? p.accent : p.fg,
+              ),
+            ),
+          ),
+          Expanded(
+            child: _DockItem(
+              label: 'Настройки',
+              selected: selected == 2,
+              onTap: () => onSelect(2),
+              icon: TalerIcon(
+                TalerIcons.settings,
+                size: 24,
+                color: selected == 2 ? p.accent : p.fg,
+              ),
+            ),
+          ),
+          Expanded(
+            child: _DockItem(
+              label: 'Профиль',
+              selected: selected == 3,
+              onTap: () => onSelect(3),
+              icon: Container(
+                padding: const EdgeInsets.all(1.5),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected == 3 ? p.accent : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: TalerAvatar(
+                  seedId: user?.id ?? 0,
+                  initials: user?.initials ?? 'T',
+                  imageUrl: user?.avatarUrl,
+                  size: 22,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
@@ -372,58 +487,12 @@ class _Dock extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: glass,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _DockItem(
-                    label: 'Чаты',
-                    selected: selected == 0,
-                    onTap: () => onSelect(0),
-                    badge: unread > 0 ? _Badge(count: unread, ring: solid) : null,
-                    icon: TalerIcon(selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, size: 25, color: selected == 0 ? p.accent : p.fg),
-                  ),
-                ),
-                Expanded(
-                  child: _DockItem(
-                    label: 'Защита',
-                    selected: selected == 1,
-                    onTap: () => onSelect(1),
-                    icon: TalerIcon(selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, size: 25, color: selected == 1 ? p.accent : p.fg),
-                  ),
-                ),
-                Expanded(
-                  child: _DockItem(
-                    label: 'Профиль',
-                    selected: selected == 2,
-                    onTap: () => onSelect(2),
-                    icon: Container(
-                      padding: const EdgeInsets.all(1.5),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: selected == 2 ? p.accent : Colors.transparent, width: 1.5),
-                      ),
-                      child: TalerAvatar(
-                        seedId: user?.id ?? 0,
-                        initials: user?.initials ?? 'T',
-                        imageUrl: user?.avatarUrl,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+        child: powerSaving
+            ? inner
+            : BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: inner,
+              ),
       ),
     );
   }
@@ -468,7 +537,10 @@ class _DockItem extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 label,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: selected ? p.accent : p.fg),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade,
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: selected ? p.accent : p.fg),
               ),
             ],
           ),
