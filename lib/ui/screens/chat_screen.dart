@@ -13,6 +13,7 @@ import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
 import '../widgets/chat_info_panel.dart';
+import '../widgets/message_actions_overlay.dart';
 import '../widgets/message_bubble.dart';
 
 /// Открытый диалог, группа или канал. На широком экране справа — профиль.
@@ -1035,6 +1036,11 @@ class _ChatScreenState extends State<ChatScreen> {
             final m = e.message!;
             final isMine = m.senderId == myId;
             final group = chat.isGroup;
+            final senderName = widget.client.senderDisplayName(m.senderId, chatId: chat.id);
+            final rowMaxBubble = math.max(
+              120.0,
+              group && !isMine ? maxBubble - 44 : maxBubble,
+            );
             return MessageRow(
               key: ValueKey(m.id),
               message: m,
@@ -1042,16 +1048,22 @@ class _ChatScreenState extends State<ChatScreen> {
               firstInRun: e.first,
               lastInRun: e.last,
               showSender: group && !isMine,
-              senderName: widget.client.senderDisplayName(m.senderId, chatId: chat.id),
+              senderName: senderName,
               senderAvatarUrl: widget.client.contactById(m.senderId)?.avatarUrl,
-              maxBubbleWidth: math.max(
-                120.0,
-                group && !isMine ? maxBubble - 44 : maxBubble,
-              ),
+              maxBubbleWidth: rowMaxBubble,
               peerReadMark: chat.peerReadMark,
               messageFontSize: prefs.messageFontSize,
               bubbleRadius: prefs.bubbleRadius,
-              onActions: () => _showMessageActions(m, isMine),
+              onBubbleActions: (rect) => _showMessageActions(
+                m,
+                isMine,
+                anchorRect: rect,
+                firstInRun: e.first,
+                showName: group && !isMine,
+                senderName: senderName,
+                maxBubbleWidth: rowMaxBubble,
+                peerReadMark: chat.peerReadMark,
+              ),
               onShowHistory: m.isEdited ? () => _showEditHistory(m) : null,
               onRetry: m.status == 'error' ? () => _retryMessage(m) : null,
               onToggleReaction: (emoji) => _toggleReaction(m, emoji),
@@ -1194,123 +1206,115 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showMessageActions(TalerMessage msg, bool isMine) {
-    const quick = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) {
-        final p = TalerTheme.paletteOf(ctx);
-        Widget action(TalerIconData icon, String label, VoidCallback onTap, {Color? color}) {
-          return InkWell(
-            onTap: () {
-              Navigator.of(ctx).pop();
-              onTap();
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  TalerIcon(icon, size: 20, color: color ?? p.fg2),
-                  const SizedBox(width: 16),
-                  Text(label, style: TextStyle(fontSize: 15, color: color ?? p.fg)),
-                ],
-              ),
-            ),
-          );
-        }
+  void _showMessageActions(
+    TalerMessage msg,
+    bool isMine, {
+    Rect? anchorRect,
+    required bool firstInRun,
+    required bool showName,
+    required String senderName,
+    required double maxBubbleWidth,
+    int? peerReadMark,
+  }) {
+    HapticFeedback.mediumImpact();
+    final p = TalerTheme.paletteOf(context);
+    final prefs = widget.client.appPreferences;
 
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(top: 10, bottom: 12),
-                decoration: BoxDecoration(color: p.fg4, borderRadius: BorderRadius.circular(999)),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    for (final emoji in quick)
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(ctx).pop();
-                          _toggleReaction(msg, emoji);
-                        },
-                        child: Container(
-                          width: 44,
-                          height: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(color: p.bg3, shape: BoxShape.circle),
-                          child: Text(emoji, style: const TextStyle(fontSize: 20)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Divider(height: 1, color: p.line),
-              if (isMine && msg.status == 'error')
-                action(
-                  TalerIcons.refresh,
-                  'Повторить отправку',
-                  () => _retryMessage(msg),
-                  color: p.accent,
-                ),
-              action(TalerIcons.reply, 'Ответить', () {
-                setState(() {
-                  _editingMessage = null;
-                  _replyingTo = msg;
-                });
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _inputFocus.requestFocus();
-                });
-              }),
-              if (msg.text.isNotEmpty)
-                action(TalerIcons.copy, 'Копировать текст', () => Clipboard.setData(ClipboardData(text: msg.text))),
-              if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
-                action(TalerIcons.pencil, 'Изменить', () {
-                  setState(() {
-                    _replyingTo = null;
-                    _editingMessage = msg;
-                    _inputCtrl.text = msg.text;
-                    _inputCtrl.selection = TextSelection.collapsed(
-                      offset: _inputCtrl.text.length,
-                    );
-                  });
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _inputFocus.requestFocus();
-                  });
-                }),
-              if (msg.isEdited) action(TalerIcons.history, 'История правок', () => _showEditHistory(msg)),
-              if (widget.client.isDemoMode && !msg.deletedByPeer)
-                action(
-                  TalerIcons.shield,
-                  'Симулировать удаление собеседником',
-                  () => widget.client.simulatePeerDeleteInDemo(widget.chat.id, msg.id),
-                  color: p.warning,
-                ),
-              if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
-                action(
-                  TalerIcons.trash,
-                  'Удалить у всех',
-                  () => _deleteMessage(msg, forEveryone: true),
-                  color: p.danger,
-                ),
-              action(
-                TalerIcons.trash,
-                'Удалить у себя',
-                () => _deleteMessage(msg, forEveryone: false),
-                color: p.danger,
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
+    final actions = <TalerMessageAction>[
+      if (isMine && msg.status == 'error')
+        TalerMessageAction(
+          icon: TalerIcons.refresh,
+          label: 'Повторить отправку',
+          color: p.accent,
+          onTap: () => _retryMessage(msg),
+        ),
+      TalerMessageAction(
+        icon: TalerIcons.reply,
+        label: 'Ответить',
+        onTap: () {
+          setState(() {
+            _editingMessage = null;
+            _replyingTo = msg;
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _inputFocus.requestFocus();
+          });
+        },
+      ),
+      if (msg.text.isNotEmpty)
+        TalerMessageAction(
+          icon: TalerIcons.copy,
+          label: 'Копировать текст',
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: msg.text));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Текст скопирован')),
+            );
+          },
+        ),
+      if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
+        TalerMessageAction(
+          icon: TalerIcons.pencil,
+          label: 'Изменить',
+          onTap: () {
+            setState(() {
+              _replyingTo = null;
+              _editingMessage = msg;
+              _inputCtrl.text = msg.text;
+              _inputCtrl.selection = TextSelection.collapsed(
+                offset: _inputCtrl.text.length,
+              );
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _inputFocus.requestFocus();
+            });
+          },
+        ),
+      if (msg.isEdited)
+        TalerMessageAction(
+          icon: TalerIcons.history,
+          label: 'История правок',
+          onTap: () => _showEditHistory(msg),
+        ),
+      if (widget.client.isDemoMode && !msg.deletedByPeer)
+        TalerMessageAction(
+          icon: TalerIcons.shield,
+          label: 'Симулировать удаление',
+          color: p.warning,
+          onTap: () => widget.client.simulatePeerDeleteInDemo(widget.chat.id, msg.id),
+        ),
+      if (isMine && !msg.deletedByPeer && msg.status != 'error' && !msg.id.startsWith('temp_'))
+        TalerMessageAction(
+          icon: TalerIcons.trash,
+          label: 'Удалить у всех',
+          destructive: true,
+          onTap: () => _deleteMessage(msg, forEveryone: true),
+        ),
+      TalerMessageAction(
+        icon: TalerIcons.trash,
+        label: 'Удалить у себя',
+        destructive: true,
+        onTap: () => _deleteMessage(msg, forEveryone: false),
+      ),
+    ];
+
+    showTalerMessageActionsOverlay(
+      context: context,
+      message: msg,
+      isMine: isMine,
+      firstInRun: firstInRun,
+      showName: showName,
+      senderName: senderName,
+      maxBubbleWidth: maxBubbleWidth,
+      fontSize: prefs.messageFontSize,
+      cornerRadius: prefs.bubbleRadius,
+      peerReadMark: peerReadMark,
+      anchorRect: anchorRect,
+      powerSaving: prefs.powerSavingMode,
+      actions: actions,
+      onToggleReaction: (emoji) => _toggleReaction(msg, emoji),
+      onShowHistory: msg.isEdited ? () => _showEditHistory(msg) : null,
+      onRetry: msg.status == 'error' ? () => _retryMessage(msg) : null,
     );
   }
 

@@ -5,6 +5,7 @@ import 'package:taler/core/storage/app_preferences.dart';
 import 'package:taler/core/storage/local_store.dart';
 import 'package:taler/core/storage/taler_models.dart';
 import 'package:taler/main.dart';
+import 'package:taler/ui/widgets/message_bubble.dart';
 
 void main() {
   group('AppPreferences & Cache', () {
@@ -152,7 +153,7 @@ void main() {
     expect(find.text('Помощь'), findsOneWidget);
     expect(find.text('Возможности Taler'), findsOneWidget);
     expect(find.text('Политика конфиденциальности'), findsOneWidget);
-    expect(find.text('Taler 1.2.9 (15)'), findsOneWidget);
+    expect(find.text('Taler 1.2.10 (16)'), findsOneWidget);
 
     // Switch back to Profile tab from bottom dock.
     await tester.tap(find.text('Профиль').last);
@@ -161,6 +162,58 @@ void main() {
     expect(find.text('Активные сессии'), findsOneWidget);
     expect(find.byTooltip('Изменить имя'), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+      'mobile 360px: long press on message opens blurred floating overlay menu cleanly',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TalerApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Демо'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Открыть демо'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Елена Соколова'));
+    await tester.pumpAndSettle();
+
+    final firstBubble = find.byType(MessageBubble).first;
+    expect(firstBubble, findsOneWidget);
+
+    await tester.longPress(firstBubble);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ответить'), findsOneWidget);
+    expect(find.text('Копировать текст'), findsOneWidget);
+    expect(find.text('Удалить у себя'), findsOneWidget);
+    expect(find.text('🎉'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('🎉'));
+    await tester.pumpAndSettle();
+    expect(find.text('Ответить'), findsNothing);
+    expect(find.text('🎉'), findsOneWidget);
+
+    await tester.longPress(find.byType(MessageBubble).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ответить'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Отменить'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Отменить'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Назад'));
+    await tester.pumpAndSettle();
 
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();

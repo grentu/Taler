@@ -661,7 +661,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 18),
                                 Center(
                                   child: Text(
-                                    'Taler 1.2.9 (15)',
+                                    'Taler 1.2.10 (16)',
                                     style: TextStyle(fontSize: 13, color: p.fg3),
                                   ),
                                 ),

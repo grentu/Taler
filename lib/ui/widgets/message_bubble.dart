@@ -50,7 +50,8 @@ class MessageRow extends StatelessWidget {
   final int? peerReadMark;
   final double messageFontSize;
   final double bubbleRadius;
-  final VoidCallback onActions;
+  final VoidCallback? onActions;
+  final ValueChanged<Rect?>? onBubbleActions;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
   final ValueChanged<String> onToggleReaction;
@@ -64,8 +65,9 @@ class MessageRow extends StatelessWidget {
     required this.showSender,
     required this.senderName,
     required this.maxBubbleWidth,
-    required this.onActions,
     required this.onToggleReaction,
+    this.onActions,
+    this.onBubbleActions,
     this.peerReadMark,
     this.messageFontSize = 15.0,
     this.bubbleRadius = 20.0,
@@ -74,29 +76,43 @@ class MessageRow extends StatelessWidget {
     this.onRetry,
   });
 
+  void _triggerActions(BuildContext bubbleCtx) {
+    if (onBubbleActions != null) {
+      final box = bubbleCtx.findRenderObject() as RenderBox?;
+      Rect? rect;
+      if (box != null && box.hasSize) {
+        rect = box.localToGlobal(Offset.zero) & box.size;
+      }
+      onBubbleActions!(rect);
+    }
+    onActions?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TalerTheme.paletteOf(context);
     if (message.isControl) {
       return ChatDayChip(label: message.text.isNotEmpty ? message.text : 'Служебное сообщение');
     }
-    final bubble = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: message.status == 'error' ? onActions : null,
-      onLongPress: onActions,
-      onSecondaryTap: onActions,
-      child: MessageBubble(
-        message: message,
-        isMine: isMine,
-        firstInRun: firstInRun,
-        showName: showSender && firstInRun,
-        senderName: senderName,
-        maxWidth: maxBubbleWidth,
-        peerReadMark: peerReadMark,
-        fontSize: messageFontSize,
-        cornerRadius: bubbleRadius,
-        onShowHistory: onShowHistory,
-        onRetry: onRetry,
+    final bubble = Builder(
+      builder: (bubbleCtx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: message.status == 'error' ? () => _triggerActions(bubbleCtx) : null,
+        onLongPress: () => _triggerActions(bubbleCtx),
+        onSecondaryTap: () => _triggerActions(bubbleCtx),
+        child: MessageBubble(
+          message: message,
+          isMine: isMine,
+          firstInRun: firstInRun,
+          showName: showSender && firstInRun,
+          senderName: senderName,
+          maxWidth: maxBubbleWidth,
+          peerReadMark: peerReadMark,
+          fontSize: messageFontSize,
+          cornerRadius: bubbleRadius,
+          onShowHistory: onShowHistory,
+          onRetry: onRetry,
+        ),
       ),
     );
 
