@@ -168,7 +168,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             _buildLogoutCard(p),
                             const SizedBox(height: 16),
                             Text(
-                              'Taler · v1.2.4',
+                              'Taler · v1.2.5',
                               textAlign: TextAlign.center,
                               style: TalerTheme.tabularStyle(
                                 size: 12,
@@ -284,7 +284,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            'v1.2.4',
+                            'v1.2.5',
                             style: TalerTheme.tabularStyle(
                               size: 11.5,
                               weight: FontWeight.w600,
@@ -746,7 +746,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             ),
           ),
           Text(
-            'v1.2.4',
+            'v1.2.5',
             style: TalerTheme.tabularStyle(size: 13, color: p.fg3),
           ),
         ],
