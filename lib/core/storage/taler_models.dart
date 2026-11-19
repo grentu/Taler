@@ -312,6 +312,8 @@ class TalerAttachment {
   final int? fileSize;
   final int? fileId;
   final int? photoId;
+  final int? videoId;
+  final int? audioId;
   final String? token;
   final int? width;
   final int? height;
@@ -327,6 +329,8 @@ class TalerAttachment {
     this.fileSize,
     this.fileId,
     this.photoId,
+    this.videoId,
+    this.audioId,
     this.token,
     this.width,
     this.height,
@@ -343,6 +347,8 @@ class TalerAttachment {
         'fileSize': fileSize,
         'fileId': fileId,
         'photoId': photoId,
+        'videoId': videoId,
+        'audioId': audioId,
         'token': token,
         'width': width,
         'height': height,
@@ -360,6 +366,8 @@ class TalerAttachment {
       fileSize: (json['fileSize'] as num?)?.toInt(),
       fileId: (json['fileId'] as num?)?.toInt(),
       photoId: (json['photoId'] as num?)?.toInt(),
+      videoId: (json['videoId'] as num?)?.toInt(),
+      audioId: (json['audioId'] as num?)?.toInt(),
       token: json['token'] as String?,
       width: (json['width'] as num?)?.toInt(),
       height: (json['height'] as num?)?.toInt(),
@@ -398,6 +406,8 @@ class TalerAttachment {
       fileSize: (map['size'] as num?)?.toInt(),
       fileId: (map['fileId'] as num?)?.toInt(),
       photoId: (map['photoId'] as num?)?.toInt(),
+      videoId: (map['videoId'] as num?)?.toInt(),
+      audioId: (map['audioId'] as num?)?.toInt(),
       token: (map['photoToken'] ?? map['token'])?.toString(),
       width: (map['width'] as num?)?.toInt() ??
           (nestedImage is Map ? (nestedImage['width'] as num?)?.toInt() : null),
@@ -407,6 +417,35 @@ class TalerAttachment {
       thumbnailUrl: thumbnail,
       description: desc,
       durationMs: duration,
+    );
+  }
+}
+
+/// Локальный/синхронизированный черновик сообщения для чата.
+class TalerDraft {
+  final String text;
+  final String? replyToMessageId;
+  final int updatedAt;
+
+  const TalerDraft({
+    required this.text,
+    this.replyToMessageId,
+    required this.updatedAt,
+  });
+
+  bool get isEmpty => text.trim().isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'replyToMessageId': replyToMessageId,
+        'updatedAt': updatedAt,
+      };
+
+  factory TalerDraft.fromJson(Map<String, dynamic> json) {
+    return TalerDraft(
+      text: json['text'] as String? ?? '',
+      replyToMessageId: json['replyToMessageId']?.toString(),
+      updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
     );
   }
 }

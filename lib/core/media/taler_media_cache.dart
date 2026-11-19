@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../privacy/privacy_firewall.dart';
+
 /// Быстрый двухуровневый кэш медиа и аватарок (RAM + диск) с общим keep-alive
 /// HttpClient и дедупликацией параллельных запросов.
 class TalerMediaCache {
@@ -126,13 +128,18 @@ class TalerMediaCache {
     }
 
     final uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme) return null;
+    if (uri == null || !uri.hasScheme || PrivacyFirewall.isTrackingUrl(uri)) {
+      return null;
+    }
 
     final part = File('${target.path}.part_${DateTime.now().microsecondsSinceEpoch}');
     IOSink? sink;
     try {
       final req = await _client().getUrl(uri);
-      req.headers.set(HttpHeaders.userAgentHeader, 'Taler/1.2');
+      req.headers.set(
+        HttpHeaders.userAgentHeader,
+        PrivacyFirewall.defaultHttpUserAgent,
+      );
       final res = await req.close().timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) {
         await res.drain<void>();
@@ -156,6 +163,85 @@ class TalerMediaCache {
       }
       final saved = await part.rename(target.path);
       _memoryFiles[url] = saved;
+      return saved;
+    } catch (_) {
+      await sink?.close();
+      if (await part.exists()) {
+        try {
+          await part.delete();
+        } catch (_) {}
+      }
+      return null;
+    }
+  }
+
+  /// Скачивает произвольный файл/медиа с сохранением расширения и прогрессом.
+  Future<File?> downloadNamedFile(
+    String url, {
+    required String fileName,
+    String subDir = 'files',
+    String? userAgent,
+    void Function(double progress)? onProgress,
+  }) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || PrivacyFirewall.isTrackingUrl(uri)) {
+      return null;
+    }
+    final root = await _ensureDir();
+    final targetDir = Directory('${root.path}${Platform.pathSeparator}$subDir');
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+    final sanitized = fileName
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .trim();
+    final safeName = sanitized.isEmpty ? 'file.bin' : sanitized;
+    final prefix = cacheKey(url).substring(0, 12);
+    final target = File(
+      '${targetDir.path}${Platform.pathSeparator}${prefix}_$safeName',
+    );
+    if (await target.exists() && await target.length() > 0) {
+      onProgress?.call(1.0);
+      return target;
+    }
+
+    final part = File('${target.path}.part_${DateTime.now().microsecondsSinceEpoch}');
+    IOSink? sink;
+    try {
+      final req = await _client().getUrl(uri);
+      req.headers.set(
+        HttpHeaders.userAgentHeader,
+        userAgent ?? PrivacyFirewall.defaultHttpUserAgent,
+      );
+      final res = await req.close().timeout(const Duration(seconds: 25));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        await res.drain<void>();
+        return null;
+      }
+      final total = res.contentLength;
+      var received = 0;
+      sink = part.openWrite();
+      await for (final chunk in res) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) {
+          onProgress?.call((received / total).clamp(0.0, 0.99));
+        }
+      }
+      await sink.flush();
+      await sink.close();
+      sink = null;
+
+      if (!await part.exists() || await part.length() == 0) {
+        return null;
+      }
+      if (await target.exists()) {
+        try {
+          await target.delete();
+        } catch (_) {}
+      }
+      final saved = await part.rename(target.path);
+      onProgress?.call(1.0);
       return saved;
     } catch (_) {
       await sink?.close();

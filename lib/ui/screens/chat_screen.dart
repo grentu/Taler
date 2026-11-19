@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
+import '../../core/platform/taler_native_bridge.dart';
 import '../../core/storage/taler_models.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
@@ -17,6 +18,7 @@ import '../widgets/message_actions_overlay.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/photo_viewer_page.dart';
 import '../widgets/settings_components.dart';
+import '../widgets/video_player_page.dart';
 
 /// Открытый диалог, группа или канал. На широком экране справа — профиль.
 class ChatScreen extends StatefulWidget {
@@ -62,14 +64,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
   TalerMessage? _replyingTo;
   TalerMessage? _editingMessage;
+  final Set<String> _selectedIds = <String>{};
   bool _showInfo = true;
   bool _showSearch = false;
   bool _wasReady = false;
+  bool _isRecordingVoice = false;
+  int _voiceRecordSeconds = 0;
+  double _voiceAmplitude = 0.0;
+  Timer? _voiceTimer;
   String _query = '';
   double? _measuredBottomHeight;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get _mobile => widget.showBackButton;
+  bool get _selectionMode => _selectedIds.isNotEmpty;
 
   @override
   void initState() {
@@ -78,20 +86,54 @@ class _ChatScreenState extends State<ChatScreen> {
     widget.client.setActiveChat(widget.chat.id);
     widget.client.addListener(_onClientChanged);
     _scrollCtrl.addListener(_onScroll);
+    _restoreDraft(widget.chat.id);
     _loadChatData();
+  }
+
+  void _restoreDraft(int chatId) {
+    final draft = widget.client.draftForChat(chatId);
+    if (draft == null || draft.isEmpty) {
+      _inputCtrl.clear();
+      _replyingTo = null;
+      return;
+    }
+    _inputCtrl.text = draft.text;
+    _inputCtrl.selection = TextSelection.collapsed(offset: draft.text.length);
+    if (draft.replyToMessageId != null) {
+      final msgs = widget.client.messagesForChat(chatId);
+      _replyingTo = msgs
+          .where((m) => m.id == draft.replyToMessageId)
+          .firstOrNull;
+    }
+  }
+
+  void _persistCurrentDraft(int chatId) {
+    if (_editingMessage != null) return;
+    unawaited(
+      widget.client.saveDraft(
+        chatId,
+        _inputCtrl.text,
+        replyToMessageId: _replyingTo?.id,
+      ),
+    );
   }
 
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.chat.id != widget.chat.id) {
+      _persistCurrentDraft(oldWidget.chat.id);
+      if (_isRecordingVoice) {
+        unawaited(_cancelVoiceRecord());
+      }
+      _selectedIds.clear();
       _replyingTo = null;
       _editingMessage = null;
       _showSearch = false;
       _query = '';
       _searchCtrl.clear();
-      _inputCtrl.clear();
       widget.client.setActiveChat(widget.chat.id);
+      _restoreDraft(widget.chat.id);
       _loadChatData();
     }
   }
@@ -127,6 +169,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _persistCurrentDraft(widget.chat.id);
+    _voiceTimer?.cancel();
+    if (_isRecordingVoice) {
+      unawaited(TalerNativeBridge.instance.cancelAudioRecord());
+    }
     widget.client.removeListener(_onClientChanged);
     _scrollCtrl.removeListener(_onScroll);
     widget.client.clearActiveChat(widget.chat.id);
@@ -220,22 +267,254 @@ class _ChatScreenState extends State<ChatScreen> {
     final path = file.path;
     if (path == null) return;
     final ext = (file.extension ?? '').toLowerCase();
-    final isImage = {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(ext);
+    final isImage = {'png', 'jpg', 'jpeg', 'webp', 'gif', 'heic'}.contains(ext);
+    final isVideo = {'mp4', 'mov', 'mkv', 'webm', 'm4v', '3gp', 'avi'}.contains(ext);
     try {
-      await widget.client.sendFileAttachment(widget.chat.id, filePath: path, fileName: file.name, isImage: isImage);
+      if (isVideo) {
+        await widget.client.sendVideoAttachment(
+          widget.chat.id,
+          filePath: path,
+          fileName: file.name,
+        );
+      } else {
+        await widget.client.sendFileAttachment(
+          widget.chat.id,
+          filePath: path,
+          fileName: file.name,
+          isImage: isImage,
+        );
+      }
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Не удалось отправить файл: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось отправить файл: $e')),
+      );
     }
   }
 
   void _onTextChanged(String value) {
+    if (_editingMessage == null) {
+      unawaited(
+        widget.client.saveDraft(
+          widget.chat.id,
+          value,
+          replyToMessageId: _replyingTo?.id,
+        ),
+      );
+    }
     if (value.trim().isEmpty) return;
     final now = DateTime.now();
     if (now.difference(_lastTypingSent) > const Duration(seconds: 4)) {
       _lastTypingSent = now;
       widget.client.sendTyping(widget.chat.id);
+    }
+  }
+
+  void _startReply(TalerMessage msg) {
+    setState(() {
+      _editingMessage = null;
+      _replyingTo = msg;
+    });
+    _persistCurrentDraft(widget.chat.id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _inputFocus.requestFocus();
+    });
+  }
+
+  void _toggleSelect(String messageId) {
+    setState(() {
+      if (_selectedIds.contains(messageId)) {
+        _selectedIds.remove(messageId);
+      } else {
+        _selectedIds.add(messageId);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    if (_selectedIds.isEmpty) return;
+    setState(() => _selectedIds.clear());
+  }
+
+  Future<void> _openLinkUrl(String url) async {
+    final opened = await TalerNativeBridge.instance.openUrl(url);
+    if (!opened && mounted) {
+      await Clipboard.setData(ClipboardData(text: url));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ссылка скопирована')),
+      );
+    }
+  }
+
+  Future<void> _downloadAndOpenFile(
+    int chatId,
+    TalerMessage msg,
+    TalerAttachment file,
+  ) async {
+    try {
+      final downloaded = await widget.client.downloadAndOpenFile(chatId, msg, file);
+      if (downloaded == null && mounted) {
+        _showErrorSnack('Не удалось скачать файл');
+      }
+    } catch (e) {
+      _showErrorSnack('Ошибка загрузки файла: $e');
+    }
+  }
+
+  Future<void> _openVideoPlayer(
+    int chatId,
+    TalerMessage msg,
+    TalerAttachment video,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final source = await widget.client.resolveVideoPlayUrl(chatId, msg, video);
+    if (!mounted) return;
+    if (source == null || source.isEmpty) {
+      _showErrorSnack('Не удалось получить ссылку на видео');
+      return;
+    }
+    await showTalerVideoPlayer(
+      context,
+      source: source,
+      title: video.previewText ?? video.fileName,
+      senderName: widget.client.senderDisplayName(msg.senderId, chatId: chatId),
+      userAgent: widget.client.session.effectiveProfile.userAgent,
+    );
+  }
+
+  Future<void> _startVoiceRecord() async {
+    if (_isRecordingVoice) return;
+    if (!TalerNativeBridge.instance.supportsVoiceRecording) {
+      _showErrorSnack('Запись голосовых доступна на Android');
+      return;
+    }
+    unawaited(TalerAudioController.instance.stop());
+    final path = await TalerNativeBridge.instance.startAudioRecord();
+    if (!mounted) return;
+    if (path == null) {
+      _showErrorSnack('Нет доступа к микрофону');
+      return;
+    }
+    unawaited(HapticFeedback.mediumImpact());
+    setState(() {
+      _isRecordingVoice = true;
+      _voiceRecordSeconds = 0;
+      _voiceAmplitude = 0.0;
+    });
+    var ticks = 0;
+    _voiceTimer?.cancel();
+    _voiceTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
+      ticks++;
+      final amp = await TalerNativeBridge.instance.getAudioAmplitude();
+      if (!mounted || !_isRecordingVoice) return;
+      setState(() {
+        _voiceAmplitude = amp;
+        _voiceRecordSeconds = ticks ~/ 5;
+      });
+    });
+  }
+
+  Future<void> _stopAndSendVoiceRecord() async {
+    if (!_isRecordingVoice) return;
+    _voiceTimer?.cancel();
+    _voiceTimer = null;
+    setState(() => _isRecordingVoice = false);
+    final recorded = await TalerNativeBridge.instance.stopAudioRecord();
+    if (recorded == null || recorded.durationMs < 350) {
+      if (mounted) {
+        _showErrorSnack('Слишком короткое голосовое сообщение');
+      }
+      return;
+    }
+    try {
+      await widget.client.sendVoiceAttachment(
+        widget.chat.id,
+        filePath: recorded.path,
+        durationMs: recorded.durationMs,
+      );
+      _scrollToBottom();
+    } catch (e) {
+      _showErrorSnack('Не удалось отправить голосовое: $e');
+    }
+  }
+
+  Future<void> _cancelVoiceRecord() async {
+    _voiceTimer?.cancel();
+    _voiceTimer = null;
+    if (_isRecordingVoice && mounted) {
+      setState(() => _isRecordingVoice = false);
+    } else {
+      _isRecordingVoice = false;
+    }
+    await TalerNativeBridge.instance.cancelAudioRecord();
+  }
+
+  Future<void> _copySelectedMessages(List<TalerMessage> all) async {
+    final selected = all
+        .where((m) => _selectedIds.contains(m.id) && m.text.trim().isNotEmpty)
+        .toList();
+    if (selected.isEmpty) {
+      _showErrorSnack('В выбранных сообщениях нет текста');
+      return;
+    }
+    final combined = selected.map((m) => m.text).join('\n\n');
+    await Clipboard.setData(ClipboardData(text: combined));
+    if (!mounted) return;
+    _clearSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Скопировано сообщений: ${selected.length}')),
+    );
+  }
+
+  Future<void> _deleteSelectedMessages() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+    final confirmed = await showTalerConfirmSheet(
+      context,
+      icon: TalerIcons.trash,
+      title: 'Удалить сообщения (${ids.length})?',
+      message: 'Выбранные сообщения будут удалены из этого чата.',
+      confirmLabel: 'Удалить',
+    );
+    if (!confirmed || !mounted) return;
+    _clearSelection();
+    try {
+      await widget.client.deleteMessagesBatch(widget.chat.id, ids);
+    } catch (e) {
+      _showErrorSnack('Не удалось удалить сообщения: $e');
+    }
+  }
+
+  Future<void> _openForwardSheet(List<TalerMessage> targets) async {
+    if (targets.isEmpty) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final chats = widget.client.chats;
+    final selectedChat = await showModalBottomSheet<TalerChat>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ForwardChatPickerSheet(
+        chats: chats,
+        client: widget.client,
+        count: targets.length,
+      ),
+    );
+    if (selectedChat == null || !mounted) return;
+    _clearSelection();
+    try {
+      await widget.client.forwardMessages(
+        fromChatId: widget.chat.id,
+        toChatId: selectedChat.id,
+        messages: targets,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Переслано в ${selectedChat.title}')),
+      );
+    } catch (e) {
+      _showErrorSnack('Не удалось переслать: $e');
     }
   }
 
@@ -388,13 +667,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
         _syncBottomHeight();
 
-        final Widget desktopTopBar = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _header(p, chat, canDock),
-            if (_showSearch) _searchBar(p),
-          ],
-        );
+        final Widget desktopTopBar = _selectionMode
+            ? _selectionHeader(p, all)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _header(p, chat, canDock),
+                  if (_showSearch) _searchBar(p),
+                ],
+              );
 
         final Widget topOverlay = _mobile
             ? Container(
@@ -408,13 +689,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _mobileFloatingHeader(p, chat, canDock),
-                    if (_showSearch) _mobileFloatingSearchBar(p),
-                  ],
-                ),
+                child: _selectionMode
+                    ? _mobileSelectionHeader(p, all)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _mobileFloatingHeader(p, chat, canDock),
+                          if (_showSearch) _mobileFloatingSearchBar(p),
+                        ],
+                      ),
               )
             : prefs.powerSavingMode
                 ? ColoredBox(color: glassBg, child: desktopTopBar)
@@ -425,13 +708,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   );
 
-        final Widget desktopBottomBar = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
-            _composer(p),
-          ],
-        );
+        final Widget desktopBottomBar = _selectionMode
+            ? _selectionActionBar(p, all, mobile: false)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_replyingTo != null || _editingMessage != null) _replyBar(p, chat),
+                  _composer(p),
+                ],
+              );
 
         final Widget bottomOverlay = _mobile
             ? Container(
@@ -449,16 +734,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   top: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_replyingTo != null || _editingMessage != null) ...[
-                          _mobileReplyBar(p, chat),
-                          const SizedBox(height: 6),
-                        ],
-                        _mobileComposer(p),
-                      ],
-                    ),
+                    child: _selectionMode
+                        ? _selectionActionBar(p, all, mobile: true)
+                        : _isRecordingVoice
+                            ? _voiceRecordingBar(p)
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_replyingTo != null || _editingMessage != null) ...[
+                                    _mobileReplyBar(p, chat),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  _mobileComposer(p),
+                                ],
+                              ),
                   ),
                 ),
               )
@@ -506,14 +795,25 @@ class _ChatScreenState extends State<ChatScreen> {
           showPattern: prefs.showChatWallpaper && !prefs.powerSavingMode,
           child: stack,
         );
-        final hasInlineState =
-            _showSearch || _replyingTo != null || _editingMessage != null;
+        final hasInlineState = _selectionMode ||
+            _isRecordingVoice ||
+            _showSearch ||
+            _replyingTo != null ||
+            _editingMessage != null;
         final wrapped = _mobile
             ? PopScope(
                 canPop: !hasInlineState,
                 onPopInvokedWithResult: (didPop, _) {
                   if (didPop) {
                     FocusManager.instance.primaryFocus?.unfocus();
+                    return;
+                  }
+                  if (_selectionMode) {
+                    _clearSelection();
+                    return;
+                  }
+                  if (_isRecordingVoice) {
+                    unawaited(_cancelVoiceRecord());
                     return;
                   }
                   if (_showSearch) {
@@ -526,6 +826,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       _replyingTo = null;
                       _editingMessage = null;
                     });
+                    _persistCurrentDraft(widget.chat.id);
                   }
                 },
                 child: center,
@@ -862,7 +1163,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(child: textField),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 2),
+                    if (_editingMessage == null &&
+                        TalerNativeBridge.instance.supportsVoiceRecording)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: TalerIconButton(
+                          icon: TalerIcons.playCircle,
+                          tooltip: 'Голосовое сообщение',
+                          size: 36,
+                          iconSize: 19,
+                          color: p.fg2,
+                          onPressed: () => unawaited(_startVoiceRecord()),
+                        ),
+                      ),
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: TalerIconButton(
@@ -1095,6 +1409,14 @@ class _ChatScreenState extends State<ChatScreen> {
               peerReadMark: chat.peerReadMark,
               messageFontSize: prefs.messageFontSize,
               bubbleRadius: prefs.bubbleRadius,
+              selectionMode: _selectionMode,
+              isSelected: _selectedIds.contains(m.id),
+              onToggleSelect: () => _toggleSelect(m.id),
+              onSwipeReply: () => _startReply(m),
+              onDoubleTapQuickReaction: () {
+                unawaited(HapticFeedback.selectionClick());
+                unawaited(_toggleReaction(m, '❤️'));
+              },
               onBubbleActions: (rect) => _showMessageActions(
                 m,
                 isMine,
@@ -1108,6 +1430,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onShowHistory: m.isEdited ? () => _showEditHistory(m) : null,
               onRetry: m.status == 'error' ? () => _retryMessage(m) : null,
               onOpenPhoto: (photo) => _openPhotoViewer(allMessages, chat.id, m, photo),
+              onOpenVideo: (video) => unawaited(_openVideoPlayer(chat.id, m, video)),
+              onOpenFile: (file) => unawaited(_downloadAndOpenFile(chat.id, m, file)),
+              fileProgressOf: (file) => widget.client.downloadProgressFor(
+                TalerClient.attachmentKey(m.id, file),
+              ),
+              onResolveAudio: (audio) =>
+                  widget.client.resolveAudioPlaySource(chat.id, m, audio),
+              onOpenLink: (url) => unawaited(_openLinkUrl(url)),
               onToggleReaction: (emoji) => _toggleReaction(m, emoji),
             );
           },
@@ -1273,15 +1603,17 @@ class _ChatScreenState extends State<ChatScreen> {
       TalerMessageAction(
         icon: TalerIcons.reply,
         label: 'Ответить',
-        onTap: () {
-          setState(() {
-            _editingMessage = null;
-            _replyingTo = msg;
-          });
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _inputFocus.requestFocus();
-          });
-        },
+        onTap: () => _startReply(msg),
+      ),
+      TalerMessageAction(
+        icon: TalerIcons.arrowUpRight,
+        label: 'Переслать',
+        onTap: () => unawaited(_openForwardSheet([msg])),
+      ),
+      TalerMessageAction(
+        icon: TalerIcons.checkCheck,
+        label: 'Выбрать',
+        onTap: () => _toggleSelect(msg.id),
       ),
       if (msg.text.isNotEmpty)
         TalerMessageAction(
@@ -1512,6 +1844,463 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _mobileSelectionHeader(TalerPalette p, List<TalerMessage> all) {
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            _glassPill(
+              p,
+              child: TalerIconButton(
+                icon: TalerIcons.close,
+                tooltip: 'Отменить выбор',
+                size: 44,
+                iconSize: 19,
+                color: p.fg,
+                onPressed: _clearSelection,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Align(
+                alignment: Alignment.center,
+                child: _glassPill(
+                  p,
+                  child: SizedBox(
+                    height: 44,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: Center(
+                        widthFactor: 1.0,
+                        child: Text(
+                          'Выбрано: ${_selectedIds.length}',
+                          style: TalerTheme.tabularStyle(
+                            size: 15,
+                            weight: FontWeight.w600,
+                            color: p.fg,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _glassPill(
+              p,
+              child: TalerIconButton(
+                icon: TalerIcons.trash,
+                tooltip: 'Удалить выбранные',
+                size: 44,
+                iconSize: 19,
+                color: p.danger,
+                onPressed: () => unawaited(_deleteSelectedMessages()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selectionHeader(TalerPalette p, List<TalerMessage> all) {
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.line))),
+      child: Row(
+        children: [
+          TalerIconButton(
+            icon: TalerIcons.close,
+            tooltip: 'Отменить выбор',
+            iconSize: 18,
+            color: p.fg,
+            onPressed: _clearSelection,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Выбрано: ${_selectedIds.length}',
+              style: TalerTheme.tabularStyle(
+                size: 16,
+                weight: FontWeight.w600,
+                color: p.fg,
+              ),
+            ),
+          ),
+          TalerIconButton(
+            icon: TalerIcons.trash,
+            tooltip: 'Удалить выбранные',
+            iconSize: 18,
+            color: p.danger,
+            onPressed: () => unawaited(_deleteSelectedMessages()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _selectionActionBar(
+    TalerPalette p,
+    List<TalerMessage> all, {
+    required bool mobile,
+  }) {
+    final selected =
+        all.where((m) => _selectedIds.contains(m.id)).toList();
+
+    Widget actionBtn({
+      required TalerIconData icon,
+      required String label,
+      required Color color,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            splashFactory: NoSplash.splashFactory,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TalerIcon(icon, size: 17, color: color, morph: false),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final bar = Row(
+      children: [
+        actionBtn(
+          icon: TalerIcons.arrowUpRight,
+          label: 'Переслать',
+          color: p.accent,
+          onTap: () => unawaited(_openForwardSheet(selected)),
+        ),
+        actionBtn(
+          icon: TalerIcons.copy,
+          label: 'Копировать',
+          color: p.fg,
+          onTap: () => unawaited(_copySelectedMessages(all)),
+        ),
+        actionBtn(
+          icon: TalerIcons.trash,
+          label: 'Удалить',
+          color: p.danger,
+          onTap: () => unawaited(_deleteSelectedMessages()),
+        ),
+      ],
+    );
+
+    if (mobile) {
+      return _glassPill(
+        p,
+        radius: 22,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          child: bar,
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: p.line))),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: bar,
+        ),
+      ),
+    );
+  }
+
+  Widget _voiceRecordingBar(TalerPalette p) {
+    final mins = _voiceRecordSeconds ~/ 60;
+    final secs = (_voiceRecordSeconds % 60).toString().padLeft(2, '0');
+    return Row(
+      children: [
+        Expanded(
+          child: _glassPill(
+            p,
+            radius: 22,
+            child: SizedBox(
+              height: 44,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: p.danger,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$mins:$secs',
+                      style: TalerTheme.tabularStyle(
+                        size: 14.5,
+                        weight: FontWeight.w600,
+                        color: p.fg,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          for (var i = 0; i < 12; i++) ...[
+                            if (i > 0) const SizedBox(width: 3),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 140),
+                              width: 2.5,
+                              height: (6.0 +
+                                      16.0 *
+                                          (_voiceAmplitude *
+                                              (0.45 + 0.55 * ((i % 3) / 2.0))))
+                                  .clamp(5.0, 22.0),
+                              decoration: BoxDecoration(
+                                color: p.accent,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    TalerIconButton(
+                      icon: TalerIcons.close,
+                      tooltip: 'Отменить запись',
+                      size: 36,
+                      iconSize: 16,
+                      color: p.fg3,
+                      onPressed: () => unawaited(_cancelVoiceRecord()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TalerIconButton(
+          icon: TalerIcons.send,
+          tooltip: 'Отправить голосовое',
+          circle: true,
+          size: 44,
+          iconSize: 19,
+          color: Colors.white,
+          backgroundColor: p.accent,
+          onPressed: () => unawaited(_stopAndSendVoiceRecord()),
+        ),
+      ],
+    );
+  }
+}
+
+class _ForwardChatPickerSheet extends StatefulWidget {
+  final List<TalerChat> chats;
+  final TalerClient client;
+  final int count;
+
+  const _ForwardChatPickerSheet({
+    required this.chats,
+    required this.client,
+    required this.count,
+  });
+
+  @override
+  State<_ForwardChatPickerSheet> createState() => _ForwardChatPickerSheetState();
+}
+
+class _ForwardChatPickerSheetState extends State<_ForwardChatPickerSheet> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final bottom =
+        MediaQuery.viewInsetsOf(context).bottom + MediaQuery.paddingOf(context).bottom;
+    final q = _query.toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.chats
+        : widget.chats.where((c) => c.title.toLowerCase().contains(q)).toList();
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+      ),
+      decoration: BoxDecoration(
+        color: p.settingsBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        border: Border(top: BorderSide(color: p.line2)),
+      ),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: p.fg.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              const TalerSettingsBadge(
+                icon: TalerIcons.arrowUpRight,
+                size: 34,
+                iconSize: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.count > 1
+                      ? 'Переслать (${widget.count})'
+                      : 'Переслать сообщение',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: p.fg,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: p.isDark ? const Color(0xFF121215) : p.bg3,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              children: [
+                TalerIcon(TalerIcons.search, size: 16, color: p.fg3),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (v) => setState(() => _query = v.trim()),
+                    style: TextStyle(fontSize: 14.5, color: p.fg),
+                    decoration: InputDecoration(
+                      hintText: 'Поиск чата…',
+                      hintStyle: TextStyle(fontSize: 14.5, color: p.fg3),
+                      isDense: true,
+                      filled: false,
+                      contentPadding: EdgeInsets.zero,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Flexible(
+            child: filtered.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 28),
+                    child: Text(
+                      'Чаты не найдены',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: p.fg3),
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: filtered.length,
+                    itemBuilder: (ctx, i) {
+                      final chat = filtered[i];
+                      final peer = chat.peerId != null
+                          ? widget.client.contactById(chat.peerId!)
+                          : null;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => Navigator.of(context).pop(chat),
+                          borderRadius: BorderRadius.circular(14),
+                          splashFactory: NoSplash.splashFactory,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                TalerAvatar(
+                                  seedId: chat.peerId ?? chat.id,
+                                  initials: chat.initials,
+                                  imageUrl: chat.avatarUrl ?? peer?.avatarUrl,
+                                  size: 42,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    chat.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w500,
+                                      color: p.fg,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -832,6 +832,29 @@ class _Preview extends StatelessWidget {
         style: TextStyle(fontSize: 14, color: p.accent),
       );
     }
+    final draft = client.draftForChat(chat.id);
+    if (draft != null && !draft.isEmpty) {
+      return Row(
+        children: [
+          Text(
+            'Черновик: ',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: p.danger,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              draft.text.replaceAll('\n', ' ').trim(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14, color: p.fg2),
+            ),
+          ),
+        ],
+      );
+    }
     final myId = client.currentUser?.id;
     final senderId = chat.lastMessageSenderId;
     String? author;

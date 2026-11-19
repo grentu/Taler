@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
+import '../../core/platform/taler_native_bridge.dart';
 import '../../core/storage/taler_models.dart';
 import '../../core/transport/taler_session.dart';
 import '../../core/update/app_updater.dart';
@@ -39,6 +40,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   static const double _dockSpace = 100;
   final _rootFocus = FocusNode(debugLabel: 'home_root');
+  StreamSubscription<int>? _notifTapSub;
 
   int _tab = 0;
   int? _selectedChatId;
@@ -46,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _notifTapSub = TalerNativeBridge.instance.onNotificationTap.listen(
+      _openChatById,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final client = widget.client;
@@ -53,11 +58,38 @@ class _HomeScreenState extends State<HomeScreen> {
           client.updater.status == UpdateStatus.idle) {
         unawaited(client.updater.checkForUpdates(silent: true));
       }
+      unawaited(_initNotifications());
     });
+  }
+
+  Future<void> _initNotifications() async {
+    await TalerNativeBridge.instance.requestNotificationPermission();
+    final initialChatId =
+        await TalerNativeBridge.instance.consumeInitialNotificationChatId();
+    if (initialChatId != null && mounted) {
+      _openChatById(initialChatId);
+    }
+  }
+
+  void _openChatById(int chatId) {
+    if (!mounted) return;
+    final chat = widget.client.store.chats[chatId];
+    if (chat == null) return;
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    if (wide) {
+      setState(() {
+        _tab = 0;
+        _selectedChatId = chat.id;
+      });
+    } else {
+      setState(() => _tab = 0);
+      _openMobileChat(chat);
+    }
   }
 
   @override
   void dispose() {
+    _notifTapSub?.cancel();
     _rootFocus.dispose();
     super.dispose();
   }

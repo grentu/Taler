@@ -127,8 +127,85 @@ class FirewallDecision {
 /// Транспортный файрвол Taler Privacy Shield.
 ///
 /// Проверяет каждый исходящий и входящий пакет протокола MAX до его отправки
-/// в сокет или обработки в приложении.
+/// в сокет или обработки в приложении, а также фильтрует трекинговые URL и
+/// санитизирует чувствительные поля (Ghost Mode, конфиги баннеров).
 class PrivacyFirewall {
+  /// Нейтральный User-Agent для HTTP-запросов медиа/загрузок (без утечки `Dart/3.x` или `Taler/...`).
+  static const String defaultHttpUserAgent =
+      'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+
+  static const Set<String> _blockedTrackingHosts = {
+    'top-fwz1.mail.ru',
+    'counter.yadro.ru',
+    'mc.yandex.ru',
+    'appmetrica.yandex.net',
+    'report.appmetrica.yandex.net',
+    'mytracker.my.com',
+    'tracker.my.com',
+    'tracker-s2s.my.com',
+    'stat.oneme.ru',
+    'analytics.oneme.ru',
+    'telemetry.oneme.ru',
+    'metrics.oneme.ru',
+    'google-analytics.com',
+    'www.google-analytics.com',
+    'googletagmanager.com',
+    'doubleclick.net',
+    'sentry.io',
+    'crashlytics.com',
+    'firebaselogging.googleapis.com',
+    'app-measurement.com',
+  };
+
+  static const Set<String> _blockedConfigKeys = {
+    'banners',
+    'analytics',
+    'telemetry',
+    'tracking',
+    'tracker',
+    'mytracker',
+    'abTests',
+    'promo',
+    'ads',
+  };
+
+  static const Set<String> _forbiddenHardwareKeys = {
+    'imei',
+    'imsi',
+    'androidId',
+    'android_id',
+    'mac',
+    'macAddress',
+    'advertisingId',
+    'gaid',
+    'idfa',
+    'idfv',
+    'serial',
+    'serialNumber',
+  };
+
+  /// Проверяет, ведёт ли URL на известный домен телеметрии, аналитики или трекера.
+  static bool isTrackingUrl(Uri uri) {
+    final host = uri.host.toLowerCase();
+    if (host.isEmpty) return false;
+    if (_blockedTrackingHosts.contains(host)) return true;
+    for (final blocked in _blockedTrackingHosts) {
+      if (host.endsWith('.$blocked')) return true;
+    }
+    if (host.startsWith('telemetry.') ||
+        host.startsWith('metrics.') ||
+        host.startsWith('analytics.') ||
+        host.startsWith('tracker.')) {
+      return true;
+    }
+    if ((host == 'vk.com' || host.endsWith('.vk.com')) &&
+        uri.path.toLowerCase().startsWith('/rtrg')) {
+      return true;
+    }
+    return false;
+  }
+
   final PrivacySettings settings;
   final WireAuditLog auditLog;
 
@@ -136,6 +213,69 @@ class PrivacyFirewall {
     required this.settings,
     required this.auditLog,
   });
+
+  /// Принудительно очищает исходящий payload:
+  /// - в Ghost Mode гарантирует `interactive: false` в PING и LOGIN;
+  /// - в SESSION_INIT удаляет любые аппаратные идентификаторы, если вдруг попали.
+  Object? sanitizeOutgoingPayload(int opcode, Object? payload) {
+    if (payload is! Map) return payload;
+    if ((opcode == Opcode.ping || opcode == Opcode.login) &&
+        settings.ghostModeOnline) {
+      if (payload['interactive'] != false) {
+        final copy = Map<dynamic, dynamic>.from(payload);
+        copy['interactive'] = false;
+        return copy;
+      }
+    }
+    if (opcode == Opcode.sessionInit) {
+      final copy = Map<dynamic, dynamic>.from(payload);
+      for (final key in _forbiddenHardwareKeys) {
+        copy.remove(key);
+      }
+      final ua = copy['userAgent'];
+      if (ua is Map) {
+        final uaCopy = Map<dynamic, dynamic>.from(ua);
+        for (final key in _forbiddenHardwareKeys) {
+          uaCopy.remove(key);
+        }
+        copy['userAgent'] = uaCopy;
+      }
+      return copy;
+    }
+    return payload;
+  }
+
+  /// Вырезает рекламные и телеметрийные поля из входящих конфигов и LOGIN.
+  Object? sanitizeIncomingPayload(int opcode, Object? payload) {
+    if (payload is! Map) return payload;
+    if (opcode != Opcode.login &&
+        opcode != Opcode.config &&
+        opcode != Opcode.notifConfig) {
+      return payload;
+    }
+    return _stripBlockedKeys(payload);
+  }
+
+  static Map<dynamic, dynamic> _stripBlockedKeys(Map<dynamic, dynamic> src) {
+    var mutated = false;
+    final out = <dynamic, dynamic>{};
+    for (final entry in src.entries) {
+      final key = entry.key.toString();
+      if (_blockedConfigKeys.contains(key)) {
+        mutated = true;
+        continue;
+      }
+      if (entry.value is Map &&
+          (key == 'config' || key == 'server' || key == 'user')) {
+        final nested = _stripBlockedKeys(entry.value as Map<dynamic, dynamic>);
+        if (!identical(nested, entry.value)) mutated = true;
+        out[entry.key] = nested;
+      } else {
+        out[entry.key] = entry.value;
+      }
+    }
+    return mutated ? out : src;
+  }
 
   /// Инспектирует исходящий пакет. Возвращает решение о пропуске или блокировке.
   FirewallDecision inspectOutgoing(
@@ -181,25 +321,26 @@ class PrivacyFirewall {
       return FirewallDecision.block(AuditVerdict.blockedGhost, reason);
     }
 
-    if (opcode == Opcode.chatMark &&
-        settings.hideReadReceipts &&
-        payload is Map &&
-        payload['type'] == 'READ_MESSAGE') {
-      settings.incrementBlockedCount();
-      const reason = 'Скрыта отметка о прочтении (Anti-Read)';
-      auditLog.record(
-        WireAuditEntry(
-          timestamp: DateTime.now(),
-          direction: PacketDirection.outgoing,
-          opcode: opcode,
-          opcodeName: opName,
-          seq: seq,
-          verdict: AuditVerdict.blockedGhost,
-          summary: reason,
-          payload: WireAuditLog.compactPayload(payload),
-        ),
-      );
-      return FirewallDecision.block(AuditVerdict.blockedGhost, reason);
+    if (opcode == Opcode.chatMark && settings.hideReadReceipts) {
+      final typeStr = payload is Map ? payload['type']?.toString().toUpperCase() : null;
+      final isReadReceipt = typeStr == null || typeStr.contains('READ');
+      if (isReadReceipt) {
+        settings.incrementBlockedCount();
+        const reason = 'Скрыта отметка о прочтении (Anti-Read)';
+        auditLog.record(
+          WireAuditEntry(
+            timestamp: DateTime.now(),
+            direction: PacketDirection.outgoing,
+            opcode: opcode,
+            opcodeName: opName,
+            seq: seq,
+            verdict: AuditVerdict.blockedGhost,
+            summary: reason,
+            payload: WireAuditLog.compactPayload(payload),
+          ),
+        );
+        return FirewallDecision.block(AuditVerdict.blockedGhost, reason);
+      }
     }
 
     auditLog.record(

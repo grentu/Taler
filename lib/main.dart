@@ -64,7 +64,9 @@ class _TalerAppState extends State<TalerApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    final foreground = state == AppLifecycleState.resumed;
+    _client.setAppForeground(foreground);
+    if (foreground) {
       _client.wakeUp();
     }
   }

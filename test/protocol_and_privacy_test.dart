@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taler/backend/taler_client.dart';
+import 'package:taler/core/platform/taler_native_bridge.dart';
 import 'package:taler/core/privacy/privacy_firewall.dart';
 import 'package:taler/core/privacy/privacy_settings.dart';
 import 'package:taler/core/privacy/spoof_profile.dart';
@@ -162,6 +163,7 @@ void main() {
       for (final op in <int>[
         Opcode.log,
         Opcode.debug,
+        Opcode.msgGetStat,
         Opcode.bannersSync,
         Opcode.chatSuggest,
       ]) {
@@ -540,6 +542,241 @@ void main() {
       expect(reactions.first.emoji, '🔥');
       expect(reactions.first.count, 2);
       expect(reactions.first.isMine, isTrue);
+    });
+  });
+
+  group('v1.2.15 Telemetry Hardening, Notifications & Drafts', () {
+    test('PrivacyFirewall blocks all telemetry vectors, sanitizes Ghost Mode & tracking URLs', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final settings = PrivacySettings();
+      await settings.load();
+      await settings.setGhostModeOnline(true);
+      await settings.setHideReadReceipts(true);
+      final firewall = PrivacyFirewall(settings: settings, auditLog: WireAuditLog());
+
+      // Любой вариант chatMark на прочтение блокируется при Anti-Read.
+      expect(
+        firewall.inspectOutgoing(Opcode.chatMark, <String, dynamic>{'chatId': 1}).allowed,
+        isFalse,
+      );
+      expect(
+        firewall.inspectOutgoing(Opcode.chatMark, <String, dynamic>{'type': 'READ_REACTION', 'chatId': 1}).allowed,
+        isFalse,
+      );
+
+      // Ghost Mode принудительно переписывает interactive: true -> false в PING и LOGIN.
+      final sanitizedPing = firewall.sanitizeOutgoingPayload(
+        Opcode.ping,
+        <String, dynamic>{'interactive': true},
+      ) as Map;
+      expect(sanitizedPing['interactive'], isFalse);
+
+      final sanitizedLogin = firewall.sanitizeOutgoingPayload(
+        Opcode.login,
+        <String, dynamic>{'token': 'abc', 'interactive': true},
+      ) as Map;
+      expect(sanitizedLogin['interactive'], isFalse);
+
+      // SESSION_INIT очищается от любых аппаратных ключей.
+      final sanitizedInit = firewall.sanitizeOutgoingPayload(
+        Opcode.sessionInit,
+        <String, dynamic>{
+          'deviceId': 'virtual',
+          'imei': '123456',
+          'userAgent': <String, dynamic>{'deviceType': 'ANDROID', 'androidId': 'real_hw'},
+        },
+      ) as Map;
+      expect(sanitizedInit.containsKey('imei'), isFalse);
+      expect((sanitizedInit['userAgent'] as Map).containsKey('androidId'), isFalse);
+
+      // Входящий LOGIN/CONFIG очищается от баннеров и аналитики.
+      final cleanConfig = firewall.sanitizeIncomingPayload(
+        Opcode.login,
+        <String, dynamic>{
+          'token': 'ok',
+          'banners': ['ad1'],
+          'analytics': {'url': 'https://stat.oneme.ru'},
+          'config': <String, dynamic>{
+            'chats': <String, dynamic>{},
+            'mytracker': {'id': 42},
+            'telemetry': true,
+          },
+        },
+      ) as Map;
+      expect(cleanConfig.containsKey('banners'), isFalse);
+      expect(cleanConfig.containsKey('analytics'), isFalse);
+      expect((cleanConfig['config'] as Map).containsKey('mytracker'), isFalse);
+      expect((cleanConfig['config'] as Map).containsKey('telemetry'), isFalse);
+
+      // URL-файрвол режет трекеры и пропускает обычный CDN.
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://top-fwz1.mail.ru/counter')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://mc.yandex.ru/watch/123')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://mytracker.my.com/track')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://stat.oneme.ru/event')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://vk.com/rtrg?p=1')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://telemetry.example.org/log')), isTrue);
+      expect(PrivacyFirewall.isTrackingUrl(Uri.parse('https://i.oneme.ru/photo/123.jpg')), isFalse);
+
+      // Нейтральный User-Agent без утечки имени клиента и Dart runtime.
+      expect(PrivacyFirewall.defaultHttpUserAgent, isNot(contains('Taler')));
+      expect(PrivacyFirewall.defaultHttpUserAgent, isNot(contains('Dart')));
+    });
+
+    test('incoming push triggers notification respecting active chat, mute and preview setting', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final store = LocalStore();
+      await store.init();
+      await store.saveProfile(const TalerUserProfile(id: 10, firstName: 'Я'));
+      await store.saveChats([
+        const TalerChat(id: 701, type: 'DIALOG', title: 'Иван', peerId: 20),
+        const TalerChat(id: 702, type: 'DIALOG', title: 'Тихий чат', peerId: 21, isMuted: true),
+      ]);
+
+      final client = TalerClient(
+        privacySettings: PrivacySettings(),
+        spoofingService: SpoofingService(),
+        auditLog: WireAuditLog(),
+        store: store,
+      );
+      addTearDown(client.dispose);
+
+      final fired = <({int chatId, String title, String body})>[];
+      TalerNativeBridge.instance.testNotificationHandler = (id, title, body) {
+        fired.add((chatId: id, title: title, body: body));
+      };
+      addTearDown(() => TalerNativeBridge.instance.testNotificationHandler = null);
+
+      // Чат не открыт -> уведомление с текстом приходит.
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 1,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 701,
+            'message': <String, dynamic>{
+              'id': '9001',
+              'sender': 20,
+              'text': 'Привет в фоне!',
+              'time': 50000,
+            },
+          },
+        ),
+      );
+      expect(fired.length, 1);
+      expect(fired.first.chatId, 701);
+      expect(fired.first.body, 'Привет в фоне!');
+
+      // Отключаем превью -> текст скрыт.
+      await client.appPreferences.setShowNotificationPreview(false);
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 2,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 701,
+            'message': <String, dynamic>{
+              'id': '9002',
+              'sender': 20,
+              'text': 'Секретный код',
+              'time': 51000,
+            },
+          },
+        ),
+      );
+      expect(fired.length, 2);
+      expect(fired.last.body, 'Новое сообщение');
+
+      // Чат в муте -> уведомление не приходит.
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 3,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 702,
+            'message': <String, dynamic>{
+              'id': '9003',
+              'sender': 21,
+              'text': 'Тишина',
+              'time': 52000,
+            },
+          },
+        ),
+      );
+      expect(fired.length, 2);
+
+      // Открытый активный чат на переднем плане -> уведомление не дублируется.
+      client.setActiveChat(701);
+      client.setAppForeground(true);
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 4,
+          opcode: Opcode.notifMessage,
+          payload: <String, dynamic>{
+            'chatId': 701,
+            'message': <String, dynamic>{
+              'id': '9004',
+              'sender': 20,
+              'text': 'Уже смотрю чат',
+              'time': 53000,
+            },
+          },
+        ),
+      );
+      expect(fired.length, 2);
+    });
+
+    test('drafts persist across LocalStore reload, handle notifDraft and clear on send', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final store = LocalStore();
+      await store.init();
+      final client = TalerClient(
+        privacySettings: PrivacySettings(),
+        spoofingService: SpoofingService(),
+        auditLog: WireAuditLog(),
+        store: store,
+      );
+      await client.enterDemoMode();
+      addTearDown(client.dispose);
+
+      await client.saveDraft(5002, 'Недописанный черновик');
+      expect(client.draftForChat(5002)?.text, 'Недописанный черновик');
+
+      // Перезагружаем LocalStore из SharedPreferences -> черновик сохранился.
+      final reloadedStore = LocalStore();
+      await reloadedStore.init();
+      expect(reloadedStore.draftFor(5002)?.text, 'Недописанный черновик');
+
+      // Отправка сообщения автоматически очищает черновик.
+      await client.sendMessage(5002, 'Готовое сообщение');
+      expect(client.draftForChat(5002), isNull);
+
+      // Входящий пуш notifDraft обновляет черновик, notifDraftDiscard очищает.
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 10,
+          opcode: Opcode.notifDraft,
+          payload: <String, dynamic>{
+            'chatId': 5002,
+            'draft': <String, dynamic>{'text': 'Синхронизирован с ПК'},
+          },
+        ),
+      );
+      expect(client.draftForChat(5002)?.text, 'Синхронизирован с ПК');
+
+      await client.debugHandlePush(
+        const TalerPacket(
+          cmd: CmdType.push,
+          seq: 11,
+          opcode: Opcode.notifDraftDiscard,
+          payload: <String, dynamic>{'chatId': 5002},
+        ),
+      );
+      expect(client.draftForChat(5002), isNull);
     });
   });
 }

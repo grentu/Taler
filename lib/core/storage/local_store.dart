@@ -28,6 +28,7 @@ class LocalStore {
   static const _kChats = 'taler_chats_v1';
   static const _kContacts = 'taler_contacts_v1';
   static const _kFolders = 'taler_folders_v1';
+  static const _kDrafts = 'taler_drafts_v1';
   static String _msgKey(int chatId) => 'taler_messages_${chatId}_v1';
 
   SharedPreferences? _prefs;
@@ -39,6 +40,7 @@ class LocalStore {
   final Map<int, TalerContact> _contacts = {};
   final List<TalerFolder> _folders = [];
   final Map<int, List<TalerMessage>> _messages = {};
+  final Map<int, TalerDraft> _drafts = {};
 
   Timer? _chatsSaveTimer;
   Timer? _contactsSaveTimer;
@@ -50,6 +52,25 @@ class LocalStore {
   Map<int, TalerChat> get chats => Map.unmodifiable(_chats);
   Map<int, TalerContact> get contacts => Map.unmodifiable(_contacts);
   List<TalerFolder> get folders => List.unmodifiable(_folders);
+  Map<int, TalerDraft> get drafts => Map.unmodifiable(_drafts);
+
+  TalerDraft? draftFor(int chatId) => _drafts[chatId];
+
+  Future<void> saveDraft(int chatId, TalerDraft? draft) async {
+    if (draft == null || draft.isEmpty) {
+      if (_drafts.remove(chatId) == null) return;
+    } else {
+      _drafts[chatId] = draft;
+    }
+    await _persistDraftsNow();
+  }
+
+  Future<void> _persistDraftsNow() async {
+    final encoded = <String, dynamic>{
+      for (final entry in _drafts.entries) '${entry.key}': entry.value.toJson(),
+    };
+    await _prefs?.setString(_kDrafts, jsonEncode(encoded));
+  }
 
   Future<void> init([SharedPreferences? prefs]) async {
     _prefs = prefs ?? await SharedPreferences.getInstance();
@@ -94,6 +115,24 @@ class LocalStore {
         final list = jsonDecode(rawFolders) as List;
         for (final item in list.whereType<Map>()) {
           _folders.add(TalerFolder.fromJson(Map<String, dynamic>.from(item)));
+        }
+      } catch (_) {}
+    }
+
+    final rawDrafts = _prefs?.getString(_kDrafts);
+    if (rawDrafts != null && rawDrafts.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawDrafts);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            final cid = int.tryParse(entry.key.toString());
+            if (cid != null && entry.value is Map) {
+              final d = TalerDraft.fromJson(
+                Map<String, dynamic>.from(entry.value as Map),
+              );
+              if (!d.isEmpty) _drafts[cid] = d;
+            }
+          }
         }
       } catch (_) {}
     }
@@ -428,6 +467,7 @@ class LocalStore {
     _contacts.clear();
     _folders.clear();
     _messages.clear();
+    _drafts.clear();
 
     await _prefs?.remove(_kAuthToken);
     await _prefs?.remove(_kAccountId);
@@ -435,6 +475,7 @@ class LocalStore {
     await _prefs?.remove(_kChats);
     await _prefs?.remove(_kContacts);
     await _prefs?.remove(_kFolders);
+    await _prefs?.remove(_kDrafts);
     for (final id in chatIds) {
       await _prefs?.remove(_msgKey(id));
     }

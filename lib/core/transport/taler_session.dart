@@ -292,7 +292,8 @@ class TalerSession {
     Duration? timeout,
   }) {
     final nextSeq = (_seq % 32000) + 1;
-    final decision = firewall.inspectOutgoing(opcode, payload, seq: nextSeq);
+    final safePayload = firewall.sanitizeOutgoingPayload(opcode, payload);
+    final decision = firewall.inspectOutgoing(opcode, safePayload, seq: nextSeq);
     if (!decision.allowed) {
       return Future<TalerPacket>.value(
         TalerPacket(
@@ -319,7 +320,7 @@ class TalerSession {
       cmd: CmdType.request,
       seq: seq,
       opcode: opcode,
-      payload: payload,
+      payload: safePayload,
     );
     try {
       _writeRaw(encoded);
@@ -449,26 +450,39 @@ class TalerSession {
     );
     if (!allowed) return;
 
-    if (frame.cmd == CmdType.request) {
-      if (frame.opcode == Opcode.ping) {
+    final sanitized = firewall.sanitizeIncomingPayload(
+      frame.opcode,
+      frame.payload,
+    );
+    final safeFrame = identical(sanitized, frame.payload)
+        ? frame
+        : TalerPacket(
+            cmd: frame.cmd,
+            seq: frame.seq,
+            opcode: frame.opcode,
+            payload: sanitized,
+          );
+
+    if (safeFrame.cmd == CmdType.request) {
+      if (safeFrame.opcode == Opcode.ping) {
         _writeRaw(
           TalerFraming.encode(
             cmd: CmdType.ok,
-            seq: frame.seq,
+            seq: safeFrame.seq,
             opcode: Opcode.ping,
           ),
         );
         return;
       }
       if (!_pushController.isClosed) {
-        _pushController.add(frame);
+        _pushController.add(safeFrame);
       }
       return;
     }
 
-    final completer = _pending.remove(frame.seq);
+    final completer = _pending.remove(safeFrame.seq);
     if (completer != null && !completer.isCompleted) {
-      completer.complete(frame);
+      completer.complete(safeFrame);
     }
   }
 

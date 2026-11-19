@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/media/taler_media_cache.dart';
+import '../../core/platform/taler_native_bridge.dart';
 import '../../core/storage/taler_models.dart';
 import '../icons/taler_icon.dart';
 import '../theme/chat_tokens.dart';
@@ -38,7 +40,8 @@ class ChatDayChip extends StatelessWidget {
   }
 }
 
-/// Строка сообщения: аватар отправителя в группах, пузырь и реакции.
+/// Строка сообщения: аватар отправителя в группах, пузырь, свайп-ответ,
+/// двойной тап быстрой реакции, мультивыделение и реакции.
 class MessageRow extends StatelessWidget {
   final TalerMessage message;
   final bool isMine;
@@ -57,7 +60,17 @@ class MessageRow extends StatelessWidget {
   final ValueChanged<Rect?>? onBubbleActions;
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
+  final VoidCallback? onSwipeReply;
+  final VoidCallback? onDoubleTapQuickReaction;
+  final bool selectionMode;
+  final bool isSelected;
+  final VoidCallback? onToggleSelect;
   final void Function(TalerAttachment photo)? onOpenPhoto;
+  final void Function(TalerAttachment video)? onOpenVideo;
+  final void Function(TalerAttachment file)? onOpenFile;
+  final double? Function(TalerAttachment file)? fileProgressOf;
+  final Future<String?> Function(TalerAttachment audio)? onResolveAudio;
+  final void Function(String url)? onOpenLink;
   final ValueChanged<String> onToggleReaction;
 
   const MessageRow({
@@ -78,10 +91,24 @@ class MessageRow extends StatelessWidget {
     this.senderAvatarUrl,
     this.onShowHistory,
     this.onRetry,
+    this.onSwipeReply,
+    this.onDoubleTapQuickReaction,
+    this.selectionMode = false,
+    this.isSelected = false,
+    this.onToggleSelect,
     this.onOpenPhoto,
+    this.onOpenVideo,
+    this.onOpenFile,
+    this.fileProgressOf,
+    this.onResolveAudio,
+    this.onOpenLink,
   });
 
   void _triggerActions(BuildContext bubbleCtx) {
+    if (selectionMode) {
+      onToggleSelect?.call();
+      return;
+    }
     if (onBubbleActions != null) {
       final box = bubbleCtx.findRenderObject() as RenderBox?;
       Rect? rect;
@@ -100,34 +127,84 @@ class MessageRow extends StatelessWidget {
       return ChatDayChip(label: message.text.isNotEmpty ? message.text : 'Служебное сообщение');
     }
     final bubble = Builder(
-      builder: (bubbleCtx) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: message.status == 'error' ? () => _triggerActions(bubbleCtx) : null,
-        onLongPress: () => _triggerActions(bubbleCtx),
-        onSecondaryTap: () => _triggerActions(bubbleCtx),
-        child: MessageBubble(
-          message: message,
-          isMine: isMine,
-          firstInRun: firstInRun,
-          showName: showSender && firstInRun,
-          senderName: senderName,
-          maxWidth: maxBubbleWidth,
-          peerReadMark: peerReadMark,
-          fontSize: messageFontSize,
-          cornerRadius: bubbleRadius,
-          onShowHistory: onShowHistory,
-          onRetry: onRetry,
-          onOpenPhoto: onOpenPhoto,
-        ),
-      ),
+      builder: (bubbleCtx) {
+        final gesture = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: selectionMode
+              ? onToggleSelect
+              : (message.status == 'error' ? () => _triggerActions(bubbleCtx) : null),
+          onLongPress: () => _triggerActions(bubbleCtx),
+          onSecondaryTap: () => _triggerActions(bubbleCtx),
+          child: IgnorePointer(
+            ignoring: selectionMode,
+            child: MessageBubble(
+              message: message,
+              isMine: isMine,
+              firstInRun: firstInRun,
+              showName: showSender && firstInRun,
+              senderName: senderName,
+              maxWidth: selectionMode
+                  ? (maxBubbleWidth - 34).clamp(140.0, maxBubbleWidth)
+                  : maxBubbleWidth,
+              peerReadMark: peerReadMark,
+              fontSize: messageFontSize,
+              cornerRadius: bubbleRadius,
+              onShowHistory: onShowHistory,
+              onRetry: onRetry,
+              onOpenPhoto: onOpenPhoto,
+              onOpenVideo: onOpenVideo,
+              onOpenFile: onOpenFile,
+              fileProgressOf: fileProgressOf,
+              onResolveAudio: onResolveAudio,
+              onOpenLink: onOpenLink,
+            ),
+          ),
+        );
+        if (selectionMode || onDoubleTapQuickReaction == null) {
+          return gesture;
+        }
+        return _QuickDoubleTapDetector(
+          onDoubleTap: onDoubleTapQuickReaction!,
+          child: gesture,
+        );
+      },
     );
 
-    return Padding(
+    Widget rowContent = Padding(
       padding: EdgeInsets.only(top: firstInRun ? 8 : 2),
       child: Row(
         mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (selectionMode) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 10, bottom: 8),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: 22,
+                height: 22,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? p.accent : Colors.transparent,
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? null
+                      : Border.all(
+                          color: p.fg3.withValues(alpha: 0.55),
+                          width: 1.6,
+                        ),
+                ),
+                child: isSelected
+                    ? const TalerIcon(
+                        TalerIcons.check,
+                        size: 14,
+                        color: Colors.white,
+                        morph: false,
+                      )
+                    : null,
+              ),
+            ),
+          ],
           if (showSender && !isMine) ...[
             SizedBox(
               width: 36,
@@ -142,6 +219,7 @@ class MessageRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
+          if (selectionMode && isMine) const Spacer(),
           Flexible(
             child: Column(
               crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -159,7 +237,9 @@ class MessageRow extends StatelessWidget {
                           _ReactionChip(
                             reaction: r,
                             palette: p,
-                            onTap: () => onToggleReaction(r.emoji),
+                            onTap: selectionMode
+                                ? (onToggleSelect ?? () {})
+                                : () => onToggleReaction(r.emoji),
                           ),
                       ],
                     ),
@@ -170,6 +250,32 @@ class MessageRow extends StatelessWidget {
         ],
       ),
     );
+
+    if (selectionMode) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onToggleSelect,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? p.accent.withValues(alpha: p.isDark ? 0.16 : 0.10)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          child: rowContent,
+        ),
+      );
+    }
+
+    if (onSwipeReply != null) {
+      return _SwipeToReplyWrapper(
+        onReply: onSwipeReply!,
+        child: rowContent,
+      );
+    }
+    return rowContent;
   }
 
   static String _initials(String name) {
@@ -178,6 +284,181 @@ class MessageRow extends StatelessWidget {
     String firstRune(String s) => String.fromCharCode(s.runes.first).toUpperCase();
     if (parts.length == 1) return firstRune(parts.first);
     return '${firstRune(parts[0])}${firstRune(parts[1])}';
+  }
+}
+
+class _QuickDoubleTapDetector extends StatefulWidget {
+  final VoidCallback onDoubleTap;
+  final Widget child;
+
+  const _QuickDoubleTapDetector({
+    required this.onDoubleTap,
+    required this.child,
+  });
+
+  @override
+  State<_QuickDoubleTapDetector> createState() => _QuickDoubleTapDetectorState();
+}
+
+class _QuickDoubleTapDetectorState extends State<_QuickDoubleTapDetector> {
+  Offset? _downPos;
+  DateTime? _downAt;
+  Offset? _lastTapPos;
+  DateTime? _lastTapAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) {
+        _downPos = e.position;
+        _downAt = DateTime.now();
+      },
+      onPointerUp: (e) {
+        final downPos = _downPos;
+        final downAt = _downAt;
+        _downPos = null;
+        _downAt = null;
+        if (downPos == null || downAt == null) return;
+        final now = DateTime.now();
+        if ((e.position - downPos).distance > 18.0 ||
+            now.difference(downAt) > const Duration(milliseconds: 260)) {
+          return;
+        }
+        final prevAt = _lastTapAt;
+        final prevPos = _lastTapPos;
+        if (prevAt != null &&
+            prevPos != null &&
+            now.difference(prevAt) <= const Duration(milliseconds: 340) &&
+            (e.position - prevPos).distance <= 36.0) {
+          _lastTapAt = null;
+          _lastTapPos = null;
+          widget.onDoubleTap();
+        } else {
+          _lastTapAt = now;
+          _lastTapPos = e.position;
+        }
+      },
+      child: widget.child,
+    );
+  }
+}
+
+class _SwipeToReplyWrapper extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onReply;
+
+  const _SwipeToReplyWrapper({
+    required this.child,
+    required this.onReply,
+  });
+
+  @override
+  State<_SwipeToReplyWrapper> createState() => _SwipeToReplyWrapperState();
+}
+
+class _SwipeToReplyWrapperState extends State<_SwipeToReplyWrapper>
+    with SingleTickerProviderStateMixin {
+  static const double _triggerThreshold = 48.0;
+  static const double _maxDrag = 74.0;
+
+  late final AnimationController _snapCtrl;
+  double _dragDx = 0.0;
+  double _snapFrom = 0.0;
+  bool _triggered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _snapCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 210),
+    )..addListener(() {
+        final t = Curves.easeOutCubic.transform(_snapCtrl.value);
+        setState(() => _dragDx = _snapFrom * (1.0 - t));
+      });
+  }
+
+  @override
+  void dispose() {
+    _snapCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (_snapCtrl.isAnimating) _snapCtrl.stop();
+    final delta = details.delta.dx;
+    if (_dragDx == 0 && delta > 0) return;
+    final resistance = _dragDx.abs() > _triggerThreshold ? 0.35 : 0.85;
+    final next = (_dragDx + delta * resistance).clamp(-_maxDrag, 0.0);
+    if ((next - _dragDx).abs() < 0.1) return;
+    final crossed = !_triggered && next.abs() >= _triggerThreshold;
+    if (crossed) {
+      _triggered = true;
+      unawaited(HapticFeedback.lightImpact());
+    } else if (_triggered && next.abs() < _triggerThreshold * 0.85) {
+      _triggered = false;
+    }
+    setState(() => _dragDx = next);
+  }
+
+  void _onDragEnd() {
+    final shouldReply = _triggered;
+    _triggered = false;
+    if (_dragDx.abs() > 0.5) {
+      _snapFrom = _dragDx;
+      _snapCtrl.forward(from: 0.0);
+    }
+    if (shouldReply) {
+      widget.onReply();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TalerTheme.paletteOf(context);
+    final progress = (_dragDx.abs() / _triggerThreshold).clamp(0.0, 1.0);
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: (_) => _onDragEnd(),
+      onHorizontalDragCancel: _onDragEnd,
+      child: Stack(
+        alignment: Alignment.centerRight,
+        clipBehavior: Clip.none,
+        children: [
+          if (progress > 0.02)
+            Positioned(
+              right: 6,
+              child: Opacity(
+                opacity: progress,
+                child: Transform.scale(
+                  scale: 0.58 + 0.42 * progress,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: progress >= 1.0 ? p.accent : p.surface2,
+                      shape: BoxShape.circle,
+                    ),
+                    child: TalerIcon(
+                      TalerIcons.reply,
+                      size: 17,
+                      color: progress >= 1.0 ? Colors.white : p.fg2,
+                      morph: false,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Transform.translate(
+            offset: Offset(_dragDx, 0),
+            child: widget.child,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -251,6 +532,11 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onShowHistory;
   final VoidCallback? onRetry;
   final void Function(TalerAttachment photo)? onOpenPhoto;
+  final void Function(TalerAttachment video)? onOpenVideo;
+  final void Function(TalerAttachment file)? onOpenFile;
+  final double? Function(TalerAttachment file)? fileProgressOf;
+  final Future<String?> Function(TalerAttachment audio)? onResolveAudio;
+  final void Function(String url)? onOpenLink;
 
   const MessageBubble({
     super.key,
@@ -266,6 +552,11 @@ class MessageBubble extends StatelessWidget {
     this.onShowHistory,
     this.onRetry,
     this.onOpenPhoto,
+    this.onOpenVideo,
+    this.onOpenFile,
+    this.fileProgressOf,
+    this.onResolveAudio,
+    this.onOpenLink,
   });
 
   static const double _small = 6;
@@ -437,6 +728,7 @@ class MessageBubble extends StatelessWidget {
           attachment: video,
           width: maxWidth,
           overlayMeta: metaInVideo && video == videos.last ? meta : null,
+          onTap: onOpenVideo != null ? () => onOpenVideo!(video) : null,
         ),
       );
     }
@@ -481,12 +773,14 @@ class MessageBubble extends StatelessWidget {
     for (final audio in audios) {
       final isLast = audio == audios.last;
       children.add(_AudioView(
+        audioKey: '${m.id}:${audio.audioId ?? audio.fileId ?? audio.url ?? audio.fileName ?? 'audio'}',
         attachment: audio,
         out: out,
         palette: p,
         metaColor: metaColor,
         inlineMeta: metaInAudio && isLast ? meta : null,
         bottomPadding: metaInAudio && isLast ? 8 : 0,
+        onResolveSource: onResolveAudio != null ? () => onResolveAudio!(audio) : null,
       ));
     }
     for (final file in files) {
@@ -498,6 +792,8 @@ class MessageBubble extends StatelessWidget {
         metaColor: metaColor,
         inlineMeta: metaInFile && isLast ? meta : null,
         bottomPadding: metaInFile && isLast ? 8 : 0,
+        downloadProgress: fileProgressOf?.call(file),
+        onTap: onOpenFile != null ? () => onOpenFile!(file) : null,
       ));
     }
     if (hasText) {
@@ -511,18 +807,18 @@ class MessageBubble extends StatelessWidget {
               forwarded != null)
           ? 4.0
           : 7.0;
+      final linkColor = out ? Colors.white : p.accent;
       if (metaInText) {
         children.add(Stack(
           children: [
             Padding(
               padding: EdgeInsets.fromLTRB(12, topPad, 12, 7),
-              child: Text.rich(
-                TextSpan(children: [
-                  TextSpan(text: m.text),
-                  // Невидимое место под время, чтобы оно встало в последнюю строку.
-                  WidgetSpan(child: SizedBox(width: meta.estimatedWidth + 6, height: 12)),
-                ]),
+              child: _LinkifiedText(
+                text: m.text,
                 style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
+                linkColor: linkColor,
+                trailingSpacerWidth: meta.estimatedWidth + 6,
+                onOpenLink: onOpenLink,
               ),
             ),
             Positioned(right: 10, bottom: 5, child: meta),
@@ -531,9 +827,11 @@ class MessageBubble extends StatelessWidget {
       } else {
         children.add(Padding(
           padding: EdgeInsets.fromLTRB(12, topPad, 12, 6),
-          child: Text(
-            m.text,
+          child: _LinkifiedText(
+            text: m.text,
             style: TextStyle(fontSize: fontSize, height: 1.4, color: fg),
+            linkColor: linkColor,
+            onOpenLink: onOpenLink,
           ),
         ));
       }
@@ -548,6 +846,7 @@ class MessageBubble extends StatelessWidget {
         width: maxWidth,
         topMargin: hasText || children.isNotEmpty ? 2 : 8,
         trailingMeta: metaInShare && isLast ? meta : null,
+        onOpenLink: onOpenLink,
       ));
     }
     if (!hasText && !hasAnyAttachment) {
@@ -752,6 +1051,113 @@ class _PhotoView extends StatelessWidget {
   }
 }
 
+class _LinkifiedText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final Color linkColor;
+  final double? trailingSpacerWidth;
+  final void Function(String url)? onOpenLink;
+
+  const _LinkifiedText({
+    required this.text,
+    required this.style,
+    required this.linkColor,
+    this.trailingSpacerWidth,
+    this.onOpenLink,
+  });
+
+  @override
+  State<_LinkifiedText> createState() => _LinkifiedTextState();
+}
+
+class _LinkifiedTextState extends State<_LinkifiedText> {
+  static final RegExp _urlRegex = RegExp(
+    r'((?:https?:\/\/|www\.)[^\s<>"\)\]]+|\b(?:t\.me|max\.ru|vk\.com|vkvideo\.ru|youtu\.be|youtube\.com|rutube\.ru|github\.com)\/[^\s<>"\)\]]+)',
+    caseSensitive: false,
+  );
+
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    _clearRecognizers();
+    super.dispose();
+  }
+
+  void _clearRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  void _open(String rawUrl) {
+    final normalized = rawUrl.contains('://') ? rawUrl : 'https://$rawUrl';
+    final cb = widget.onOpenLink;
+    if (cb != null) {
+      cb(normalized);
+    } else {
+      unawaited(TalerNativeBridge.instance.openUrl(normalized));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _clearRecognizers();
+    final spans = <InlineSpan>[];
+    final text = widget.text;
+    var cursor = 0;
+
+    for (final match in _urlRegex.allMatches(text)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+      }
+      var raw = match.group(0)!;
+      var suffix = '';
+      while (raw.isNotEmpty && '.,!?;:'.contains(raw[raw.length - 1])) {
+        suffix = raw[raw.length - 1] + suffix;
+        raw = raw.substring(0, raw.length - 1);
+      }
+      if (raw.isNotEmpty) {
+        final target = raw;
+        final rec = TapGestureRecognizer()..onTap = () => _open(target);
+        _recognizers.add(rec);
+        spans.add(
+          TextSpan(
+            text: raw,
+            recognizer: rec,
+            style: widget.style.copyWith(
+              color: widget.linkColor,
+              decoration: TextDecoration.underline,
+              decorationColor: widget.linkColor.withValues(alpha: 0.65),
+            ),
+          ),
+        );
+      }
+      if (suffix.isNotEmpty) {
+        spans.add(TextSpan(text: suffix));
+      }
+      cursor = match.end;
+    }
+
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+    if (widget.trailingSpacerWidth != null) {
+      spans.add(
+        WidgetSpan(
+          child: SizedBox(width: widget.trailingSpacerWidth, height: 12),
+        ),
+      );
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+      style: widget.style,
+    );
+  }
+}
+
 class _FileView extends StatelessWidget {
   final TalerAttachment attachment;
   final bool out;
@@ -759,6 +1165,8 @@ class _FileView extends StatelessWidget {
   final Color metaColor;
   final MessageMeta? inlineMeta;
   final double bottomPadding;
+  final double? downloadProgress;
+  final VoidCallback? onTap;
 
   const _FileView({
     required this.attachment,
@@ -767,6 +1175,8 @@ class _FileView extends StatelessWidget {
     required this.metaColor,
     required this.inlineMeta,
     required this.bottomPadding,
+    this.downloadProgress,
+    this.onTap,
   });
 
   @override
@@ -776,47 +1186,73 @@ class _FileView extends StatelessWidget {
     final size = ChatTokens.fileSize(attachment.fileSize);
     final fg = out ? p.bubbleOutText : p.bubbleInText;
     final meta = inlineMeta;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(12, 10, 12, bottomPadding),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: out ? Colors.white.withValues(alpha: 0.18) : p.accent,
-              borderRadius: BorderRadius.circular(12),
+    final prog = downloadProgress;
+    final statusText = prog != null
+        ? 'Загрузка ${(prog * 100).round()}%'
+        : (size.isNotEmpty ? size : 'Нажмите, чтобы скачать');
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12, 10, 12, bottomPadding > 0 ? bottomPadding : 8),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: out ? Colors.white.withValues(alpha: 0.18) : p.accent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: prog != null
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        value: prog > 0.06 ? prog : null,
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const TalerIcon(TalerIcons.file, size: 20, color: Colors.white),
             ),
-            child: TalerIcon(TalerIcons.file, size: 20, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: fg),
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (size.isNotEmpty) Text(size, style: TalerTheme.tabularStyle(size: 12, color: metaColor)),
-                    if (meta != null) ...[
-                      const SizedBox(width: 16),
-                      meta,
+            const SizedBox(width: 12),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: fg),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          statusText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TalerTheme.tabularStyle(size: 12, color: metaColor),
+                        ),
+                      ),
+                      if (meta != null) ...[
+                        const SizedBox(width: 14),
+                        meta,
+                      ],
                     ],
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -862,11 +1298,13 @@ class _VideoView extends StatelessWidget {
   final TalerAttachment attachment;
   final double width;
   final MessageMeta? overlayMeta;
+  final VoidCallback? onTap;
 
   const _VideoView({
     required this.attachment,
     required this.width,
     this.overlayMeta,
+    this.onTap,
   });
 
   @override
@@ -922,15 +1360,13 @@ class _VideoView extends StatelessWidget {
     final meta = overlayMeta;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {
-        final link = attachment.url;
-        if (link != null && link.isNotEmpty) {
-          unawaited(Clipboard.setData(ClipboardData(text: link)));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Ссылка на видео скопирована')),
-          );
-        }
-      },
+      onTap: onTap ??
+          () {
+            final link = attachment.url;
+            if (link != null && link.isNotEmpty) {
+              unawaited(TalerNativeBridge.instance.openUrl(link));
+            }
+          },
       child: SizedBox(
         width: targetWidth,
         child: AspectRatio(
@@ -1099,98 +1535,191 @@ class _StickerView extends StatelessWidget {
 }
 
 class _AudioView extends StatelessWidget {
+  final String audioKey;
   final TalerAttachment attachment;
   final bool out;
   final TalerPalette palette;
   final Color metaColor;
   final MessageMeta? inlineMeta;
   final double bottomPadding;
+  final Future<String?> Function()? onResolveSource;
 
   const _AudioView({
+    required this.audioKey,
     required this.attachment,
     required this.out,
     required this.palette,
     required this.metaColor,
     required this.inlineMeta,
     required this.bottomPadding,
+    this.onResolveSource,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = palette;
     final isVoice = attachment.type == 'VOICE';
-    final dur = _formatAttachmentDuration(attachment.durationMs, isAudio: true);
-    final label = isVoice
-        ? (dur.isNotEmpty ? dur : 'Голосовое')
-        : (attachment.fileName ?? (dur.isNotEmpty ? dur : 'Аудио'));
+    final durText = _formatAttachmentDuration(attachment.durationMs, isAudio: true);
     final fg = out ? p.bubbleOutText : p.bubbleInText;
-    final barColor = out
-        ? Colors.white.withValues(alpha: 0.72)
-        : p.accent.withValues(alpha: 0.72);
+    final activeBarColor = out ? Colors.white : p.accent;
+    final inactiveBarColor = out
+        ? Colors.white.withValues(alpha: 0.36)
+        : p.accent.withValues(alpha: 0.30);
     final seed = (attachment.url ?? attachment.fileName ?? 'audio').hashCode;
     final meta = inlineMeta;
+    final ctrl = TalerAudioController.instance;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(12, 10, 12, bottomPadding > 0 ? bottomPadding : 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: out ? Colors.white.withValues(alpha: 0.2) : p.accent,
-              shape: BoxShape.circle,
-            ),
-            child: const Padding(
-              padding: EdgeInsets.only(left: 2),
-              child: TalerIcon(TalerIcons.play, size: 17, color: Colors.white),
-            ),
+    return ListenableBuilder(
+      listenable: ctrl,
+      builder: (context, _) {
+        final isActive = ctrl.activeKey == audioKey;
+        final isLoading = ctrl.isLoadingKey(audioKey);
+        final isPlaying = ctrl.isPlayingKey(audioKey);
+        final progress = ctrl.progressFor(audioKey);
+        final activeLabel = isActive && ctrl.positionMs > 0
+            ? _formatAttachmentDuration(ctrl.positionMs, isAudio: true)
+            : (isVoice
+                ? (durText.isNotEmpty ? durText : 'Голосовое')
+                : (attachment.fileName ?? (durText.isNotEmpty ? durText : 'Аудио')));
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            12,
+            10,
+            12,
+            bottomPadding > 0 ? bottomPadding : 8,
           ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  unawaited(
+                    ctrl.toggle(
+                      key: audioKey,
+                      fallbackDurationMs: attachment.durationMs ?? 0,
+                      resolveSource: () async {
+                        if (onResolveSource != null) {
+                          return onResolveSource!();
+                        }
+                        return attachment.url;
+                      },
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: out ? Colors.white.withValues(alpha: 0.2) : p.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : isPlaying
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 3.5,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(1.5),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  width: 3.5,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(1.5),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Padding(
+                              padding: EdgeInsets.only(left: 2),
+                              child: TalerIcon(
+                                TalerIcons.play,
+                                size: 17,
+                                color: Colors.white,
+                                morph: false,
+                              ),
+                            ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  for (var i = 0; i < 18; i++) ...[
-                    if (i > 0) const SizedBox(width: 2.5),
-                    Container(
-                      width: 2.5,
-                      height: 5.0 + (((seed ^ (i * 31)) & 0x7) * 2.1),
-                      decoration: BoxDecoration(
-                        color: barColor,
-                        borderRadius: BorderRadius.circular(2),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: isActive
+                        ? (details) {
+                            const totalW = 18 * 2.5 + 17 * 2.5;
+                            final frac = (details.localPosition.dx / totalW)
+                                .clamp(0.0, 1.0);
+                            unawaited(ctrl.seek(audioKey, frac));
+                          }
+                        : null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          for (var i = 0; i < 18; i++) ...[
+                            if (i > 0) const SizedBox(width: 2.5),
+                            Container(
+                              width: 2.5,
+                              height: 5.0 + (((seed ^ (i * 31)) & 0x7) * 2.1),
+                              decoration: BoxDecoration(
+                                color: (isActive && i / 18.0 <= progress)
+                                    ? activeBarColor
+                                    : inactiveBarColor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 5),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: TalerTheme.tabularStyle(
-                      size: 12,
-                      color: out ? fg.withValues(alpha: 0.88) : metaColor,
-                    ),
                   ),
-                  if (meta != null) ...[
-                    const SizedBox(width: 14),
-                    meta,
-                  ],
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        activeLabel,
+                        style: TalerTheme.tabularStyle(
+                          size: 12,
+                          color: out ? fg.withValues(alpha: 0.88) : metaColor,
+                        ),
+                      ),
+                      if (meta != null) ...[
+                        const SizedBox(width: 14),
+                        meta,
+                      ],
+                    ],
+                  ),
                 ],
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1203,6 +1732,7 @@ class _SharePreviewView extends StatelessWidget {
   final double width;
   final double topMargin;
   final MessageMeta? trailingMeta;
+  final void Function(String url)? onOpenLink;
 
   const _SharePreviewView({
     required this.attachment,
@@ -1212,6 +1742,7 @@ class _SharePreviewView extends StatelessWidget {
     required this.width,
     required this.topMargin,
     this.trailingMeta,
+    this.onOpenLink,
   });
 
   @override
@@ -1300,6 +1831,16 @@ class _SharePreviewView extends StatelessWidget {
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: attachment.url == null || attachment.url!.isEmpty
+                ? null
+                : () {
+                    final link = attachment.url!;
+                    if (onOpenLink != null) {
+                      onOpenLink!(link);
+                    } else {
+                      unawaited(TalerNativeBridge.instance.openUrl(link));
+                    }
+                  },
+            onLongPress: attachment.url == null || attachment.url!.isEmpty
                 ? null
                 : () {
                     unawaited(Clipboard.setData(ClipboardData(text: attachment.url!)));

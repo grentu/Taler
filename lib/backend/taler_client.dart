@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/media/taler_media_cache.dart';
+import '../core/platform/taler_native_bridge.dart';
 import '../core/privacy/privacy_firewall.dart';
 import '../core/privacy/privacy_settings.dart';
 import '../core/privacy/spoofing_service.dart';
@@ -75,6 +76,9 @@ class TalerClient extends ChangeNotifier {
   TalerConnectionState _connectionState = TalerConnectionState.disconnected;
   List<TalerActiveSession> _activeSessions = const [];
   final Map<int, Timer> _typingClearTimers = {};
+  final Map<int, Timer> _draftSyncTimers = {};
+  final Map<String, double> _downloadProgress = {};
+  final Map<String, String> _downloadedPaths = {};
   final Map<String, String> _sendErrors = {};
   final Map<int, bool> _chatHasMore = {};
   final Set<int> _loadingMoreChats = {};
@@ -83,6 +87,7 @@ class TalerClient extends ChangeNotifier {
   int _loggedInSessionEpoch = -1;
   int _cidSeed = 0;
   int? _activeChatId;
+  bool _appInForeground = true;
   Future<void>? _loginInFlight;
   String? _lastOtpPhone;
   String? _lastTempToken;
@@ -146,9 +151,96 @@ class TalerClient extends ChangeNotifier {
   String? sendErrorFor(String messageId) => _sendErrors[messageId];
   bool canLoadMoreHistory(int chatId) => _chatHasMore[chatId] ?? true;
   bool isLoadingMoreHistory(int chatId) => _loadingMoreChats.contains(chatId);
+  TalerDraft? draftForChat(int chatId) => store.draftFor(chatId);
+  double? downloadProgressFor(String key) => _downloadProgress[key];
+  String? downloadedPathFor(String key) => _downloadedPaths[key];
+
+  static String attachmentKey(String messageId, TalerAttachment attach) =>
+      '$messageId:${attach.fileId ?? attach.videoId ?? attach.audioId ?? attach.url ?? attach.fileName ?? attach.type}';
+
+  void setAppForeground(bool value) {
+    _appInForeground = value;
+    final activeId = _activeChatId;
+    if (value && activeId != null) {
+      unawaited(TalerNativeBridge.instance.cancelChatNotification(activeId));
+    }
+  }
 
   void setActiveChat(int? chatId) {
     _activeChatId = chatId;
+    if (chatId != null) {
+      unawaited(TalerNativeBridge.instance.cancelChatNotification(chatId));
+    }
+  }
+
+  /// Сохраняет черновик локально и синхронизирует с сервером (`Opcode.draftSave` / `Opcode.draftDiscard`).
+  Future<void> saveDraft(
+    int chatId,
+    String text, {
+    String? replyToMessageId,
+    bool syncRemote = true,
+  }) async {
+    final trimmed = text.trim();
+    final current = store.draftFor(chatId);
+    if (trimmed.isEmpty) {
+      if (current != null) {
+        await store.saveDraft(chatId, null);
+        notifyListeners();
+      }
+    } else if (current == null ||
+        current.text != text ||
+        current.replyToMessageId != replyToMessageId) {
+      await store.saveDraft(
+        chatId,
+        TalerDraft(
+          text: text,
+          replyToMessageId: replyToMessageId,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      notifyListeners();
+    }
+
+    if (!syncRemote || _isDemoMode || !session.isOnline) return;
+    _draftSyncTimers[chatId]?.cancel();
+    _draftSyncTimers[chatId] = Timer(const Duration(milliseconds: 900), () {
+      _draftSyncTimers.remove(chatId);
+      if (!_isAuthenticated || _isDemoMode || !session.isOnline) return;
+      final latest = store.draftFor(chatId);
+      if (latest == null || latest.isEmpty) {
+        unawaited(
+          session
+              .request(
+                Opcode.draftDiscard,
+                {'chatId': chatId},
+                throwOnError: false,
+              )
+              .catchError((_) => const TalerPacket(cmd: CmdType.ok, seq: 0, opcode: Opcode.draftDiscard)),
+        );
+      } else {
+        final replyId = int.tryParse(latest.replyToMessageId ?? '');
+        unawaited(
+          session
+              .request(
+                Opcode.draftSave,
+                {
+                  'chatId': chatId,
+                  'draft': {
+                    'text': latest.text,
+                    if (replyId != null)
+                      'link': {
+                        'type': 'REPLY',
+                        'chatId': chatId,
+                        'messageId': replyId,
+                      },
+                  },
+                },
+                throwOnError: false,
+              )
+              .catchError((_) => const TalerPacket(cmd: CmdType.ok, seq: 0, opcode: Opcode.draftSave)),
+        );
+      }
+    });
   }
 
   void clearActiveChat(int chatId) {
@@ -1329,6 +1421,10 @@ class TalerClient extends ChangeNotifier {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
+    await store.saveDraft(chatId, null);
+    _draftSyncTimers[chatId]?.cancel();
+    _draftSyncTimers.remove(chatId);
+
     final cid = _nextCid();
     final now = -cid;
     final tempId = 'temp_$now';
@@ -1532,6 +1628,7 @@ class TalerClient extends ChangeNotifier {
           throw const TalerPacketException('Не получен URL для загрузки фото');
         }
         final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+          ..headers['User-Agent'] = session.effectiveProfile.userAgent
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: fileName),
           );
@@ -1574,6 +1671,7 @@ class TalerClient extends ChangeNotifier {
           throw const TalerPacketException('Не получен URL для загрузки файла');
         }
         final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+          ..headers['User-Agent'] = session.effectiveProfile.userAgent
           ..files.add(
             http.MultipartFile.fromBytes('file', bytes, filename: fileName),
           );
@@ -1632,6 +1730,591 @@ class TalerClient extends ChangeNotifier {
         notifyListeners();
       }
       rethrow;
+    }
+  }
+
+  /// Загрузка и отправка видео (`Opcode.videoUpload = 82`).
+  Future<void> sendVideoAttachment(
+    int chatId, {
+    required String filePath,
+    required String fileName,
+    String? caption,
+    int? durationMs,
+  }) async {
+    final file = File(filePath);
+    final bytes = await file.readAsBytes();
+    final cid = _nextCid();
+    final now = -cid;
+    final tempId = 'temp_$now';
+    final myId = currentUser?.id ?? 1;
+
+    await store.saveDraft(chatId, null);
+    final optimistic = TalerMessage(
+      id: tempId,
+      chatId: chatId,
+      senderId: myId,
+      text: caption?.trim() ?? '',
+      time: now,
+      status: _isDemoMode ? 'sent' : 'sending',
+      cid: cid,
+      attachments: [
+        TalerAttachment(
+          type: 'VIDEO',
+          url: filePath,
+          fileName: fileName,
+          fileSize: bytes.length,
+          durationMs: durationMs,
+        ),
+      ],
+    );
+    await store.upsertMessage(optimistic);
+    final chat = store.chats[chatId];
+    if (chat != null) {
+      await store.saveChats([
+        chat.copyWith(
+          lastMessageText: '🎬 Видео: $fileName',
+          lastMessageTime: now,
+          lastMessageSenderId: myId,
+          lastMessageDeletedByPeer: false,
+        ),
+      ]);
+    }
+    notifyListeners();
+
+    if (_isDemoMode) return;
+
+    try {
+      await ensureReady();
+      final urlResp = await session.request(Opcode.videoUpload, {'count': 1});
+      final infoList = urlResp.payloadAsMap?['info'] as List?;
+      final first =
+          infoList != null && infoList.isNotEmpty && infoList.first is Map
+              ? infoList.first as Map
+              : urlResp.payloadAsMap;
+      final uploadUrl = first?['url'] as String?;
+      final videoToken = first?['token'] as String?;
+      final videoId = (first?['videoId'] as num?)?.toInt();
+      if (uploadUrl == null || uploadUrl.isEmpty) {
+        throw const TalerPacketException('Не получен URL для загрузки видео');
+      }
+
+      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+        ..headers['User-Agent'] = session.effectiveProfile.userAgent
+        ..files.add(
+          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+        );
+      final streamed = await req.send();
+      await streamed.stream.drain<void>();
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        throw TalerPacketException(
+          'Ошибка HTTP при загрузке видео (${streamed.statusCode})',
+        );
+      }
+
+      final sendPayload = {
+        'chatId': chatId,
+        'message': {
+          'cid': cid,
+          if (caption != null && caption.trim().isNotEmpty)
+            'text': caption.trim(),
+          'elements': const <dynamic>[],
+          'attaches': [
+            {
+              '_type': 'VIDEO',
+              'videoId': ?videoId,
+              'token': ?videoToken,
+            },
+          ],
+        },
+        'notify': true,
+      };
+
+      final sendResp = await _sendWithNotReadyRetry(
+        sendPayload,
+        maxAttempts: 15,
+        retryDelay: const Duration(seconds: 1),
+      );
+      final msgMap = sendResp.payloadAsMap?['message'];
+      final confirmed = msgMap is Map
+          ? (_parseServerMessage(
+                msgMap,
+                chatId,
+                fallbackSenderId: myId,
+                fallbackCid: cid,
+              ) ??
+              optimistic.copyWith(status: 'sent'))
+          : optimistic.copyWith(status: 'sent');
+      await store.replaceTempMessage(chatId, tempId, confirmed);
+      _sendErrors.remove(tempId);
+      notifyListeners();
+    } catch (e) {
+      final existing = store.getMessages(chatId);
+      final stillTemp = existing.where((m) => m.id == tempId).firstOrNull;
+      if (stillTemp != null) {
+        await store.upsertMessage(
+          stillTemp.copyWith(status: 'error'),
+          trackEditHistory: false,
+        );
+        _sendErrors[tempId] = e.toString();
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  /// Загрузка и отправка голосового сообщения (`Opcode.audioUpload = 86` с фоллбэком на `fileUpload = 87`).
+  Future<void> sendVoiceAttachment(
+    int chatId, {
+    required String filePath,
+    required int durationMs,
+  }) async {
+    final file = File(filePath);
+    final bytes = await file.readAsBytes();
+    final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final cid = _nextCid();
+    final now = -cid;
+    final tempId = 'temp_$now';
+    final myId = currentUser?.id ?? 1;
+
+    final optimistic = TalerMessage(
+      id: tempId,
+      chatId: chatId,
+      senderId: myId,
+      text: '',
+      time: now,
+      status: _isDemoMode ? 'sent' : 'sending',
+      cid: cid,
+      attachments: [
+        TalerAttachment(
+          type: 'VOICE',
+          url: filePath,
+          fileName: fileName,
+          fileSize: bytes.length,
+          durationMs: durationMs,
+        ),
+      ],
+    );
+    await store.upsertMessage(optimistic);
+    final chat = store.chats[chatId];
+    if (chat != null) {
+      await store.saveChats([
+        chat.copyWith(
+          lastMessageText: '🎤 Голосовое сообщение',
+          lastMessageTime: now,
+          lastMessageSenderId: myId,
+          lastMessageDeletedByPeer: false,
+        ),
+      ]);
+    }
+    notifyListeners();
+
+    if (_isDemoMode) return;
+
+    try {
+      await ensureReady();
+      TalerPacket? uploadResp;
+      bool usedAudioOpcode = false;
+      try {
+        uploadResp = await session.request(Opcode.audioUpload, {'count': 1});
+        usedAudioOpcode = true;
+      } catch (_) {
+        uploadResp = await session.request(Opcode.fileUpload, {'count': 1});
+      }
+
+      final infoList = uploadResp.payloadAsMap?['info'] as List?;
+      final first =
+          infoList != null && infoList.isNotEmpty && infoList.first is Map
+              ? infoList.first as Map
+              : uploadResp.payloadAsMap;
+      final uploadUrl = first?['url'] as String?;
+      final token = first?['token'] as String?;
+      final audioId = (first?['audioId'] as num?)?.toInt();
+      final fileId = (first?['fileId'] as num?)?.toInt();
+      if (uploadUrl == null || uploadUrl.isEmpty) {
+        throw const TalerPacketException('Не получен URL для загрузки голосового');
+      }
+
+      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+        ..headers['User-Agent'] = session.effectiveProfile.userAgent
+        ..files.add(
+          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+        );
+      final streamed = await req.send();
+      final respBody = await streamed.stream.bytesToString();
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        throw TalerPacketException(
+          'Ошибка HTTP при загрузке голосового (${streamed.statusCode})',
+        );
+      }
+      final bodyToken = RegExp(r'"token"\s*:\s*"([^"]+)"')
+          .firstMatch(respBody)
+          ?.group(1);
+      final resolvedToken = token ?? bodyToken;
+
+      final Map<String, dynamic> attachMap = usedAudioOpcode
+          ? {
+              '_type': 'AUDIO',
+              'audioId': ?audioId,
+              'token': ?resolvedToken,
+              'duration': durationMs,
+            }
+          : {
+              '_type': 'FILE',
+              'fileId': ?fileId,
+              'token': ?resolvedToken,
+            };
+
+      final sendPayload = {
+        'chatId': chatId,
+        'message': {
+          'cid': cid,
+          'elements': const <dynamic>[],
+          'attaches': [attachMap],
+        },
+        'notify': true,
+      };
+
+      final sendResp = await _sendWithNotReadyRetry(
+        sendPayload,
+        maxAttempts: 12,
+        retryDelay: const Duration(seconds: 1),
+      );
+      final msgMap = sendResp.payloadAsMap?['message'];
+      final confirmed = msgMap is Map
+          ? (_parseServerMessage(
+                msgMap,
+                chatId,
+                fallbackSenderId: myId,
+                fallbackCid: cid,
+              ) ??
+              optimistic.copyWith(status: 'sent'))
+          : optimistic.copyWith(status: 'sent');
+      await store.replaceTempMessage(chatId, tempId, confirmed);
+      _sendErrors.remove(tempId);
+      notifyListeners();
+    } catch (e) {
+      final existing = store.getMessages(chatId);
+      final stillTemp = existing.where((m) => m.id == tempId).firstOrNull;
+      if (stillTemp != null) {
+        await store.upsertMessage(
+          stillTemp.copyWith(status: 'error'),
+          trackEditHistory: false,
+        );
+        _sendErrors[tempId] = e.toString();
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  /// Скачивает и открывает файл-вложение через `Opcode.fileDownload = 88`.
+  Future<File?> downloadAndOpenFile(
+    int chatId,
+    TalerMessage message,
+    TalerAttachment attach,
+  ) async {
+    final key = attachmentKey(message.id, attach);
+    final cachedPath = _downloadedPaths[key];
+    if (cachedPath != null && File(cachedPath).existsSync()) {
+      await TalerNativeBridge.instance.openFile(cachedPath);
+      return File(cachedPath);
+    }
+
+    final localUrl = attach.url;
+    if (localUrl != null &&
+        localUrl.isNotEmpty &&
+        !localUrl.startsWith('http://') &&
+        !localUrl.startsWith('https://')) {
+      final localFile = File(localUrl);
+      if (localFile.existsSync()) {
+        _downloadedPaths[key] = localFile.path;
+        await TalerNativeBridge.instance.openFile(localFile.path);
+        return localFile;
+      }
+    }
+
+    _downloadProgress[key] = 0.05;
+    notifyListeners();
+    try {
+      String? downloadUrl = (localUrl != null &&
+              (localUrl.startsWith('http://') ||
+                  localUrl.startsWith('https://')))
+          ? localUrl
+          : null;
+
+      if (downloadUrl == null && !_isDemoMode) {
+        await ensureReady();
+        final mid = int.tryParse(message.id);
+        final payload = <String, dynamic>{
+          'chatId': chatId,
+          'messageId': ?mid,
+          'fileId': ?attach.fileId,
+          'token': ?attach.token,
+        };
+        final resp = await session.request(Opcode.fileDownload, payload);
+        final map = resp.payloadAsMap;
+        downloadUrl =
+            (map?['url'] ?? map?['fileUrl'] ?? map?['downloadUrl'])?.toString();
+      }
+
+      if (downloadUrl == null || downloadUrl.isEmpty) {
+        return null;
+      }
+
+      final fileName = attach.fileName ?? attach.previewText ?? 'document.bin';
+      final file = await TalerMediaCache.instance.downloadNamedFile(
+        downloadUrl,
+        fileName: fileName,
+        subDir: 'files',
+        userAgent: session.effectiveProfile.userAgent,
+        onProgress: (p) {
+          _downloadProgress[key] = p;
+          notifyListeners();
+        },
+      );
+      if (file != null) {
+        _downloadedPaths[key] = file.path;
+        notifyListeners();
+        await TalerNativeBridge.instance.openFile(file.path);
+      }
+      return file;
+    } finally {
+      _downloadProgress.remove(key);
+      notifyListeners();
+    }
+  }
+
+  /// Получает прямую ссылку на видеопоток через `Opcode.videoPlay = 83`.
+  Future<String?> resolveVideoPlayUrl(
+    int chatId,
+    TalerMessage message,
+    TalerAttachment attach,
+  ) async {
+    final direct = attach.url;
+    if (direct != null &&
+        direct.isNotEmpty &&
+        !direct.startsWith('http://') &&
+        !direct.startsWith('https://') &&
+        await File(direct).exists()) {
+      return direct;
+    }
+
+    if (!_isDemoMode) {
+      try {
+        await ensureReady();
+        final mid = int.tryParse(message.id);
+        final vid = attach.videoId ?? attach.fileId;
+        if (vid != null || attach.token != null) {
+          final resp = await session.request(
+            Opcode.videoPlay,
+            {
+              'chatId': chatId,
+              'messageId': ?mid,
+              'videoId': ?vid,
+              'token': ?attach.token,
+            },
+            throwOnError: false,
+          );
+          final map = resp.payloadAsMap;
+          if (map != null) {
+            const preferredKeys = [
+              'MP4_1080',
+              'MP4_720',
+              'MP4_480',
+              'MP4_360',
+              'MP4_240',
+              'MP4_144',
+              'HLS',
+              'url',
+              'videoUrl',
+              'EXTERNAL',
+            ];
+            for (final k in preferredKeys) {
+              final val = map[k]?.toString();
+              if (val != null && val.startsWith('http')) {
+                return val;
+              }
+            }
+            for (final entry in map.entries) {
+              final val = entry.value?.toString();
+              if (val != null && val.startsWith('http')) {
+                return val;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (direct != null &&
+        (direct.startsWith('http://') || direct.startsWith('https://'))) {
+      return direct;
+    }
+    return null;
+  }
+
+  /// Получает локальный файл или поток аудио/ГС через `Opcode.audioPlay = 301`.
+  Future<String?> resolveAudioPlaySource(
+    int chatId,
+    TalerMessage message,
+    TalerAttachment attach,
+  ) async {
+    final direct = attach.url;
+    if (direct != null &&
+        direct.isNotEmpty &&
+        !direct.startsWith('http://') &&
+        !direct.startsWith('https://') &&
+        await File(direct).exists()) {
+      return direct;
+    }
+
+    String? remoteUrl = (direct != null &&
+            (direct.startsWith('http://') || direct.startsWith('https://')))
+        ? direct
+        : null;
+
+    if (remoteUrl == null && !_isDemoMode) {
+      try {
+        await ensureReady();
+        final mid = int.tryParse(message.id);
+        final aid = attach.audioId ?? attach.fileId;
+        final resp = await session.request(
+          Opcode.audioPlay,
+          {
+            'chatId': chatId,
+            'messageId': ?mid,
+            'audioId': ?aid,
+            'token': ?attach.token,
+          },
+          throwOnError: false,
+        );
+        final map = resp.payloadAsMap;
+        remoteUrl = (map?['url'] ?? map?['audioUrl'] ?? map?['MP3'])?.toString();
+      } catch (_) {}
+    }
+
+    if (remoteUrl == null || remoteUrl.isEmpty) return null;
+    final cached = await TalerMediaCache.instance.downloadNamedFile(
+      remoteUrl,
+      fileName: attach.fileName ?? 'audio_${message.id}.m4a',
+      subDir: 'audio',
+      userAgent: session.effectiveProfile.userAgent,
+    );
+    return cached?.path ?? remoteUrl;
+  }
+
+  /// Пересылает одно или несколько сообщений в другой чат (`Opcode.msgSend` с `FORWARD`).
+  Future<void> forwardMessages({
+    required int fromChatId,
+    required int toChatId,
+    required List<TalerMessage> messages,
+  }) async {
+    if (messages.isEmpty) return;
+    final sorted = List<TalerMessage>.from(messages)
+      ..sort((a, b) => a.time.compareTo(b.time));
+    final myId = currentUser?.id ?? 1;
+
+    for (final src in sorted) {
+      final cid = _nextCid();
+      final now = -cid;
+      final tempId = 'temp_$now';
+      final fromName = senderDisplayName(src.senderId, chatId: fromChatId);
+      final optimistic = TalerMessage(
+        id: tempId,
+        chatId: toChatId,
+        senderId: myId,
+        text: src.text,
+        time: now,
+        status: _isDemoMode ? 'sent' : 'sending',
+        cid: cid,
+        attachments: src.attachments,
+        forwardedFromName: fromName,
+      );
+      await store.upsertMessage(optimistic);
+      final targetChat = store.chats[toChatId];
+      if (targetChat != null) {
+        final preview = src.text.trim().isNotEmpty ? src.text.trim() : '[Вложение]';
+        await store.saveChats([
+          targetChat.copyWith(
+            lastMessageText: preview,
+            lastMessageTime: now,
+            lastMessageSenderId: myId,
+            lastMessageDeletedByPeer: false,
+          ),
+        ]);
+      }
+      notifyListeners();
+
+      if (_isDemoMode) continue;
+
+      try {
+        await ensureReady();
+        final srcMid = int.tryParse(src.id);
+        final msgPayload = <String, dynamic>{
+          'cid': cid,
+          'text': srcMid != null ? '' : src.text,
+          'elements': const <dynamic>[],
+          'attaches': const <dynamic>[],
+          if (srcMid != null)
+            'link': {
+              'type': 'FORWARD',
+              'chatId': fromChatId,
+              'messageId': srcMid,
+            },
+        };
+        final resp = await _sendWithNotReadyRetry({
+          'chatId': toChatId,
+          'message': msgPayload,
+          'notify': true,
+        });
+        final msgObj = resp.payloadAsMap?['message'];
+        final confirmed = msgObj is Map
+            ? (_parseServerMessage(
+                  msgObj,
+                  toChatId,
+                  fallbackSenderId: myId,
+                  fallbackCid: cid,
+                ) ??
+                optimistic.copyWith(status: 'sent'))
+            : optimistic.copyWith(status: 'sent');
+        await store.replaceTempMessage(toChatId, tempId, confirmed);
+        notifyListeners();
+      } catch (e) {
+        await store.upsertMessage(
+          optimistic.copyWith(status: 'error'),
+          trackEditHistory: false,
+        );
+        _sendErrors[tempId] = e.toString();
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Удаляет несколько сообщений одним запросом (`Opcode.msgDelete`).
+  Future<void> deleteMessagesBatch(
+    int chatId,
+    List<String> messageIds, {
+    bool forEveryone = false,
+  }) async {
+    if (messageIds.isEmpty) return;
+    final unique = messageIds.toSet().toList();
+    final numericIds = <int>[];
+    for (final id in unique) {
+      await store.removeMessage(chatId, id);
+      _sendErrors.remove(id);
+      final parsed = int.tryParse(id);
+      if (parsed != null) numericIds.add(parsed);
+    }
+    notifyListeners();
+
+    if (!_isDemoMode && numericIds.isNotEmpty) {
+      await ensureReady();
+      await session.request(Opcode.msgDelete, {
+        'messageIds': numericIds,
+        'chatId': chatId,
+        'forMe': !forEveryone,
+        'itemType': 'REGULAR',
+      });
     }
   }
 
@@ -2119,6 +2802,30 @@ class TalerClient extends ChangeNotifier {
             notifyListeners();
           }());
         }
+
+      case Opcode.notifDraft:
+        final chatId = (data['chatId'] as num?)?.toInt();
+        final draftObj = data['draft'];
+        if (chatId != null && draftObj is Map) {
+          final text = (draftObj['text'] as String?) ?? '';
+          final link = draftObj['link'];
+          final replyId =
+              link is Map ? link['messageId']?.toString() : null;
+          unawaited(
+            saveDraft(
+              chatId,
+              text,
+              replyToMessageId: replyId,
+              syncRemote: false,
+            ),
+          );
+        }
+
+      case Opcode.notifDraftDiscard:
+        final chatId = (data['chatId'] as num?)?.toInt();
+        if (chatId != null) {
+          unawaited(saveDraft(chatId, '', syncRemote: false));
+        }
     }
   }
 
@@ -2287,11 +2994,48 @@ class TalerClient extends ChangeNotifier {
           clearTyping: !isEditedPush,
         ),
       ]);
-      if (chatId == _activeChatId && !isMine && !isEditedPush) {
+      if (chatId == _activeChatId && _appInForeground && !isMine && !isEditedPush) {
         unawaited(markChatRead(chatId));
+      } else if (!isMine &&
+          !isEditedPush &&
+          !alreadyExists &&
+          !chat.isMuted &&
+          !msg.isControl) {
+        final shouldNotify = !_appInForeground || chatId != _activeChatId;
+        if (shouldNotify) {
+          final sender = senderDisplayName(msg.senderId, chatId: chatId);
+          final rawBody = _notificationBodyForMessage(msg);
+          final body = appPreferences.showNotificationPreview
+              ? (chat.isDialog ? rawBody : '$sender: $rawBody')
+              : 'Новое сообщение';
+          unawaited(
+            TalerNativeBridge.instance.showMessageNotification(
+              chatId: chatId,
+              title: chat.title,
+              body: body,
+            ),
+          );
+        }
       }
     }
     notifyListeners();
+  }
+
+  static String _notificationBodyForMessage(TalerMessage msg) {
+    final text = msg.text.trim();
+    if (text.isNotEmpty) return text;
+    if (msg.attachments.isNotEmpty) {
+      final first = msg.attachments.first;
+      return switch (first.type) {
+        'PHOTO' => '📷 Фото',
+        'VIDEO' || 'VIDEO_MSG' || 'VIDEO_NOTE' => '🎬 Видео',
+        'VOICE' || 'AUDIO' => '🎤 Голосовое сообщение',
+        'STICKER' => 'Стикер',
+        'FILE' => '📎 ${first.fileName ?? 'Файл'}',
+        _ => 'Вложение',
+      };
+    }
+    return 'Новое сообщение';
   }
 
   /// Вспомогательный метод для тестирования обработки серверных пушей.
@@ -2567,6 +3311,10 @@ class TalerClient extends ChangeNotifier {
       t.cancel();
     }
     _typingClearTimers.clear();
+    for (final t in _draftSyncTimers.values) {
+      t.cancel();
+    }
+    _draftSyncTimers.clear();
     if (_ownsUpdater) {
       updater.dispose();
     }

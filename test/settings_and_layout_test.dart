@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taler/backend/taler_client.dart';
+import 'package:taler/core/platform/taler_native_bridge.dart';
 import 'package:taler/core/privacy/privacy_firewall.dart';
 import 'package:taler/core/privacy/privacy_settings.dart';
 import 'package:taler/core/privacy/spoofing_service.dart';
@@ -731,6 +732,192 @@ void main() {
       // Menu and reactions float cleanly above the bubble.
       expect(replyRect.bottom, lessThan(bubbleRect.top));
       expect(reactionRect.bottom, lessThan(replyRect.top));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('v1.2.15 features: links, swipe-reply, double-tap reaction, multi-select forward, drafts & media', () {
+    testWidgets('clickable links inside MessageBubble open URL via callback', (tester) async {
+      final opened = <String>[];
+      const msg = TalerMessage(
+        id: 'link_1',
+        chatId: 1,
+        senderId: 2,
+        text: 'Открой https://example.com/taler',
+        time: 1700000000000,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: Scaffold(
+            body: MessageBubble(
+              message: msg,
+              isMine: false,
+              firstInRun: true,
+              showName: false,
+              senderName: 'Анна',
+              maxWidth: 320,
+              onOpenLink: opened.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap right side of the bubble text where the URL sits.
+      final textRect = tester.getRect(find.byType(RichText).first);
+      await tester.tapAt(Offset(textRect.right - 45, textRect.center.dy));
+      await tester.pumpAndSettle();
+      expect(opened, ['https://example.com/taler']);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('swipe left to reply and double-tap quick reaction work cleanly on MessageRow', (tester) async {
+      var replied = false;
+      var quickReacted = false;
+      const msg = TalerMessage(
+        id: 'gesture_1',
+        chatId: 1,
+        senderId: 2,
+        text: 'Свайпни меня влево или тапни дважды',
+        time: 1700000000000,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 340,
+                child: MessageRow(
+                  message: msg,
+                  isMine: false,
+                  firstInRun: true,
+                  lastInRun: true,
+                  showSender: false,
+                  senderName: 'Анна',
+                  maxBubbleWidth: 280,
+                  onSwipeReply: () => replied = true,
+                  onDoubleTapQuickReaction: () => quickReacted = true,
+                  onToggleReaction: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Swipe left past threshold -> triggers reply callback.
+      await tester.drag(find.byType(MessageBubble), const Offset(-110, 0));
+      await tester.pumpAndSettle();
+      expect(replied, isTrue);
+
+      // Double tap -> triggers quick reaction callback.
+      final center = tester.getCenter(find.byType(MessageBubble));
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(center);
+      await tester.pumpAndSettle();
+      expect(quickReacted, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('mobile 360px: drafts show in chat list, restore in chat, multi-select forwards & deletes', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final tmpDir = Directory.systemTemp.createTempSync('taler_file_test_');
+      addTearDown(() {
+        if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+      });
+      final docFile = File('${tmpDir.path}${Platform.pathSeparator}spec.txt')
+        ..writeAsStringSync('hello taler');
+      final openedFiles = <String>[];
+      TalerNativeBridge.instance.testOpenFileHandler = (p) async {
+        openedFiles.add(p);
+        return true;
+      };
+      addTearDown(() => TalerNativeBridge.instance.testOpenFileHandler = null);
+
+      final store = LocalStore();
+      await store.init();
+      final client = TalerClient(
+        privacySettings: PrivacySettings(),
+        spoofingService: SpoofingService(),
+        auditLog: WireAuditLog(),
+        store: store,
+      );
+      await client.enterDemoMode();
+      await store.saveMessagesBatch(5002, [
+        ...store.getMessages(5002),
+        TalerMessage(
+          id: 'doc_1',
+          chatId: 5002,
+          senderId: 2001,
+          text: '',
+          time: DateTime.now().millisecondsSinceEpoch,
+          attachments: [
+            TalerAttachment(
+              type: 'FILE',
+              url: docFile.path,
+              fileName: 'spec.txt',
+              fileSize: 11,
+            ),
+          ],
+        ),
+      ]);
+      addTearDown(client.dispose);
+
+      await tester.pumpWidget(TalerApp(client: client));
+      await tester.pumpAndSettle();
+
+      // Open Elena chat, tap file attachment -> opens local file.
+      await tester.tap(find.text('Елена Соколова'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('spec.txt'));
+      await tester.pumpAndSettle();
+      expect(openedFiles, [docFile.path]);
+
+      // Enter draft text and leave chat -> draft shows in chat list and restores on reopen.
+      await tester.enterText(find.byType(TextField).last, 'Мой черновик');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Назад'));
+      await tester.pumpAndSettle();
+      expect(find.text('Черновик: '), findsOneWidget);
+      expect(find.text('Мой черновик'), findsOneWidget);
+
+      await tester.tap(find.text('Елена Соколова'));
+      await tester.pumpAndSettle();
+      expect(find.text('Мой черновик'), findsOneWidget);
+
+      // Multi-select via long press -> 'Выбрать' -> tap second bubble -> forward to group.
+      await tester.longPress(find.byType(MessageBubble).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Переслать'), findsOneWidget);
+      expect(find.text('Выбрать'), findsOneWidget);
+      await tester.tap(find.text('Выбрать'));
+      await tester.pumpAndSettle();
+      expect(find.text('Выбрано: 1'), findsOneWidget);
+
+      if (find.byType(MessageRow).evaluate().length >= 2) {
+        await tester.tap(find.byType(MessageRow).at(1));
+        await tester.pumpAndSettle();
+        expect(find.text('Выбрано: 2'), findsOneWidget);
+      }
+
+      // Forward selected messages to 'Taler & Komet Community'.
+      final beforeGroupCount = client.messagesForChat(5001).length;
+      await tester.tap(find.text('Переслать'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Taler & Komet Community'));
+      await tester.pumpAndSettle();
+      expect(client.messagesForChat(5001).length, greaterThan(beforeGroupCount));
+      expect(find.text('Выбрано: 1'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
