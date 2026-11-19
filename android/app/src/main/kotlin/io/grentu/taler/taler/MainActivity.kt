@@ -419,12 +419,11 @@ class MainActivity : FlutterActivity() {
 
         val me = Person.Builder().setName("Вы").build()
         val peer = Person.Builder().setName(senderName).build()
-        val msgStyle = NotificationCompat.MessagingStyle(me).apply {
-            if (senderName != title) {
-                conversationTitle = title
-            }
-            addMessage(body, System.currentTimeMillis(), peer)
+        val msgStyle = NotificationCompat.MessagingStyle(me)
+        if (senderName != title) {
+            msgStyle.setConversationTitle(title)
         }
+        msgStyle.addMessage(body, System.currentTimeMillis(), peer)
 
         val notification = NotificationCompat.Builder(this, MSG_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_taler)
