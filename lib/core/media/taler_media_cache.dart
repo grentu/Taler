@@ -29,12 +29,32 @@ class TalerMediaCache {
   static String cacheKey(String url) =>
       sha1.convert(utf8.encode(url)).toString();
 
+  /// Проверяет, принадлежит ли CDN-хост инфраструктуре MAX/VK (для сертификатов Минцифры).
+  static bool isTrustedMaxMediaHost(String host) {
+    final h = host.toLowerCase();
+    return h == 'oneme.ru' ||
+        h.endsWith('.oneme.ru') ||
+        h == 'max.ru' ||
+        h.endsWith('.max.ru') ||
+        h == 'mycdn.me' ||
+        h.endsWith('.mycdn.me') ||
+        h == 'vkuseraudio.net' ||
+        h.endsWith('.vkuseraudio.net') ||
+        h == 'vk-cdn.net' ||
+        h.endsWith('.vk-cdn.net') ||
+        h == 'userapi.com' ||
+        h.endsWith('.userapi.com');
+  }
+
   HttpClient _client() {
     return _http ??= HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8)
+      ..connectionTimeout = const Duration(seconds: 10)
       ..idleTimeout = const Duration(seconds: 30)
       ..maxConnectionsPerHost = 12
-      ..autoUncompress = true;
+      ..autoUncompress = true
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) =>
+              isTrustedMaxMediaHost(host);
   }
 
   Future<Directory> _ensureDir() {

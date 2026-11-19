@@ -1,6 +1,7 @@
 package io.grentu.taler.taler
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -10,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -18,6 +20,7 @@ import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -29,7 +32,8 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val UPDATER_CHANNEL = "io.grentu.taler/updater"
         private const val NATIVE_CHANNEL = "io.grentu.taler/native"
-        private const val MSG_NOTIFICATION_CHANNEL_ID = "taler_messages_v1"
+        private const val LEGACY_NOTIFICATION_CHANNEL_ID = "taler_messages_v1"
+        private const val MSG_NOTIFICATION_CHANNEL_ID = "taler_messages_v2"
         private const val EXTRA_CHAT_ID = "taler_chat_id"
         private const val REQ_CODE_NOTIF = 1041
         private const val REQ_CODE_AUDIO = 1042
@@ -43,6 +47,8 @@ class MainActivity : FlutterActivity() {
     private var audioPlayer: MediaPlayer? = null
     private var audioPrepared = false
     private var audioCompleted = false
+    private var audioError: String? = null
+    private var audioPlaybackSpeed = 1.0f
 
     private var audioRecorder: MediaRecorder? = null
     private var recordingPath: String? = null
@@ -128,8 +134,12 @@ class MainActivity : FlutterActivity() {
                     val chatId = (call.argument<Number>("chatId"))?.toLong() ?: 0L
                     val title = call.argument<String>("title") ?: "Taler"
                     val body = call.argument<String>("body") ?: "Новое сообщение"
-                    showMessageNotification(chatId, title, body)
+                    val sender = call.argument<String>("sender")
+                    showMessageNotification(chatId, title, body, sender)
                     result.success(true)
+                }
+                "openNotificationSettings" -> {
+                    result.success(openNotificationChannelSettings())
                 }
                 "cancelChatNotification" -> {
                     val chatId = (call.argument<Number>("chatId"))?.toLong() ?: 0L
@@ -153,7 +163,8 @@ class MainActivity : FlutterActivity() {
                 "audioPlay" -> {
                     val source = call.argument<String>("source").orEmpty()
                     val userAgent = call.argument<String>("userAgent").orEmpty()
-                    result.success(startAudioPlayback(source, userAgent))
+                    val speed = (call.argument<Number>("speed"))?.toFloat() ?: 1.0f
+                    result.success(startAudioPlayback(source, userAgent, speed))
                 }
                 "audioPause" -> {
                     try {
@@ -166,8 +177,12 @@ class MainActivity : FlutterActivity() {
                 "audioResume" -> {
                     try {
                         if (audioPrepared && audioPlayer?.isPlaying == false) {
+                            if (audioCompleted) {
+                                audioPlayer?.seekTo(0)
+                            }
                             audioCompleted = false
                             audioPlayer?.start()
+                            applyPlaybackSpeed(audioPlayer, audioPlaybackSpeed)
                         }
                     } catch (_: Exception) {}
                     result.success(true)
@@ -176,9 +191,17 @@ class MainActivity : FlutterActivity() {
                     val pos = call.argument<Int>("positionMs") ?: 0
                     try {
                         if (audioPrepared) {
+                            audioCompleted = false
                             audioPlayer?.seekTo(pos.coerceAtLeast(0))
                         }
                     } catch (_: Exception) {}
+                    result.success(true)
+                }
+                "audioSetSpeed" -> {
+                    val speed = ((call.argument<Number>("speed"))?.toFloat() ?: 1.0f)
+                        .coerceIn(0.5f, 2.5f)
+                    audioPlaybackSpeed = speed
+                    applyPlaybackSpeed(audioPlayer, speed)
                     result.success(true)
                 }
                 "audioStop" -> {
@@ -188,7 +211,7 @@ class MainActivity : FlutterActivity() {
                 "audioState" -> {
                     val mp = audioPlayer
                     val playing = try { mp != null && audioPrepared && mp.isPlaying } catch (_: Exception) { false }
-                    val pos = try { if (mp != null && audioPrepared) mp.currentPosition else 0 } catch (_: Exception) { 0 }
+                    val pos = try { if (mp != null && audioPrepared) mp.currentPosition.coerceAtLeast(0) else 0 } catch (_: Exception) { 0 }
                     val dur = try { if (mp != null && audioPrepared) mp.duration.coerceAtLeast(0) else 0 } catch (_: Exception) { 0 }
                     result.success(
                         mapOf(
@@ -196,7 +219,8 @@ class MainActivity : FlutterActivity() {
                             "playing" to playing,
                             "positionMs" to pos,
                             "durationMs" to dur,
-                            "completed" to audioCompleted
+                            "completed" to audioCompleted,
+                            "error" to audioError
                         )
                     )
                 }
@@ -241,17 +265,61 @@ class MainActivity : FlutterActivity() {
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            try {
+                if (manager.getNotificationChannel(LEGACY_NOTIFICATION_CHANNEL_ID) != null) {
+                    manager.deleteNotificationChannel(LEGACY_NOTIFICATION_CHANNEL_ID)
+                }
+            } catch (_: Exception) {}
+
             if (manager.getNotificationChannel(MSG_NOTIFICATION_CHANNEL_ID) == null) {
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
                 val channel = NotificationChannel(
                     MSG_NOTIFICATION_CHANNEL_ID,
                     "Сообщения Taler",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Уведомления о входящих сообщениях"
+                    description = "Всплывающие уведомления о входящих сообщениях"
+                    setSound(soundUri, audioAttrs)
                     enableVibration(true)
+                    vibrationPattern = longArrayOf(0L, 160L, 80L, 160L)
+                    enableLights(true)
+                    lightColor = 0xFF3282FF.toInt()
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                     setShowBadge(true)
                 }
                 manager.createNotificationChannel(channel)
+            }
+        }
+    }
+
+    private fun openNotificationChannelSettings(): Boolean {
+        return try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ensureNotificationChannel()
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    putExtra(Settings.EXTRA_CHANNEL_ID, MSG_NOTIFICATION_CHANNEL_ID)
+                }
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            true
+        } catch (_: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(fallback)
+                true
+            } catch (_: Exception) {
+                false
             }
         }
     }
@@ -326,7 +394,12 @@ class MainActivity : FlutterActivity() {
         return (chatId xor (chatId ushr 32)).toInt().let { if (it == 0) 1 else it }
     }
 
-    private fun showMessageNotification(chatId: Long, title: String, body: String) {
+    private fun showMessageNotification(
+        chatId: Long,
+        title: String,
+        body: String,
+        sender: String?
+    ) {
         if (!hasNotificationPermission()) return
         ensureNotificationChannel()
 
@@ -341,16 +414,34 @@ class MainActivity : FlutterActivity() {
         }
         val notifId = chatNotificationId(chatId)
         val pendingIntent = PendingIntent.getActivity(this, notifId, tapIntent, flags)
+        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val senderName = sender?.takeIf { it.isNotBlank() } ?: title
+
+        val me = Person.Builder().setName("Вы").build()
+        val peer = Person.Builder().setName(senderName).build()
+        val msgStyle = NotificationCompat.MessagingStyle(me).apply {
+            if (senderName != title) {
+                conversationTitle = title
+            }
+            addMessage(body, System.currentTimeMillis(), peer)
+        }
 
         val notification = NotificationCompat.Builder(this, MSG_NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_taler)
+            .setColor(0xFF3282FF.toInt())
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setStyle(msgStyle)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSound(soundUri)
+            .setVibrate(longArrayOf(0L, 160L, 80L, 160L))
+            .setOnlyAlertOnce(false)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
 
@@ -394,9 +485,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun startAudioPlayback(source: String, userAgent: String): Boolean {
+    private fun applyPlaybackSpeed(mp: MediaPlayer?, speed: Float) {
+        if (mp == null || !audioPrepared) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val params = mp.playbackParams
+                params.speed = speed.coerceIn(0.5f, 2.5f)
+                mp.playbackParams = params
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun startAudioPlayback(
+        source: String,
+        userAgent: String,
+        speed: Float
+    ): Boolean {
         stopAudioPlayback()
-        if (source.isBlank()) return false
+        if (source.isBlank()) {
+            audioError = "Пустой источник аудио"
+            return false
+        }
+        audioPlaybackSpeed = speed.coerceIn(0.5f, 2.5f)
+        audioError = null
         return try {
             val mp = MediaPlayer().apply {
                 setAudioAttributes(
@@ -410,34 +521,48 @@ class MainActivity : FlutterActivity() {
                     if (userAgent.isNotBlank()) headers["User-Agent"] = userAgent
                     setDataSource(this@MainActivity, Uri.parse(source), headers)
                 } else {
-                    setDataSource(File(source).absolutePath)
+                    val f = File(source)
+                    if (!f.exists() || f.length() <= 0L) {
+                        audioError = "Аудиофайл не найден"
+                        return false
+                    }
+                    setDataSource(f.absolutePath)
                 }
                 setOnPreparedListener { player ->
                     audioPrepared = true
                     audioCompleted = false
+                    audioError = null
                     player.start()
+                    if (audioPlaybackSpeed != 1.0f) {
+                        applyPlaybackSpeed(player, audioPlaybackSpeed)
+                    }
                 }
                 setOnCompletionListener {
                     audioCompleted = true
                 }
-                setOnErrorListener { _, _, _ ->
+                setOnErrorListener { _, what, extra ->
                     audioPrepared = false
                     audioCompleted = true
+                    audioError = "MediaPlayer error ($what/$extra)"
                     true
                 }
                 prepareAsync()
             }
             audioPlayer = mp
             true
-        } catch (_: Exception) {
-            stopAudioPlayback()
+        } catch (e: Exception) {
+            audioError = e.message ?: "Ошибка запуска аудио"
+            stopAudioPlayback(clearError = false)
             false
         }
     }
 
-    private fun stopAudioPlayback() {
+    private fun stopAudioPlayback(clearError: Boolean = true) {
         audioPrepared = false
         audioCompleted = false
+        if (clearError) {
+            audioError = null
+        }
         audioPlayer?.let { mp ->
             try {
                 if (mp.isPlaying) mp.stop()
@@ -449,24 +574,52 @@ class MainActivity : FlutterActivity() {
         audioPlayer = null
     }
 
+    private fun createRecorder(): MediaRecorder {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(this)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaRecorder()
+        }
+    }
+
     private fun startAudioRecording(outputPath: String): Boolean {
         if (!hasAudioRecordPermission() || outputPath.isBlank()) return false
         stopAudioRecording(discard = true)
-        return try {
-            val outFile = File(outputPath)
-            outFile.parentFile?.mkdirs()
-            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(this)
-            } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
+
+        val preferOgg = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            outputPath.lowercase().endsWith(".ogg")
+
+        if (preferOgg) {
+            if (tryStartRecorder(outputPath, useOggOpus = true)) {
+                return true
             }
+            val fallbackPath = outputPath.replace(Regex("\\.ogg$", RegexOption.IGNORE_CASE), ".m4a")
+            return tryStartRecorder(fallbackPath, useOggOpus = false)
+        }
+        return tryStartRecorder(outputPath, useOggOpus = false)
+    }
+
+    private fun tryStartRecorder(path: String, useOggOpus: Boolean): Boolean {
+        var recorder: MediaRecorder? = null
+        return try {
+            val outFile = File(path)
+            outFile.parentFile?.mkdirs()
+            if (outFile.exists()) outFile.delete()
+            recorder = createRecorder()
             recorder.apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(64000)
-                setAudioSamplingRate(44100)
+                if (useOggOpus && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    setOutputFormat(MediaRecorder.OutputFormat.OGG)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.OPUS)
+                    setAudioEncodingBitRate(32000)
+                    setAudioSamplingRate(48000)
+                } else {
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setAudioEncodingBitRate(64000)
+                    setAudioSamplingRate(44100)
+                }
                 setOutputFile(outFile.absolutePath)
                 prepare()
                 start()
@@ -476,7 +629,12 @@ class MainActivity : FlutterActivity() {
             recordingStartedAtMs = SystemClock.elapsedRealtime()
             true
         } catch (_: Exception) {
-            stopAudioRecording(discard = true)
+            try { recorder?.reset() } catch (_: Exception) {}
+            try { recorder?.release() } catch (_: Exception) {}
+            try { File(path).delete() } catch (_: Exception) {}
+            audioRecorder = null
+            recordingPath = null
+            recordingStartedAtMs = 0L
             false
         }
     }

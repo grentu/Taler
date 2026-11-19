@@ -69,8 +69,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showSearch = false;
   bool _wasReady = false;
   bool _isRecordingVoice = false;
-  int _voiceRecordSeconds = 0;
-  double _voiceAmplitude = 0.0;
+  int _voiceRecordMs = 0;
+  final Stopwatch _voiceStopwatch = Stopwatch();
+  final List<double> _voiceSamples = <double>[];
   Timer? _voiceTimer;
   String _query = '';
   double? _measuredBottomHeight;
@@ -398,20 +399,26 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     unawaited(HapticFeedback.mediumImpact());
+    _voiceSamples.clear();
+    _voiceStopwatch
+      ..reset()
+      ..start();
     setState(() {
       _isRecordingVoice = true;
-      _voiceRecordSeconds = 0;
-      _voiceAmplitude = 0.0;
+      _voiceRecordMs = 0;
     });
-    var ticks = 0;
     _voiceTimer?.cancel();
-    _voiceTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
-      ticks++;
-      final amp = await TalerNativeBridge.instance.getAudioAmplitude();
+    _voiceTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
+      final rawAmp = await TalerNativeBridge.instance.getAudioAmplitude();
       if (!mounted || !_isRecordingVoice) return;
+      // Нелинейное усиление тихого голоса (sqrt) для живой, честной осциллограммы.
+      final visualAmp = math.sqrt(rawAmp.clamp(0.0, 1.0)).clamp(0.08, 1.0);
       setState(() {
-        _voiceAmplitude = amp;
-        _voiceRecordSeconds = ticks ~/ 5;
+        _voiceSamples.add(visualAmp);
+        if (_voiceSamples.length > 600) {
+          _voiceSamples.removeAt(0);
+        }
+        _voiceRecordMs = _voiceStopwatch.elapsedMilliseconds;
       });
     });
   }
@@ -420,9 +427,15 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_isRecordingVoice) return;
     _voiceTimer?.cancel();
     _voiceTimer = null;
+    _voiceStopwatch.stop();
+    final collectedSamples = List<double>.from(_voiceSamples);
+    final fallbackMs = _voiceStopwatch.elapsedMilliseconds;
+    _voiceSamples.clear();
     setState(() => _isRecordingVoice = false);
     final recorded = await TalerNativeBridge.instance.stopAudioRecord();
-    if (recorded == null || recorded.durationMs < 350) {
+    final durationMs =
+        (recorded != null && recorded.durationMs > 0) ? recorded.durationMs : fallbackMs;
+    if (recorded == null || durationMs < 350) {
       if (mounted) {
         _showErrorSnack('Слишком короткое голосовое сообщение');
       }
@@ -432,7 +445,8 @@ class _ChatScreenState extends State<ChatScreen> {
       await widget.client.sendVoiceAttachment(
         widget.chat.id,
         filePath: recorded.path,
-        durationMs: recorded.durationMs,
+        durationMs: durationMs,
+        waveformSamples: collectedSamples,
       );
       _scrollToBottom();
     } catch (e) {
@@ -443,6 +457,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _cancelVoiceRecord() async {
     _voiceTimer?.cancel();
     _voiceTimer = null;
+    _voiceStopwatch.stop();
+    _voiceSamples.clear();
     if (_isRecordingVoice && mounted) {
       setState(() => _isRecordingVoice = false);
     } else {
@@ -532,6 +548,250 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _openSearch() {
     if (!_showSearch) _toggleSearch();
+  }
+
+  Future<void> _showChatMenu(
+    BuildContext buttonCtx,
+    TalerChat chat,
+    bool canDock,
+    List<TalerMessage> allMessages,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final box = buttonCtx.findRenderObject() as RenderBox?;
+    final anchorRect = (box != null && box.hasSize)
+        ? (box.localToGlobal(Offset.zero) & box.size)
+        : null;
+    final powerSaving = widget.client.appPreferences.powerSavingMode;
+
+    final action = await showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Меню чата',
+      barrierColor: Colors.black.withValues(alpha: 0.24),
+      transitionDuration: Duration(milliseconds: powerSaving ? 80 : 170),
+      pageBuilder: (ctx, _, _) {
+        final p = TalerTheme.paletteOf(ctx);
+        final size = MediaQuery.sizeOf(ctx);
+        final pad = MediaQuery.paddingOf(ctx);
+        final top = anchorRect != null
+            ? (anchorRect.bottom + 8).clamp(pad.top + 12, size.height - 280)
+            : pad.top + 60;
+        final right = anchorRect != null
+            ? (size.width - anchorRect.right).clamp(12.0, size.width - 232)
+            : 12.0;
+
+        Widget item({
+          required String id,
+          required TalerIconData icon,
+          required String label,
+          bool destructive = false,
+        }) {
+          final color = destructive ? p.danger : p.fg;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => Navigator.of(ctx).pop(id),
+              splashFactory: NoSplash.splashFactory,
+              highlightColor: p.fg.withValues(alpha: 0.07),
+              child: SizedBox(
+                height: 44,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      TalerIcon(icon, size: 18, color: color, morph: false),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w500,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final surfaceBg = p.isDark
+            ? Color(powerSaving ? 0xF515171F : 0xE615171F)
+            : Color(powerSaving ? 0xFAFFFFFF : 0xEBFFFFFF);
+
+        final menuCard = Container(
+          width: 236,
+          decoration: BoxDecoration(
+            color: surfaceBg,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: (p.isDark ? Colors.white : Colors.black).withValues(alpha: 0.09),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x55000000),
+                blurRadius: 28,
+                offset: Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              item(
+                id: 'profile',
+                icon: TalerIcons.user,
+                label: chat.isDialog ? 'Профиль' : 'Информация о чате',
+              ),
+              item(
+                id: 'search',
+                icon: TalerIcons.search,
+                label: 'Поиск по сообщениям',
+              ),
+              item(
+                id: 'mute',
+                icon: chat.isMuted ? TalerIcons.bell : TalerIcons.bellOff,
+                label: chat.isMuted ? 'Включить звук' : 'Выключить звук',
+              ),
+              if (allMessages.isNotEmpty)
+                item(
+                  id: 'select',
+                  icon: TalerIcons.checkCheck,
+                  label: 'Выбрать сообщения',
+                ),
+              item(
+                id: 'refresh',
+                icon: TalerIcons.refresh,
+                label: 'Обновить историю',
+              ),
+              Container(
+                height: 4,
+                color: (p.isDark ? Colors.white : Colors.black).withValues(alpha: 0.05),
+              ),
+              item(
+                id: 'clear',
+                icon: TalerIcons.trash,
+                label: 'Очистить историю',
+                destructive: true,
+              ),
+              item(
+                id: 'delete_or_leave',
+                icon: TalerIcons.logOut,
+                label: (chat.isGroup || chat.isChannel)
+                    ? 'Покинуть чат'
+                    : 'Удалить чат',
+                destructive: true,
+              ),
+            ],
+          ),
+        );
+
+        return Stack(
+          children: [
+            Positioned(
+              top: top,
+              right: right,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: powerSaving
+                    ? menuCard
+                    : BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                        child: menuCard,
+                      ),
+              ),
+            ),
+          ],
+        );
+      },
+      transitionBuilder: (ctx, anim, _, child) {
+        final curved = Curves.easeOutCubic.transform(anim.value);
+        return FadeTransition(
+          opacity: AlwaysStoppedAnimation(curved),
+          child: Transform.scale(
+            scale: 0.92 + 0.08 * curved,
+            alignment: Alignment.topRight,
+            child: child,
+          ),
+        );
+      },
+    );
+
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'profile':
+        _toggleInfo(canDock, chat);
+      case 'search':
+        _openSearch();
+      case 'mute':
+        final willMute = !chat.isMuted;
+        await widget.client.toggleChatMute(chat.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              willMute ? 'Уведомления чата отключены' : 'Уведомления чата включены',
+            ),
+          ),
+        );
+      case 'select':
+        final lastNonControl = allMessages.lastWhere(
+          (m) => !m.isControl,
+          orElse: () => allMessages.last,
+        );
+        _toggleSelect(lastNonControl.id);
+      case 'refresh':
+        _loadChatData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('История обновлена')),
+        );
+      case 'clear':
+        final confirmed = await showTalerConfirmSheet(
+          context,
+          icon: TalerIcons.trash,
+          title: 'Очистить историю?',
+          message: 'Все сообщения в «${chat.title}» будут удалены у вас.',
+          confirmLabel: 'Очистить',
+        );
+        if (!confirmed || !mounted) return;
+        try {
+          await widget.client.clearChatHistory(chat.id);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('История чата очищена')),
+          );
+        } catch (e) {
+          _showErrorSnack('Не удалось очистить историю: $e');
+        }
+      case 'delete_or_leave':
+        final isGroupOrChannel = chat.isGroup || chat.isChannel;
+        final confirmed = await showTalerConfirmSheet(
+          context,
+          icon: TalerIcons.logOut,
+          title: isGroupOrChannel ? 'Покинуть чат?' : 'Удалить чат?',
+          message: isGroupOrChannel
+              ? 'Вы выйдете из «${chat.title}» и он исчезнет из списка.'
+              : 'Чат «${chat.title}» и переписка в нём будут удалены.',
+          confirmLabel: isGroupOrChannel ? 'Покинуть' : 'Удалить',
+        );
+        if (!confirmed || !mounted) return;
+        try {
+          await widget.client.deleteOrLeaveChat(chat);
+          if (!mounted) return;
+          if (_mobile) {
+            (widget.onBack ?? () => Navigator.of(context).maybePop())();
+          }
+        } catch (e) {
+          _showErrorSnack('Не удалось выполнить действие: $e');
+        }
+    }
   }
 
   void _toggleInfo(bool canDock, TalerChat chat) {
@@ -672,7 +932,7 @@ class _ChatScreenState extends State<ChatScreen> {
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _header(p, chat, canDock),
+                  _header(p, chat, canDock, all),
                   if (_showSearch) _searchBar(p),
                 ],
               );
@@ -694,7 +954,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     : Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _mobileFloatingHeader(p, chat, canDock),
+                          _mobileFloatingHeader(p, chat, canDock, all),
                           if (_showSearch) _mobileFloatingSearchBar(p),
                         ],
                       ),
@@ -878,7 +1138,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _mobileFloatingHeader(TalerPalette p, TalerChat chat, bool canDock) {
+  Widget _mobileFloatingHeader(
+    TalerPalette p,
+    TalerChat chat,
+    bool canDock,
+    List<TalerMessage> allMessages,
+  ) {
     final peer = chat.peerId != null ? widget.client.contactById(chat.peerId!) : null;
     final offline = !widget.client.isDemoMode && !widget.client.isSessionReady;
     final live = !offline && (chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false));
@@ -998,13 +1263,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         color: _showSearch ? p.accent : p.fg,
                         onPressed: _toggleSearch,
                       ),
-                      TalerIconButton(
-                        icon: TalerIcons.more,
-                        tooltip: 'Профиль чата',
-                        size: 40,
-                        iconSize: 19,
-                        color: p.fg,
-                        onPressed: () => _toggleInfo(canDock, chat),
+                      Builder(
+                        builder: (menuBtnCtx) => TalerIconButton(
+                          icon: TalerIcons.more,
+                          tooltip: 'Меню чата',
+                          size: 40,
+                          iconSize: 19,
+                          color: p.fg,
+                          onPressed: () => unawaited(
+                            _showChatMenu(menuBtnCtx, chat, canDock, allMessages),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -1136,13 +1405,13 @@ class _ChatScreenState extends State<ChatScreen> {
       maxLines: 6,
       textCapitalization: TextCapitalization.sentences,
       keyboardType: TextInputType.multiline,
-      style: TextStyle(fontSize: fontSize, color: p.fg),
+      style: TextStyle(fontSize: fontSize, height: 1.32, color: p.fg),
       decoration: InputDecoration(
         hintText: 'Сообщение',
-        hintStyle: TextStyle(fontSize: fontSize, color: p.fg3),
+        hintStyle: TextStyle(fontSize: fontSize, height: 1.32, color: p.fg3),
         isDense: true,
         filled: false,
-        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(vertical: 11),
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
@@ -1154,38 +1423,50 @@ class _ChatScreenState extends State<ChatScreen> {
         Expanded(
           child: _glassPill(
             p,
-            radius: 22,
+            radius: 23,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 44),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+                padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Expanded(child: textField),
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: textField,
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 2),
                     if (_editingMessage == null &&
                         TalerNativeBridge.instance.supportsVoiceRecording)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
+                      SizedBox(
+                        height: 44,
+                        child: Center(
+                          child: TalerIconButton(
+                            icon: TalerIcons.mic,
+                            tooltip: 'Голосовое сообщение',
+                            size: 36,
+                            iconSize: 19,
+                            color: p.fg2,
+                            onPressed: () => unawaited(_startVoiceRecord()),
+                          ),
+                        ),
+                      ),
+                    SizedBox(
+                      height: 44,
+                      child: Center(
                         child: TalerIconButton(
-                          icon: TalerIcons.playCircle,
-                          tooltip: 'Голосовое сообщение',
+                          icon: TalerIcons.paperclip,
+                          tooltip: 'Прикрепить файл',
                           size: 36,
                           iconSize: 19,
                           color: p.fg2,
-                          onPressed: () => unawaited(_startVoiceRecord()),
+                          onPressed: _pickAttachment,
                         ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: TalerIconButton(
-                        icon: TalerIcons.paperclip,
-                        tooltip: 'Прикрепить файл',
-                        size: 38,
-                        iconSize: 20,
-                        color: p.fg2,
-                        onPressed: _pickAttachment,
                       ),
                     ),
                   ],
@@ -1199,7 +1480,7 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: _editingMessage != null ? TalerIcons.check : TalerIcons.send,
           tooltip: _editingMessage != null ? 'Сохранить' : 'Отправить',
           circle: true,
-          size: 44,
+          size: 46,
           iconSize: 19,
           color: Colors.white,
           backgroundColor: p.accent,
@@ -1209,7 +1490,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _header(TalerPalette p, TalerChat chat, bool canDock) {
+  Widget _header(
+    TalerPalette p,
+    TalerChat chat,
+    bool canDock,
+    List<TalerMessage> allMessages,
+  ) {
     final peer = chat.peerId != null ? widget.client.contactById(chat.peerId!) : null;
     final offline = !widget.client.isDemoMode && !widget.client.isSessionReady;
     final live = !offline && (chat.isOnline || (chat.typingLabel?.isNotEmpty ?? false));
@@ -1285,7 +1571,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 color: _showSearch ? p.fg : p.fg2,
                 onPressed: _toggleSearch,
               ),
-              if (!_mobile)
+              if (!_mobile) ...[
                 TalerIconButton(
                   icon: TalerIcons.panelLeft,
                   tooltip: _showInfo && canDock ? 'Скрыть профиль' : 'Показать профиль',
@@ -1293,6 +1579,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: canDock && _showInfo ? p.fg : p.fg2,
                   onPressed: () => _toggleInfo(canDock, chat),
                 ),
+                Builder(
+                  builder: (menuBtnCtx) => TalerIconButton(
+                    icon: TalerIcons.more,
+                    tooltip: 'Меню чата',
+                    iconSize: 18,
+                    color: p.fg2,
+                    onPressed: () => unawaited(
+                      _showChatMenu(menuBtnCtx, chat, canDock, allMessages),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -2041,67 +2339,65 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _voiceRecordingBar(TalerPalette p) {
-    final mins = _voiceRecordSeconds ~/ 60;
-    final secs = (_voiceRecordSeconds % 60).toString().padLeft(2, '0');
+    final totalSecs = _voiceRecordMs ~/ 1000;
+    final mins = totalSecs ~/ 60;
+    final secs = (totalSecs % 60).toString().padLeft(2, '0');
+    final tenths = (_voiceRecordMs % 1000) ~/ 100;
+    final pulse = ((_voiceRecordMs ~/ 450) % 2) == 0;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: _glassPill(
             p,
-            radius: 22,
+            radius: 23,
             child: SizedBox(
               height: 44,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+                padding: const EdgeInsets.fromLTRB(14, 0, 4, 0),
                 child: Row(
                   children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: p.danger,
-                        shape: BoxShape.circle,
+                    AnimatedOpacity(
+                      opacity: pulse ? 1.0 : 0.35,
+                      duration: const Duration(milliseconds: 220),
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: p.danger,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '$mins:$secs',
+                      '$mins:$secs.$tenths',
                       style: TalerTheme.tabularStyle(
-                        size: 14.5,
+                        size: 14,
                         weight: FontWeight.w600,
                         color: p.fg,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          for (var i = 0; i < 12; i++) ...[
-                            if (i > 0) const SizedBox(width: 3),
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 140),
-                              width: 2.5,
-                              height: (6.0 +
-                                      16.0 *
-                                          (_voiceAmplitude *
-                                              (0.45 + 0.55 * ((i % 3) / 2.0))))
-                                  .clamp(5.0, 22.0),
-                              decoration: BoxDecoration(
-                                color: p.accent,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ],
-                        ],
+                      child: SizedBox(
+                        height: 24,
+                        child: CustomPaint(
+                          painter: _LiveRecordingWaveformPainter(
+                            samples: _voiceSamples,
+                            color: p.accent,
+                            idleColor: p.fg.withValues(alpha: 0.16),
+                          ),
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     TalerIconButton(
-                      icon: TalerIcons.close,
+                      icon: TalerIcons.trash,
                       tooltip: 'Отменить запись',
                       size: 36,
-                      iconSize: 16,
-                      color: p.fg3,
+                      iconSize: 17,
+                      color: p.danger,
                       onPressed: () => unawaited(_cancelVoiceRecord()),
                     ),
                   ],
@@ -2115,7 +2411,7 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: TalerIcons.send,
           tooltip: 'Отправить голосовое',
           circle: true,
-          size: 44,
+          size: 46,
           iconSize: 19,
           color: Colors.white,
           backgroundColor: p.accent,
@@ -2124,6 +2420,49 @@ class _ChatScreenState extends State<ChatScreen> {
       ],
     );
   }
+}
+
+class _LiveRecordingWaveformPainter extends CustomPainter {
+  final List<double> samples;
+  final Color color;
+  final Color idleColor;
+
+  const _LiveRecordingWaveformPainter({
+    required this.samples,
+    required this.color,
+    required this.idleColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    const barW = 2.6;
+    const gap = 2.8;
+    final count = ((size.width + gap) / (barW + gap)).floor().clamp(8, 36);
+    final totalW = count * barW + (count - 1) * gap;
+    final startX = (size.width - totalW) / 2;
+    final activePaint = Paint()..color = color;
+    final idlePaint = Paint()..color = idleColor;
+
+    for (var i = 0; i < count; i++) {
+      final sampleIdx = samples.length - count + i;
+      final hasSample = sampleIdx >= 0 && sampleIdx < samples.length;
+      final amp = hasSample ? samples[sampleIdx].clamp(0.08, 1.0) : 0.12;
+      final h = (amp * size.height).clamp(3.0, size.height);
+      final x = startX + i * (barW + gap);
+      final y = (size.height - h) / 2;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, barW, h),
+          const Radius.circular(barW / 2),
+        ),
+        hasSample ? activePaint : idlePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LiveRecordingWaveformPainter old) => true;
 }
 
 class _ForwardChatPickerSheet extends StatefulWidget {

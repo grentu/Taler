@@ -35,7 +35,8 @@ abstract final class ChatTokens {
     'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье',
   ];
 
-  static DateTime _date(int ms) => DateTime.fromMillisecondsSinceEpoch(ms);
+  static DateTime _date(int raw) =>
+      DateTime.fromMillisecondsSinceEpoch(normalizeEpochMs(raw) ?? raw);
 
   static bool sameDay(int a, int b) {
     final x = _date(a);
@@ -57,18 +58,20 @@ abstract final class ChatTokens {
   /// Время в списке чатов: сегодня — 19:16, на этой неделе — Пн, иначе 12.11.26.
   static String listTime(int? ms) {
     if (ms == null || ms <= 0) return '';
-    final ago = _daysAgo(ms);
-    if (ago <= 0) return time(ms);
-    if (ago < 7) return _weekdays[_date(ms).weekday - 1];
-    return DateFormat('dd.MM.yy').format(_date(ms));
+    final normalized = normalizeEpochMs(ms) ?? ms;
+    final ago = _daysAgo(normalized);
+    if (ago <= 0) return time(normalized);
+    if (ago < 7) return _weekdays[_date(normalized).weekday - 1];
+    return DateFormat('dd.MM.yy').format(_date(normalized));
   }
 
   /// Разделитель дат в переписке: Сегодня, Вчера, Понедельник, 3 ноября.
   static String dayLabel(int ms) {
-    final ago = _daysAgo(ms);
+    final normalized = normalizeEpochMs(ms) ?? ms;
+    final ago = _daysAgo(normalized);
     if (ago <= 0) return 'Сегодня';
     if (ago == 1) return 'Вчера';
-    final d = _date(ms);
+    final d = _date(normalized);
     if (ago < 7) return _weekdaysFull[d.weekday - 1];
     final now = DateTime.now();
     final base = '${d.day} ${_months[d.month - 1]}';
@@ -89,12 +92,22 @@ abstract final class ChatTokens {
     if (chat.isChannel) return '${chat.participantsCount} подписчиков';
     if (chat.isGroup) return '${chat.participantsCount} участников';
     if (chat.isOnline) return 'в сети';
-    final seen = chat.lastSeen;
-    if (seen != null && seen > 0) {
-      final ago = _daysAgo(seen);
-      if (ago <= 0) return 'был(а) в ${time(seen)}';
-      if (ago == 1) return 'был(а) вчера';
-      return 'был(а) ${DateFormat('dd.MM.yy').format(_date(seen))}';
+    final seenMs = normalizeEpochMs(chat.lastSeen);
+    if (seenMs != null && seenMs > 0) {
+      final seenDate = DateTime.fromMillisecondsSinceEpoch(seenMs);
+      // Защита от некорректных нулевых/эпохальных значений (< 2010 года).
+      if (seenDate.year < 2010) return 'был(а) недавно';
+      final diff = DateTime.now().difference(seenDate);
+      if (diff.inSeconds >= -60 && diff.inMinutes < 2) {
+        return 'был(а) только что';
+      }
+      final ago = _daysAgo(seenMs);
+      if (ago <= 0) return 'был(а) в ${time(seenMs)}';
+      if (ago == 1) return 'был(а) вчера в ${time(seenMs)}';
+      if (seenDate.year == DateTime.now().year) {
+        return 'был(а) ${seenDate.day} ${_months[seenDate.month - 1]}';
+      }
+      return 'был(а) ${DateFormat('dd.MM.yy').format(seenDate)}';
     }
     return 'был(а) недавно';
   }

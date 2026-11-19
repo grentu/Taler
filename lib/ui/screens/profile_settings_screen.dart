@@ -133,7 +133,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         final statusTop = isWide ? 0.0 : MediaQuery.paddingOf(context).top;
         final user = widget.client.currentUser;
         final powerSaving = widget.client.appPreferences.powerSavingMode;
-        final scrollTopPad = isWide ? 24.0 : statusTop + 14.0;
+        final scrollTopPad = isWide ? 24.0 : statusTop + 16.0;
         final bio = user?.description?.trim() ?? '';
         final hasPhone = user?.phone != null && user!.phone!.trim().isNotEmpty;
 
@@ -316,7 +316,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             seedId: user?.id ?? 0,
             initials: user?.initials ?? 'T',
             imageUrl: user?.avatarUrl,
-            size: 96,
+            size: 92,
             isOnline: online,
             onlineBorderColor: p.settingsBg,
           ),

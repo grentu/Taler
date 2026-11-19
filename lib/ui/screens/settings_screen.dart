@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../backend/taler_client.dart';
 import '../../core/media/taler_media_cache.dart';
+import '../../core/platform/taler_native_bridge.dart';
 import '../../core/storage/app_preferences.dart';
 import '../../core/storage/taler_models.dart';
 import '../../core/update/app_updater.dart';
@@ -544,7 +545,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               seedId: user?.id ?? 0,
               initials: user?.initials ?? 'T',
               imageUrl: user?.avatarUrl,
-              size: 90,
+              size: 92,
             ),
             Positioned(
               right: -2,
@@ -630,7 +631,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         final scrollTopPad = _searching
             ? statusTop + 62.0
-            : (isWide ? 24.0 : statusTop + 18.0);
+            : (isWide ? 24.0 : statusTop + 16.0);
         final overlayFactor = (_searching || isWide) ? 1.0 : _fadeFactor;
 
         return PopScope(
@@ -714,7 +715,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 left: 0,
                 right: 0,
                 child: TalerTopFadeOverlay(
-                  height: statusTop + 52 + 28,
+                  height: statusTop + 52 + 24,
                   backgroundColor: p.settingsBg,
                   factor: overlayFactor,
                   powerSaving: prefs.powerSavingMode,
@@ -1242,6 +1243,41 @@ class _NotificationsPage extends StatelessWidget {
                       onChanged: (v) => unawaited(prefs.setShowFolderBadges(v)),
                     ),
                     onTap: () => unawaited(prefs.setShowFolderBadges(!prefs.showFolderBadges)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TalerSettingsGroup(
+                title: 'Всплывающие уведомления',
+                children: [
+                  TalerSettingsTile(
+                    icon: TalerIcons.bell,
+                    title: 'Проверить уведомление',
+                    subtitle: 'Показать тестовый баннер поверх экрана',
+                    onTap: () async {
+                      await TalerNativeBridge.instance
+                          .requestNotificationPermission();
+                      await TalerNativeBridge.instance.showMessageNotification(
+                        chatId: 0,
+                        title: 'Taler',
+                        sender: 'Taler',
+                        body: 'Всплывающие уведомления работают корректно',
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Тестовое уведомление отправлено'),
+                        ),
+                      );
+                    },
+                  ),
+                  TalerSettingsTile(
+                    icon: TalerIcons.settings,
+                    title: 'Системные настройки канала',
+                    subtitle: 'Включить всплывающие баннеры и звук в Android',
+                    onTap: () => unawaited(
+                      TalerNativeBridge.instance.openNotificationSettings(),
+                    ),
                   ),
                 ],
               ),

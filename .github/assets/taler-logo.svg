@@ -1,36 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
   <defs>
-    <linearGradient id="coinBg" x1="12" y1="12" x2="116" y2="116" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#1E1E26"/>
-      <stop offset="100%" stop-color="#101015"/>
+    <linearGradient id="talerGrad" x1="8" y1="6" x2="120" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="30%" stop-color="#2576FF"/>
+      <stop offset="66%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#181242"/>
     </linearGradient>
+    <radialGradient id="topBloom" cx="18" cy="14" r="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#BAE6FD" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bottomBloom" cx="114" cy="112" r="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="markShadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.2" flood-color="#0A0C30" flood-opacity="0.34"/>
+    </filter>
   </defs>
 
-  <!-- Obsidian coin base -->
-  <circle cx="64" cy="64" r="58" fill="url(#coinBg)" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
-  <circle cx="64" cy="64" r="47.5" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+  <!-- Gradient squircle backdrop -->
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#talerGrad)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#topBloom)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#bottomBloom)"/>
 
-  <!-- 8 minted edge ticks -->
-  <g stroke="rgba(255,255,255,0.22)" stroke-width="1.6" stroke-linecap="round">
-    <line x1="107.4" y1="46.0" x2="111.8" y2="44.2"/>
-    <line x1="82.0" y1="20.6" x2="83.8" y2="16.2"/>
-    <line x1="46.0" y1="20.6" x2="44.2" y2="16.2"/>
-    <line x1="20.6" y1="46.0" x2="16.2" y2="44.2"/>
-    <line x1="20.6" y1="82.0" x2="16.2" y2="83.8"/>
-    <line x1="46.0" y1="107.4" x2="44.2" y2="111.8"/>
-    <line x1="82.0" y1="107.4" x2="83.8" y2="111.8"/>
-    <line x1="107.4" y1="82.0" x2="111.8" y2="83.8"/>
+  <!-- Subtle minted taler halo ring -->
+  <circle cx="64" cy="64" r="46.8" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="1.6"/>
+
+  <!-- Sculpted two-piece Taler monogram -->
+  <g filter="url(#markShadow)">
+    <path d="M33.2 37.8 Q28.2 37.8 29.5 42.6 L31.2 48.8 Q32.5 53.6 37.5 53.6 L51.4 53.6 Q55.8 53.6 55.8 58.0 L55.8 89.2 Q55.8 97.2 63.8 97.2 L64.1 97.2 Q72.1 97.2 72.1 89.2 L72.1 54.6 Q72.1 51.8 72.9 49.2 L75.2 41.2 Q76.0 37.8 72.6 37.8 Z" fill="#FFFFFF"/>
+    <path d="M84.4 37.8 Q81.0 37.8 80.2 41.2 L77.6 50.2 Q76.8 53.6 80.2 53.6 L91.8 53.6 Q96.8 53.6 98.1 48.8 L99.8 42.6 Q101.1 37.8 96.1 37.8 Z" fill="#E0F4FF" fill-opacity="0.93"/>
   </g>
-
-  <!-- Monogram T -->
-  <path d="M 33.5 47.2 L 95.4 40.0 L 79.8 58.0 L 69.0 58.0 L 66.6 91.6 Q 61.2 94.6 55.8 91.6 L 55.8 58.0 L 36.6 58.0 Z" fill="#F2F2F0"/>
-
-  <!-- Indigo fold facet -->
-  <path d="M 58.2 58.0 L 95.4 40.0 L 69.0 68.8 L 69.0 58.0 Z" fill="#7C76D6"/>
-  <path d="M 58.2 58.0 L 95.4 40.0 L 79.8 58.0 Z" fill="#A7A2EC"/>
-
-  <!-- Shield badge -->
-  <circle cx="103" cy="103" r="18" fill="#30A46C" stroke="#0D1117" stroke-width="3.5"/>
-  <path d="M103 93.8 L96.2 96.8 V102.2 C96.2 106.7 99.1 110.6 103 112 C106.9 110.6 109.8 106.7 109.8 102.2 V96.8 L103 93.8 Z" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M100 102.8 L102.2 105.0 L106.4 100.6" fill="none" stroke="#FFFFFF" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

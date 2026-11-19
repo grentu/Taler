@@ -19,6 +19,7 @@ import 'package:taler/ui/theme/taler_theme.dart';
 import 'package:taler/ui/widgets/message_actions_overlay.dart';
 import 'package:taler/ui/widgets/message_bubble.dart';
 import 'package:taler/ui/widgets/settings_components.dart';
+import 'package:taler/ui/widgets/taler_logo.dart';
 
 void main() {
   group('AppPreferences & Cache', () {
@@ -651,7 +652,10 @@ void main() {
 
       await tester.tap(find.text('Елена Соколова'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Профиль чата'));
+      await tester.tap(find.byTooltip('Меню чата'));
+      await tester.pumpAndSettle();
+      expect(find.text('Профиль'), findsOneWidget);
+      await tester.tap(find.text('Профиль'));
       await tester.pumpAndSettle();
 
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).last);
@@ -918,6 +922,135 @@ void main() {
       await tester.pumpAndSettle();
       expect(client.messagesForChat(5001).length, greaterThan(beforeGroupCount));
       expect(find.text('Выбрано: 1'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('v1.2.16 UI fixes: voice redesign, composer alignment, chat menu, tab parity & gradient logo', () {
+    testWidgets('voice bubble with real waveform renders cleanly with exact duration and zero layout errors', (tester) async {
+      const voiceMsg = TalerMessage(
+        id: 'v_real',
+        chatId: 1,
+        senderId: 2,
+        text: '',
+        time: 1763544000000,
+        attachments: [
+          TalerAttachment(
+            type: 'AUDIO',
+            audioId: 5511,
+            durationMs: 16400,
+            waveform: [8, 22, 64, 118, 95, 40, 12, 85, 127, 60, 30, 14],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: const Scaffold(
+            body: Center(
+              child: MessageBubble(
+                message: voiceMsg,
+                isMine: true,
+                firstInRun: true,
+                showName: false,
+                senderName: 'Вы',
+                maxWidth: 300,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0:16'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate((w) => w is TalerIcon && w.icon == TalerIcons.play),
+        findsOneWidget,
+      );
+      expect(find.byType(CustomPaint), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('mobile 360px: composer send button aligns with input pill, 3-dots opens chat menu, and Settings/Profile hero match', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const TalerApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Демо'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Открыть демо'));
+      await tester.pumpAndSettle();
+
+      // Verify Settings and Profile share identical 92px hero avatar size and vertical position.
+      await tester.tap(find.text('Настройки').last);
+      await tester.pumpAndSettle();
+      final settingsHero = find.byWidgetPredicate((w) => w is TalerAvatar && w.size == 92.0);
+      expect(settingsHero, findsOneWidget);
+      final settingsHeroTop = tester.getRect(settingsHero).top;
+
+      await tester.tap(find.text('Профиль').last);
+      await tester.pumpAndSettle();
+      final profileHero = find.byWidgetPredicate((w) => w is TalerAvatar && w.size == 92.0);
+      expect(profileHero, findsOneWidget);
+      final profileHeroTop = tester.getRect(profileHero).top;
+      expect((settingsHeroTop - profileHeroTop).abs(), lessThanOrEqualTo(1.0));
+
+      // Open Elena chat and check Send button vertical alignment with the composer glass pill.
+      await tester.tap(find.text('Чаты').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Елена Соколова'));
+      await tester.pumpAndSettle();
+
+      final sendBtnFinder = find.byTooltip('Отправить');
+      final inputFieldFinder = find.byType(TextField).last;
+      final sendRect = tester.getRect(sendBtnFinder);
+      final inputRect = tester.getRect(inputFieldFinder);
+      // Send button is 46x46 and vertically centered with the single-line input text box.
+      expect(sendRect.height, closeTo(46.0, 0.5));
+      expect((sendRect.center.dy - inputRect.center.dy).abs(), lessThanOrEqualTo(2.0));
+
+      // Tap 3-dots menu -> full action list instead of jumping straight to profile.
+      await tester.tap(find.byTooltip('Меню чата'));
+      await tester.pumpAndSettle();
+      expect(find.text('Профиль'), findsOneWidget);
+      expect(find.text('Поиск по сообщениям'), findsOneWidget);
+      expect(find.text('Выключить звук'), findsOneWidget);
+      expect(find.text('Выбрать сообщения'), findsOneWidget);
+      expect(find.text('Обновить историю'), findsOneWidget);
+      expect(find.text('Очистить историю'), findsOneWidget);
+      expect(find.text('Удалить чат'), findsOneWidget);
+
+      // Tapping 'Очистить историю' shows styled confirmation bottom sheet (no AlertDialog).
+      await tester.tap(find.text('Очистить историю'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Очистить'), findsOneWidget);
+      await tester.tap(find.text('Отмена'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('TalerLogo renders cleanly in squircle and circular modes', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TalerTheme.dark(),
+          home: const Scaffold(
+            body: Row(
+              children: [
+                TalerLogo(size: 24, circular: false),
+                TalerLogo(size: 40, circular: false),
+                TalerLogo(size: 72, circular: true),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(TalerLogo), findsNWidgets(3));
       expect(tester.takeException(), isNull);
     });
   });

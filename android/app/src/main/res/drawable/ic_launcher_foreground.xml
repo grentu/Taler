@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Subtle minted coin halo inside adaptive safe zone -->
+    <path
+        android:pathData="M54,23.5 A30.5,30.5 0 1,1 53.99,23.5 Z"
+        android:strokeColor="#22FFFFFF"
+        android:strokeWidth="1.2" />
+
+    <!-- Subtle drop shadow for depth -->
+    <group android:translateY="1.8">
+        <path
+            android:fillColor="#400A0C30"
+            android:pathData="M34.2,37.8 Q31.2,37.8 32.0,40.7 L32.9,44.0 Q33.7,46.9 36.7,46.9 L46.2,46.9 Q49.1,46.9 49.1,49.8 L49.1,70.2 Q49.1,74.8 53.8,74.8 L54.0,74.8 Q58.7,74.8 58.7,70.2 L58.7,47.5 Q58.7,45.8 59.2,44.2 L60.6,39.7 Q61.1,37.8 59.1,37.8 Z" />
+        <path
+            android:fillColor="#330A0C30"
+            android:pathData="M65.8,37.8 Q63.8,37.8 63.3,39.7 L61.7,45.0 Q61.2,46.9 63.2,46.9 L69.8,46.9 Q72.8,46.9 73.6,44.0 L74.5,40.7 Q75.3,37.8 72.3,37.8 Z" />
+    </group>
+
+    <!-- Main sculpted white T ribbon -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34.2,37.8 Q31.2,37.8 32.0,40.7 L32.9,44.0 Q33.7,46.9 36.7,46.9 L46.2,46.9 Q49.1,46.9 49.1,49.8 L49.1,70.2 Q49.1,74.8 53.8,74.8 L54.0,74.8 Q58.7,74.8 58.7,70.2 L58.7,47.5 Q58.7,45.8 59.2,44.2 L60.6,39.7 Q61.1,37.8 59.1,37.8 Z" />
+
+    <!-- Frosted ice-white floating right wing -->
+    <path
+        android:fillColor="#ECE0F4FF"
+        android:pathData="M65.8,37.8 Q63.8,37.8 63.3,39.7 L61.7,45.0 Q61.2,46.9 63.2,46.9 L69.8,46.9 Q72.8,46.9 73.6,44.0 L74.5,40.7 Q75.3,37.8 72.3,37.8 Z" />
+</vector>

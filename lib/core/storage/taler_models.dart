@@ -1,7 +1,68 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 String _firstSymbol(String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) return '';
   return String.fromCharCode(trimmed.runes.first).toUpperCase();
+}
+
+/// Нормализует Unix-метку времени (секунды или миллисекунды) в миллисекунды.
+/// MAX передаёт `presence.seen` в секундах (~1.7e9), а время сообщений — в мс (~1.7e12).
+int? normalizeEpochMs(int? raw) {
+  if (raw == null || raw <= 0) return null;
+  if (raw < 100000000000) {
+    return raw * 1000;
+  }
+  return raw;
+}
+
+/// Извлекает массив амплитуд волны голосового сообщения из `wave` протокола MAX.
+List<int>? parseWaveformData(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is Uint8List) {
+    return raw.isEmpty ? null : List<int>.from(raw);
+  }
+  if (raw is List) {
+    final out = <int>[];
+    for (final item in raw) {
+      if (item is num) {
+        out.add(item.toInt().clamp(0, 255));
+      }
+    }
+    return out.isEmpty ? null : out;
+  }
+  if (raw is String && raw.isNotEmpty) {
+    // В MAX `wave` приходит как raw-байты (декодированные в строку codeUnits) или base64.
+    final units = raw.codeUnits;
+    if (units.length >= 16 && units.every((c) => c <= 255)) {
+      final hasNonBase64 = units.any(
+        (c) =>
+            !(c >= 48 && c <= 57) &&
+            !(c >= 65 && c <= 90) &&
+            !(c >= 97 && c <= 122) &&
+            c != 43 &&
+            c != 47 &&
+            c != 61,
+      );
+      if (hasNonBase64 || raw.length % 4 != 0) {
+        return List<int>.from(units);
+      }
+      try {
+        final decoded = base64Decode(raw);
+        if (decoded.isNotEmpty) return List<int>.from(decoded);
+      } catch (_) {}
+      return List<int>.from(units);
+    }
+    try {
+      final decoded = base64Decode(raw);
+      if (decoded.isNotEmpty) return List<int>.from(decoded);
+    } catch (_) {}
+    if (units.isNotEmpty) {
+      return units.map((c) => c.clamp(0, 255)).toList();
+    }
+  }
+  return null;
 }
 
 /// Модели данных клиента Taler.
@@ -321,6 +382,7 @@ class TalerAttachment {
   final String? thumbnailUrl;
   final String? description;
   final int? durationMs;
+  final List<int>? waveform;
 
   const TalerAttachment({
     required this.type,
@@ -338,6 +400,7 @@ class TalerAttachment {
     this.thumbnailUrl,
     this.description,
     this.durationMs,
+    this.waveform,
   });
 
   Map<String, dynamic> toJson() => {
@@ -356,6 +419,7 @@ class TalerAttachment {
         'thumbnailUrl': thumbnailUrl,
         'description': description,
         'durationMs': durationMs,
+        if (waveform != null) 'waveform': waveform,
       };
 
   factory TalerAttachment.fromJson(Map<String, dynamic> json) {
@@ -375,6 +439,7 @@ class TalerAttachment {
       thumbnailUrl: json['thumbnailUrl'] as String?,
       description: json['description'] as String?,
       durationMs: (json['durationMs'] as num?)?.toInt(),
+      waveform: parseWaveformData(json['waveform']),
     );
   }
 
@@ -398,6 +463,7 @@ class TalerAttachment {
     final primaryUrl = (map['baseUrl'] ?? map['url'] ?? thumbnail)?.toString();
     final desc = (map['description'] ?? map['body'] ?? map['subtitle'])?.toString();
     final duration = (map['duration'] as num?)?.toInt();
+    final wave = parseWaveformData(map['wave'] ?? map['waveform']);
 
     return TalerAttachment(
       type: rawType,
@@ -417,6 +483,7 @@ class TalerAttachment {
       thumbnailUrl: thumbnail,
       description: desc,
       durationMs: duration,
+      waveform: wave,
     );
   }
 }

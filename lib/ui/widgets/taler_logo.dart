@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 import '../icons/taler_icon.dart';
 
-/// Векторный логотип Taler: чеканный обсидианово-серебряный талер с
-/// геометрической монограммой «T» и акцентом щита.
+/// Векторный градиентный логотип Taler: сапфирово-индиговый градиент с
+/// мягким световым бликом, тонким кольцом талера и скульптурной монограммой «T».
 class TalerLogo extends StatelessWidget {
   final double size;
   final bool showShieldBadge;
@@ -14,7 +14,7 @@ class TalerLogo extends StatelessWidget {
     super.key,
     this.size = 48,
     this.showShieldBadge = false,
-    this.circular = true,
+    this.circular = false,
   });
 
   @override
@@ -40,7 +40,7 @@ class TalerLogo extends StatelessWidget {
                 height: badgeSize,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF30A46C),
+                  color: const Color(0xFF22C55E),
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: Theme.of(context).scaffoldBackgroundColor,
@@ -65,113 +65,159 @@ class _TalerLogoPainter extends CustomPainter {
 
   const _TalerLogoPainter({required this.circular});
 
+  static Path _buildRoundedPolygon(
+    List<Offset> pts,
+    List<double> radii,
+  ) {
+    final path = Path();
+    final n = pts.length;
+    for (var i = 0; i < n; i++) {
+      final prev = pts[(i - 1 + n) % n];
+      final curr = pts[i];
+      final next = pts[(i + 1) % n];
+      final r = radii[i];
+
+      final v1 = prev - curr;
+      final v2 = next - curr;
+      final l1 = v1.distance;
+      final l2 = v2.distance;
+      if (l1 < 1e-4 || l2 < 1e-4 || r <= 0) {
+        if (i == 0) {
+          path.moveTo(curr.dx, curr.dy);
+        } else {
+          path.lineTo(curr.dx, curr.dy);
+        }
+        continue;
+      }
+      final d = math.min(r, math.min(l1, l2) * 0.45);
+      final a = curr + v1 * (d / l1);
+      final b = curr + v2 * (d / l2);
+      if (i == 0) {
+        path.moveTo(a.dx, a.dy);
+      } else {
+        path.lineTo(a.dx, a.dy);
+      }
+      path.quadraticBezierTo(curr.dx, curr.dy, b.dx, b.dy);
+    }
+    path.close();
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final s = size.width;
     final rect = Offset.zero & size;
     final center = Offset(s / 2, s / 2);
 
-    // 1. Обсидианово-графитовая основа монеты без глянцевого свечения
+    canvas.save();
+    if (circular) {
+      canvas.clipPath(Path()..addOval(rect));
+    } else {
+      canvas.clipRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(s * 0.24)),
+      );
+    }
+
+    // 1. Многоступенчатый диагональный градиент (sky cyan -> Taler blue -> electric indigo -> midnight)
     final bgShader = const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
+      stops: [0.0, 0.30, 0.66, 1.0],
       colors: [
-        Color(0xFF1E1E26),
-        Color(0xFF101015),
+        Color(0xFF38BDF8),
+        Color(0xFF2576FF),
+        Color(0xFF4F46E5),
+        Color(0xFF181242),
       ],
     ).createShader(rect);
+    canvas.drawRect(rect, Paint()..shader = bgShader);
 
-    final bgPaint = Paint()..shader = bgShader;
-    final borderPaint = Paint()
-      ..color = const Color(0x2EFFFFFF)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = (s * 0.022).clamp(1.0, 2.0);
+    // 2. Мягкий верхне-левый световой блик и нижне-правая глубина
+    final topGlow = RadialGradient(
+      center: const Alignment(-0.72, -0.80),
+      radius: 1.1,
+      colors: [
+        const Color(0x47BAE6FD),
+        const Color(0x00BAE6FD),
+      ],
+    ).createShader(rect);
+    canvas.drawRect(rect, Paint()..shader = topGlow);
 
-    if (circular) {
-      canvas.drawCircle(center, s / 2 - 0.5, bgPaint);
-      canvas.drawCircle(center, s / 2 - 0.5, borderPaint);
-    } else {
-      final rr = RRect.fromRectAndRadius(
-        rect.deflate(0.5),
-        Radius.circular(s * 0.26),
-      );
-      canvas.drawRRect(rr, bgPaint);
-      canvas.drawRRect(rr, borderPaint);
-    }
+    final bottomGlow = RadialGradient(
+      center: const Alignment(0.80, 0.76),
+      radius: 0.95,
+      colors: [
+        const Color(0x3D7C3AED),
+        const Color(0x007C3AED),
+      ],
+    ).createShader(rect);
+    canvas.drawRect(rect, Paint()..shader = bottomGlow);
 
-    // 2. Тонкий ободок чеканки серебряного талера + 8 засечек
-    final coinRadius = s * 0.405;
+    // 3. Деликатное чеканное кольцо талера
     final ringPaint = Paint()
-      ..color = const Color(0x24FFFFFF)
+      ..color = const Color(0x1EFFFFFF)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = (s * 0.014).clamp(0.7, 1.5);
-    canvas.drawCircle(center, coinRadius, ringPaint);
+      ..strokeWidth = (s * 0.013).clamp(0.75, 1.8);
+    canvas.drawCircle(center, s * 0.39, ringPaint);
 
-    final tickPaint = Paint()
-      ..color = const Color(0x36FFFFFF)
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = (s * 0.015).clamp(0.7, 1.6);
+    // 4. Скульптурная двухчастная монограмма «T» с параллельным диагональным срезом
+    Offset pt(double nx, double ny, [double dy = 0]) =>
+        Offset(nx * s, (ny + dy) * s);
 
-    final tickInner = s * 0.395;
-    final tickOuter = s * 0.435;
-    for (var i = 0; i < 8; i++) {
-      final angle = (math.pi / 8) + (i * math.pi / 4);
-      final cosA = math.cos(angle);
-      final sinA = math.sin(angle);
-      canvas.drawLine(
-        Offset(center.dx + cosA * tickInner, center.dy + sinA * tickInner),
-        Offset(center.dx + cosA * tickOuter, center.dy + sinA * tickOuter),
-        tickPaint,
-      );
-    }
+    Path buildMainPath([double dy = 0]) => _buildRoundedPolygon(
+          [
+            pt(0.214, 0.282, dy),
+            pt(0.602, 0.282, dy),
+            pt(0.566, 0.402, dy),
+            pt(0.566, 0.776, dy),
+            pt(0.432, 0.776, dy),
+            pt(0.432, 0.414, dy),
+            pt(0.246, 0.414, dy),
+          ],
+          [
+            0.052 * s,
+            0.028 * s,
+            0.044 * s,
+            0.067 * s,
+            0.067 * s,
+            0.044 * s,
+            0.052 * s,
+          ],
+        );
 
-    // 3. Геометрическая серебристая монограмма «T» с заострённым крылом
-    final tPath = Path()
-      ..moveTo(0.25 * s, 0.36 * s)
-      ..lineTo(0.77 * s, 0.30 * s)
-      ..lineTo(0.64 * s, 0.45 * s)
-      ..lineTo(0.55 * s, 0.45 * s)
-      ..lineTo(0.53 * s, 0.73 * s)
-      ..quadraticBezierTo(0.485 * s, 0.755 * s, 0.44 * s, 0.73 * s)
-      ..lineTo(0.44 * s, 0.45 * s)
-      ..lineTo(0.28 * s, 0.45 * s)
-      ..close();
+    Path buildWingPath([double dy = 0]) => _buildRoundedPolygon(
+          [
+            pt(0.648, 0.282, dy),
+            pt(0.790, 0.282, dy),
+            pt(0.752, 0.414, dy),
+            pt(0.610, 0.414, dy),
+          ],
+          [
+            0.028 * s,
+            0.052 * s,
+            0.052 * s,
+            0.028 * s,
+          ],
+        );
 
+    // Мягкая тень глубины под монограммой
+    final shadowPaint = Paint()
+      ..color = const Color(0x3D0A0C30)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, (s * 0.028).clamp(1.0, 6.0));
+    canvas.drawPath(buildMainPath(0.022), shadowPaint);
+    canvas.drawPath(buildWingPath(0.022), shadowPaint);
+
+    // Основной белый контур + морозно-голубое правое крыло
     canvas.drawPath(
-      tPath,
-      Paint()
-        ..color = const Color(0xFFF2F2F0)
-        ..style = PaintingStyle.fill,
+      buildMainPath(),
+      Paint()..color = const Color(0xFFFFFFFF),
+    );
+    canvas.drawPath(
+      buildWingPath(),
+      Paint()..color = const Color(0xECE0F4FF),
     );
 
-    // 4. Спокойная индиго-грань сгиба (#7C76D6)
-    final foldPath = Path()
-      ..moveTo(0.46 * s, 0.45 * s)
-      ..lineTo(0.77 * s, 0.30 * s)
-      ..lineTo(0.55 * s, 0.54 * s)
-      ..lineTo(0.55 * s, 0.45 * s)
-      ..close();
-
-    canvas.drawPath(
-      foldPath,
-      Paint()
-        ..color = const Color(0xFF7C76D6)
-        ..style = PaintingStyle.fill,
-    );
-
-    final creasePath = Path()
-      ..moveTo(0.46 * s, 0.45 * s)
-      ..lineTo(0.77 * s, 0.30 * s)
-      ..lineTo(0.64 * s, 0.45 * s)
-      ..close();
-
-    canvas.drawPath(
-      creasePath,
-      Paint()
-        ..color = const Color(0xFFA7A2EC)
-        ..style = PaintingStyle.fill,
-    );
+    canvas.restore();
   }
 
   @override

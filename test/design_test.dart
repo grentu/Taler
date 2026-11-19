@@ -151,7 +151,7 @@ void main() {
     await tester.tap(find.text('Елена Соколова'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Поиск в чате'), findsOneWidget);
-    expect(find.byTooltip('Профиль чата'), findsOneWidget);
+    expect(find.byTooltip('Меню чата'), findsOneWidget);
     expect(find.byTooltip('Отправить'), findsOneWidget);
     await tester.tap(find.byTooltip('Поиск в чате'));
     await tester.pumpAndSettle();

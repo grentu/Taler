@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taler/backend/taler_client.dart';
+import 'package:taler/core/media/taler_media_cache.dart';
 import 'package:taler/core/platform/taler_native_bridge.dart';
 import 'package:taler/core/privacy/privacy_firewall.dart';
 import 'package:taler/core/privacy/privacy_settings.dart';
@@ -16,6 +17,8 @@ import 'package:taler/core/protocol/packet.dart';
 import 'package:taler/core/storage/local_store.dart';
 import 'package:taler/core/storage/taler_models.dart';
 import 'package:taler/main.dart';
+import 'package:taler/ui/theme/chat_tokens.dart';
+import 'package:taler/ui/widgets/message_bubble.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -777,6 +780,96 @@ void main() {
         ),
       );
       expect(client.draftForChat(5002), isNull);
+    });
+  });
+
+  group('v1.2.16 protocol, timestamps & voice regressions', () {
+    test('normalizeEpochMs converts Unix seconds to ms and eliminates 21.01.70 lastSeen bug', () {
+      expect(normalizeEpochMs(null), isNull);
+      expect(normalizeEpochMs(0), isNull);
+      expect(normalizeEpochMs(-5), isNull);
+
+      // 10-digit Unix seconds (e.g. from MAX presence.seen) -> milliseconds.
+      const unixSec = 1763544000;
+      expect(normalizeEpochMs(unixSec), unixSec * 1000);
+      expect(normalizeEpochMs(unixSec * 1000), unixSec * 1000);
+
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final recentChat = TalerChat(
+        id: 1,
+        type: 'DIALOG',
+        title: 'Анна',
+        lastSeen: nowSec - 20, // raw seconds must still render as "только что"
+      );
+      expect(ChatTokens.chatStatus(recentChat), 'был(а) только что');
+
+      final olderChat = TalerChat(
+        id: 2,
+        type: 'DIALOG',
+        title: 'Иван',
+        lastSeen: unixSec,
+      );
+      final olderStatus = ChatTokens.chatStatus(olderChat);
+      expect(olderStatus, isNot(contains('70')));
+      expect(olderStatus, startsWith('был(а) '));
+
+      // Junk epoch values (< 2010) never show 1970.
+      const junkChat = TalerChat(
+        id: 3,
+        type: 'DIALOG',
+        title: 'Бот',
+        lastSeen: 1000,
+      );
+      expect(ChatTokens.chatStatus(junkChat), 'был(а) недавно');
+    });
+
+    test('formatAudioDurationMs treats all inputs strictly as milliseconds (never 8:20 for 500ms)', () {
+      expect(formatAudioDurationMs(null), '0:00');
+      expect(formatAudioDurationMs(0), '0:00');
+      expect(formatAudioDurationMs(500), '0:00');
+      expect(formatAudioDurationMs(500, roundUpForTotal: true), '0:01');
+      expect(formatAudioDurationMs(999), '0:00');
+      expect(formatAudioDurationMs(999, roundUpForTotal: true), '0:01');
+      expect(formatAudioDurationMs(1000), '0:01');
+      expect(formatAudioDurationMs(1500), '0:01');
+      expect(formatAudioDurationMs(1500, roundUpForTotal: true), '0:02');
+      expect(formatAudioDurationMs(16000), '0:16');
+      expect(formatAudioDurationMs(65000), '1:05');
+    });
+
+    test('parseWaveformData and buildMaxWaveformBytes handle MAX AUDIO wave payloads cleanly', () {
+      final fromBytes = parseWaveformData(Uint8List.fromList([0, 12, 64, 127]));
+      expect(fromBytes, [0, 12, 64, 127]);
+
+      final fromIntList = parseWaveformData(<dynamic>[5, 40, 200]);
+      expect(fromIntList, [5, 40, 200]);
+
+      final attach = TalerAttachment.fromServerAttach(<String, dynamic>{
+        '_type': 'AUDIO',
+        'audioId': 998877,
+        'duration': 12300,
+        'wave': Uint8List.fromList([10, 45, 90, 120, 60]),
+      });
+      expect(attach.type, 'AUDIO');
+      expect(attach.audioId, 998877);
+      expect(attach.durationMs, 12300);
+      expect(attach.waveform, [10, 45, 90, 120, 60]);
+
+      final built = TalerClient.buildMaxWaveformBytes([0.0, 0.5, 1.0, 0.25]);
+      expect(built.length, 80);
+      for (final b in built) {
+        expect(b, inInclusiveRange(4, 127));
+      }
+      expect(built.any((b) => b > 100), isTrue);
+    });
+
+    test('TalerMediaCache trusts MAX/Mincifry media CDN hosts and rejects arbitrary hosts', () {
+      expect(TalerMediaCache.isTrustedMaxMediaHost('au.oneme.ru'), isTrue);
+      expect(TalerMediaCache.isTrustedMaxMediaHost('cdn1.mycdn.me'), isTrue);
+      expect(TalerMediaCache.isTrustedMaxMediaHost('max.ru'), isTrue);
+      expect(TalerMediaCache.isTrustedMaxMediaHost('cs1.vkuseraudio.net'), isTrue);
+      expect(TalerMediaCache.isTrustedMaxMediaHost('evil.example.com'), isFalse);
+      expect(TalerMediaCache.isTrustedMaxMediaHost('notoneme.ru'), isFalse);
     });
   });
 }

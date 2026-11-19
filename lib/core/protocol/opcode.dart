@@ -88,7 +88,7 @@ abstract class Opcode {
   static const int stickerUpload = 81;
   static const int videoUpload = 82;
   static const int videoPlay = 83;
-  static const int audioUpload = 86;
+  static const int chatPinSetVisibility = 86;
   static const int fileUpload = 87;
   static const int fileDownload = 88;
   static const int linkInfo = 89;
@@ -225,7 +225,7 @@ abstract class Opcode {
     stickerUpload: 'STICKER_UPLOAD',
     videoUpload: 'VIDEO_UPLOAD',
     videoPlay: 'VIDEO_PLAY',
-    audioUpload: 'AUDIO_UPLOAD',
+    chatPinSetVisibility: 'CHAT_PIN_SET_VISIBILITY',
     fileUpload: 'FILE_UPLOAD',
     fileDownload: 'FILE_DOWNLOAD',
     linkInfo: 'LINK_INFO',

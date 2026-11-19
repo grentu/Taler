@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../core/media/taler_media_cache.dart';
 import '../core/platform/taler_native_bridge.dart';
@@ -201,11 +202,11 @@ class TalerClient extends ChangeNotifier {
       notifyListeners();
     }
 
-    if (!syncRemote || _isDemoMode || !session.isOnline) return;
+    if (!syncRemote || _isDemoMode || !isSessionReady) return;
     _draftSyncTimers[chatId]?.cancel();
     _draftSyncTimers[chatId] = Timer(const Duration(milliseconds: 900), () {
       _draftSyncTimers.remove(chatId);
-      if (!_isAuthenticated || _isDemoMode || !session.isOnline) return;
+      if (!_isAuthenticated || _isDemoMode || !isSessionReady) return;
       final latest = store.draftFor(chatId);
       if (latest == null || latest.isEmpty) {
         unawaited(
@@ -342,7 +343,7 @@ class TalerClient extends ChangeNotifier {
   /// Подтягивает имена и аватарки людей, которых нет в контактах
   /// (Opcode.contactInfo), и переименовывает «Диалог #id» в настоящие имена.
   Future<void> resolveContacts(Iterable<int> ids) async {
-    if (_isDemoMode || !session.isOnline) return;
+    if (_isDemoMode || !isSessionReady) return;
     final missing = ids
         .where((id) => id > 0 && store.contacts[id] == null && !_resolvingContacts.contains(id))
         .toSet()
@@ -438,7 +439,7 @@ class TalerClient extends ChangeNotifier {
   }
 
   Future<void> _resolveUnknownChats(List<int> chatIds) async {
-    if (_isDemoMode || !session.isOnline || chatIds.isEmpty) return;
+    if (_isDemoMode || !isSessionReady || chatIds.isEmpty) return;
     final accountId = store.accountId ?? 0;
     try {
       for (var i = 0; i < chatIds.length; i += 50) {
@@ -824,7 +825,7 @@ class TalerClient extends ChangeNotifier {
       if (uid != null && entry.value is Map) {
         final p = entry.value as Map;
         final online = (p['status'] as num?)?.toInt() == 1;
-        final seen = (p['seen'] as num?)?.toInt();
+        final seen = normalizeEpochMs((p['seen'] as num?)?.toInt());
         final existing = contactsMap[uid];
         if (existing != null) {
           contactsMap[uid] = existing.copyWith(isOnline: online, lastSeen: seen);
@@ -952,7 +953,7 @@ class TalerClient extends ChangeNotifier {
         final pres = presenceMap[peerId] ?? presenceMap['$peerId'];
         if (pres is Map) {
           isOnline = (pres['status'] as num?)?.toInt() == 1;
-          lastSeen = (pres['seen'] as num?)?.toInt() ?? lastSeen;
+          lastSeen = normalizeEpochMs((pres['seen'] as num?)?.toInt()) ?? lastSeen;
         }
       }
     }
@@ -1346,7 +1347,7 @@ class TalerClient extends ChangeNotifier {
     await store.saveChats([chat.copyWith(unreadCount: 0)]);
     notifyListeners();
 
-    if (!_isDemoMode && session.isOnline && msgIdNum != null) {
+    if (!_isDemoMode && isSessionReady && msgIdNum != null) {
       await session.request(
         Opcode.chatMark,
         {
@@ -1368,7 +1369,7 @@ class TalerClient extends ChangeNotifier {
     await store.saveChats([chat.copyWith(isMuted: nextMuted)]);
     notifyListeners();
 
-    if (!_isDemoMode && session.isOnline) {
+    if (!_isDemoMode && isSessionReady) {
       await session.request(
         Opcode.chatPersonalConfig,
         {
@@ -1380,10 +1381,77 @@ class TalerClient extends ChangeNotifier {
     }
   }
 
+  /// Очищает историю сообщений чата (`Opcode.chatClear = 54`).
+  Future<void> clearChatHistory(int chatId, {bool forAll = false}) async {
+    final chat = store.chats[chatId];
+    final msgs = store.getMessages(chatId);
+    final lastEventTime = chat?.lastMessageTime ??
+        (msgs.isNotEmpty ? msgs.last.time : DateTime.now().millisecondsSinceEpoch);
+
+    await store.clearChatMessages(chatId);
+    if (chat != null) {
+      await store.saveChats([
+        chat.copyWith(
+          lastMessageText: '',
+          unreadCount: 0,
+        ),
+      ]);
+    }
+    _chatHasMore[chatId] = false;
+    notifyListeners();
+
+    if (!_isDemoMode) {
+      await ensureReady();
+      await session.request(
+        Opcode.chatClear,
+        {
+          'chatId': chatId,
+          'lastEventTime': lastEventTime,
+          'forAll': forAll,
+        },
+        throwOnError: false,
+      );
+    }
+  }
+
+  /// Удаляет диалог (`Opcode.chatDelete = 52`) или покидает группу/канал (`Opcode.chatLeave = 58`).
+  Future<void> deleteOrLeaveChat(TalerChat chat, {bool forAll = false}) async {
+    final chatId = chat.id;
+    final lastEventTime =
+        chat.lastMessageTime ?? DateTime.now().millisecondsSinceEpoch;
+    if (_activeChatId == chatId) {
+      _activeChatId = null;
+    }
+    await store.removeChat(chatId);
+    _chatHasMore.remove(chatId);
+    notifyListeners();
+
+    if (!_isDemoMode) {
+      await ensureReady();
+      if (chat.isGroup || chat.isChannel) {
+        await session.request(
+          Opcode.chatLeave,
+          {'chatId': chatId},
+          throwOnError: false,
+        );
+      } else {
+        await session.request(
+          Opcode.chatDelete,
+          {
+            'chatId': chatId,
+            'lastEventTime': lastEventTime,
+            'forAll': forAll,
+          },
+          throwOnError: false,
+        );
+      }
+    }
+  }
+
   /// Отправка индикатора набора текста. При включённом `hideTyping`
   /// пакет блокируется в [PrivacyFirewall].
   Future<void> sendTyping(int chatId) async {
-    if (_isDemoMode || !session.isOnline) return;
+    if (_isDemoMode || !isSessionReady) return;
     await session.request(
       Opcode.msgTyping,
       {'chatId': chatId, 'type': 'TEXT'},
@@ -1568,6 +1636,53 @@ class TalerClient extends ChangeNotifier {
     await sendMessage(chatId, failed.text, replyTo: replyTarget);
   }
 
+  http.Client _createMediaHttpClient() {
+    final io = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..idleTimeout = const Duration(seconds: 30)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) =>
+              TalerMediaCache.isTrustedMaxMediaHost(host);
+    return IOClient(io);
+  }
+
+  /// Загрузка бинарного потока на CDN MAX (`Content-Range` + `application/octet-stream`)
+  /// с поддержкой сертификатов Минцифры для `*.oneme.ru`.
+  Future<String> _uploadBinaryToMax(
+    String uploadUrl,
+    Uint8List bytes, {
+    required String fileName,
+  }) async {
+    final uri = Uri.parse(uploadUrl);
+    if (PrivacyFirewall.isTrackingUrl(uri)) {
+      throw const TalerPacketException('URL заблокирован Taler Privacy Shield');
+    }
+    final client = _createMediaHttpClient();
+    try {
+      final safeName = Uri.encodeComponent(fileName);
+      final req = http.Request('POST', uri)
+        ..headers['User-Agent'] = session.effectiveProfile.userAgent
+        ..headers['Content-Type'] = 'application/octet-stream'
+        ..headers['Content-Disposition'] = 'attachment; filename=$safeName'
+        ..headers['Content-Range'] = 'bytes 0-${bytes.length - 1}/${bytes.length}'
+        ..headers['Connection'] = 'close'
+        ..bodyBytes = bytes;
+      final streamed = await client.send(req).timeout(const Duration(minutes: 2));
+      final body = await streamed.stream.bytesToString();
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        throw TalerPacketException(
+          'Ошибка HTTP при загрузке медиа (${streamed.statusCode})',
+        );
+      }
+      if (body.contains('"error_code"') || body.contains('"error_msg"')) {
+        throw TalerPacketException('Сервер отклонил загрузку медиа: $body');
+      }
+      return body;
+    } finally {
+      client.close();
+    }
+  }
+
   /// Загрузка и отправка фото (`Opcode.photoUpload`) или файла (`Opcode.fileUpload`).
   Future<void> sendFileAttachment(
     int chatId, {
@@ -1627,16 +1742,24 @@ class TalerClient extends ChangeNotifier {
         if (uploadUrl == null || uploadUrl.isEmpty) {
           throw const TalerPacketException('Не получен URL для загрузки фото');
         }
-        final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-          ..headers['User-Agent'] = session.effectiveProfile.userAgent
-          ..files.add(
-            http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-          );
-        final streamed = await req.send();
-        final body = await streamed.stream.bytesToString();
-        if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        final httpClient = _createMediaHttpClient();
+        final String body;
+        final int statusCode;
+        try {
+          final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
+            ..headers['User-Agent'] = session.effectiveProfile.userAgent
+            ..files.add(
+              http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+            );
+          final streamed = await httpClient.send(req);
+          statusCode = streamed.statusCode;
+          body = await streamed.stream.bytesToString();
+        } finally {
+          httpClient.close();
+        }
+        if (statusCode < 200 || statusCode >= 300) {
           throw TalerPacketException(
-            'Ошибка HTTP при загрузке фото (${streamed.statusCode})',
+            'Ошибка HTTP при загрузке фото ($statusCode)',
           );
         }
         final tokenMatch = RegExp(r'"token"\s*:\s*"([^"]+)"').firstMatch(body);
@@ -1670,23 +1793,12 @@ class TalerClient extends ChangeNotifier {
         if (uploadUrl == null || fileToken == null) {
           throw const TalerPacketException('Не получен URL для загрузки файла');
         }
-        final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-          ..headers['User-Agent'] = session.effectiveProfile.userAgent
-          ..files.add(
-            http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-          );
-        final streamed = await req.send();
-        await streamed.stream.drain<void>();
-        if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-          throw TalerPacketException(
-            'Ошибка HTTP при загрузке файла (${streamed.statusCode})',
-          );
-        }
+        await _uploadBinaryToMax(uploadUrl, bytes, fileName: fileName);
 
         sendPayload = {
           'chatId': chatId,
           'message': {
-            'cid': now,
+            'cid': cid,
             'elements': const <dynamic>[],
             'attaches': [
               {
@@ -1798,18 +1910,7 @@ class TalerClient extends ChangeNotifier {
         throw const TalerPacketException('Не получен URL для загрузки видео');
       }
 
-      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-        ..headers['User-Agent'] = session.effectiveProfile.userAgent
-        ..files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-        );
-      final streamed = await req.send();
-      await streamed.stream.drain<void>();
-      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-        throw TalerPacketException(
-          'Ошибка HTTP при загрузке видео (${streamed.statusCode})',
-        );
-      }
+      await _uploadBinaryToMax(uploadUrl, bytes, fileName: fileName);
 
       final sendPayload = {
         'chatId': chatId,
@@ -1831,7 +1932,7 @@ class TalerClient extends ChangeNotifier {
 
       final sendResp = await _sendWithNotReadyRetry(
         sendPayload,
-        maxAttempts: 15,
+        maxAttempts: 20,
         retryDelay: const Duration(seconds: 1),
       );
       final msgMap = sendResp.payloadAsMap?['message'];
@@ -1862,15 +1963,40 @@ class TalerClient extends ChangeNotifier {
     }
   }
 
-  /// Загрузка и отправка голосового сообщения (`Opcode.audioUpload = 86` с фоллбэком на `fileUpload = 87`).
+  /// Формирует 80-байтный массив амплитуд `wave` для протокола MAX (0..127).
+  static Uint8List buildMaxWaveformBytes(List<double> samples) {
+    const targetLen = 80;
+    final out = Uint8List(targetLen);
+    if (samples.isEmpty) {
+      for (var i = 0; i < targetLen; i++) {
+        out[i] = 16;
+      }
+      return out;
+    }
+    for (var i = 0; i < targetLen; i++) {
+      final pos = (i / (targetLen - 1)) * (samples.length - 1);
+      final lo = pos.floor().clamp(0, samples.length - 1);
+      final hi = pos.ceil().clamp(0, samples.length - 1);
+      final frac = pos - lo;
+      final v = samples[lo] * (1.0 - frac) + samples[hi] * frac;
+      out[i] = (v.clamp(0.0, 1.0) * 127).round().clamp(4, 127);
+    }
+    return out;
+  }
+
+  /// Загрузка и отправка голосового сообщения по протоколу MAX:
+  /// `Opcode.videoUpload (82)` с `type: 2, uploaderType: 1` → бинарный POST → `AUDIO` attach с `wave`.
   Future<void> sendVoiceAttachment(
     int chatId, {
     required String filePath,
     required int durationMs,
+    List<double> waveformSamples = const [],
   }) async {
     final file = File(filePath);
     final bytes = await file.readAsBytes();
-    final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final ext = filePath.toLowerCase().endsWith('.m4a') ? 'm4a' : 'ogg';
+    final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final waveBytes = buildMaxWaveformBytes(waveformSamples);
     final cid = _nextCid();
     final now = -cid;
     final tempId = 'temp_$now';
@@ -1886,11 +2012,12 @@ class TalerClient extends ChangeNotifier {
       cid: cid,
       attachments: [
         TalerAttachment(
-          type: 'VOICE',
+          type: 'AUDIO',
           url: filePath,
           fileName: fileName,
           fileSize: bytes.length,
           durationMs: durationMs,
+          waveform: List<int>.from(waveBytes),
         ),
       ],
     );
@@ -1912,14 +2039,11 @@ class TalerClient extends ChangeNotifier {
 
     try {
       await ensureReady();
-      TalerPacket? uploadResp;
-      bool usedAudioOpcode = false;
-      try {
-        uploadResp = await session.request(Opcode.audioUpload, {'count': 1});
-        usedAudioOpcode = true;
-      } catch (_) {
-        uploadResp = await session.request(Opcode.fileUpload, {'count': 1});
-      }
+      final uploadResp = await session.request(Opcode.videoUpload, {
+        'count': 1,
+        'type': 2,
+        'uploaderType': 1,
+      });
 
       final infoList = uploadResp.payloadAsMap?['info'] as List?;
       final first =
@@ -1928,46 +2052,39 @@ class TalerClient extends ChangeNotifier {
               : uploadResp.payloadAsMap;
       final uploadUrl = first?['url'] as String?;
       final token = first?['token'] as String?;
-      final audioId = (first?['audioId'] as num?)?.toInt();
-      final fileId = (first?['fileId'] as num?)?.toInt();
+      final audioId = ((first?['videoId'] ?? first?['audioId']) as num?)?.toInt();
       if (uploadUrl == null || uploadUrl.isEmpty) {
         throw const TalerPacketException('Не получен URL для загрузки голосового');
       }
 
-      final req = http.MultipartRequest('POST', Uri.parse(uploadUrl))
-        ..headers['User-Agent'] = session.effectiveProfile.userAgent
-        ..files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-        );
-      final streamed = await req.send();
-      final respBody = await streamed.stream.bytesToString();
-      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-        throw TalerPacketException(
-          'Ошибка HTTP при загрузке голосового (${streamed.statusCode})',
-        );
-      }
+      final respBody = await _uploadBinaryToMax(
+        uploadUrl,
+        bytes,
+        fileName: fileName,
+      );
       final bodyToken = RegExp(r'"token"\s*:\s*"([^"]+)"')
           .firstMatch(respBody)
           ?.group(1);
-      final resolvedToken = token ?? bodyToken;
+      final resolvedToken =
+          (token != null && token.isNotEmpty) ? token : bodyToken;
 
-      final Map<String, dynamic> attachMap = usedAudioOpcode
-          ? {
-              '_type': 'AUDIO',
-              'audioId': ?audioId,
-              'token': ?resolvedToken,
-              'duration': durationMs,
-            }
-          : {
-              '_type': 'FILE',
-              'fileId': ?fileId,
-              'token': ?resolvedToken,
-            };
+      final attachMap = <String, dynamic>{
+        '_type': 'AUDIO',
+        'duration': durationMs,
+        'wave': waveBytes,
+      };
+      if (resolvedToken != null && resolvedToken.isNotEmpty) {
+        attachMap['token'] = resolvedToken;
+      } else if (audioId != null) {
+        attachMap['audioId'] = audioId;
+      }
 
       final sendPayload = {
         'chatId': chatId,
         'message': {
           'cid': cid,
+          'isLive': false,
+          'detectShare': false,
           'elements': const <dynamic>[],
           'attaches': [attachMap],
         },
@@ -1976,7 +2093,7 @@ class TalerClient extends ChangeNotifier {
 
       final sendResp = await _sendWithNotReadyRetry(
         sendPayload,
-        maxAttempts: 12,
+        maxAttempts: 25,
         retryDelay: const Duration(seconds: 1),
       );
       final msgMap = sendResp.payloadAsMap?['message'];
@@ -2153,6 +2270,22 @@ class TalerClient extends ChangeNotifier {
     return null;
   }
 
+  static String _audioExtensionFor(TalerAttachment attach, String remoteUrl) {
+    final candidates = <String?>[
+      attach.fileName,
+      Uri.tryParse(remoteUrl)?.path,
+    ];
+    for (final raw in candidates) {
+      if (raw == null || raw.isEmpty) continue;
+      final lower = raw.toLowerCase();
+      for (final ext in const ['.ogg', '.opus', '.m4a', '.mp3', '.aac', '.wav', '.mp4']) {
+        if (lower.endsWith(ext)) return ext.substring(1);
+      }
+    }
+    // Голосовые MAX по умолчанию приходят в контейнере OGG/Opus.
+    return 'ogg';
+  }
+
   /// Получает локальный файл или поток аудио/ГС через `Opcode.audioPlay = 301`.
   Future<String?> resolveAudioPlaySource(
     int chatId,
@@ -2164,7 +2297,7 @@ class TalerClient extends ChangeNotifier {
         direct.isNotEmpty &&
         !direct.startsWith('http://') &&
         !direct.startsWith('https://') &&
-        await File(direct).exists()) {
+        File(direct).existsSync()) {
       return direct;
     }
 
@@ -2189,14 +2322,29 @@ class TalerClient extends ChangeNotifier {
           throwOnError: false,
         );
         final map = resp.payloadAsMap;
-        remoteUrl = (map?['url'] ?? map?['audioUrl'] ?? map?['MP3'])?.toString();
+        remoteUrl =
+            (map?['url'] ?? map?['audioUrl'] ?? map?['OGG'] ?? map?['MP3'])
+                ?.toString();
+        if ((remoteUrl == null || !remoteUrl.startsWith('http')) && map != null) {
+          for (final v in map.values) {
+            final s = v?.toString();
+            if (s != null && s.startsWith('http')) {
+              remoteUrl = s;
+              break;
+            }
+          }
+        }
       } catch (_) {}
     }
 
     if (remoteUrl == null || remoteUrl.isEmpty) return null;
+    final ext = _audioExtensionFor(attach, remoteUrl);
+    final fileName = (attach.fileName != null && attach.fileName!.contains('.'))
+        ? attach.fileName!
+        : 'audio_${attach.audioId ?? message.id}.$ext';
     final cached = await TalerMediaCache.instance.downloadNamedFile(
       remoteUrl,
-      fileName: attach.fileName ?? 'audio_${message.id}.m4a',
+      fileName: fileName,
       subDir: 'audio',
       userAgent: session.effectiveProfile.userAgent,
     );
@@ -2521,7 +2669,7 @@ class TalerClient extends ChangeNotifier {
     );
     notifyListeners();
 
-    if (!_isDemoMode && session.isOnline) {
+    if (!_isDemoMode && isSessionReady) {
       final payload = <String, dynamic>{
         'firstName': trimmedFirst,
         'lastName': trimmedLast ?? '',
@@ -2571,7 +2719,7 @@ class TalerClient extends ChangeNotifier {
       return;
     }
 
-    if (!session.isOnline) return;
+    if (!isSessionReady) return;
     final packet = await session.request(Opcode.sessionsInfo, {});
     final raw = packet.payloadAsMap?['sessions'];
     if (raw is List) {
@@ -2590,7 +2738,7 @@ class TalerClient extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (!session.isOnline) return;
+    if (!isSessionReady) return;
     await session.request(Opcode.sessionsClose, {});
     await fetchActiveSessions();
   }
@@ -2617,7 +2765,7 @@ class TalerClient extends ChangeNotifier {
   }
 
   Future<void> _ensureChatLoaded(int chatId) async {
-    if (store.chats[chatId] != null || _isDemoMode || !session.isOnline) {
+    if (store.chats[chatId] != null || _isDemoMode || !isSessionReady) {
       return;
     }
     try {
@@ -3006,13 +3154,14 @@ class TalerClient extends ChangeNotifier {
           final sender = senderDisplayName(msg.senderId, chatId: chatId);
           final rawBody = _notificationBodyForMessage(msg);
           final body = appPreferences.showNotificationPreview
-              ? (chat.isDialog ? rawBody : '$sender: $rawBody')
+              ? rawBody
               : 'Новое сообщение';
           unawaited(
             TalerNativeBridge.instance.showMessageNotification(
               chatId: chatId,
               title: chat.title,
               body: body,
+              sender: chat.isDialog ? chat.title : sender,
             ),
           );
         }
@@ -3063,7 +3212,7 @@ class TalerClient extends ChangeNotifier {
       if (uid == null || entry.value is! Map) continue;
       final p = entry.value as Map;
       final online = (p['status'] as num?)?.toInt() == 1;
-      final seen = (p['seen'] as num?)?.toInt();
+      final seen = normalizeEpochMs((p['seen'] as num?)?.toInt());
       final contact = store.contacts[uid];
       if (contact != null) {
         await store.saveContacts([

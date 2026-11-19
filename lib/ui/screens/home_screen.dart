@@ -14,6 +14,7 @@ import '../theme/chat_tokens.dart';
 import '../theme/taler_theme.dart';
 import '../widgets/chat_list_pane.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/taler_logo.dart';
 import 'chat_screen.dart';
 import 'privacy_shield_screen.dart';
 import 'profile_settings_screen.dart';
@@ -220,34 +221,55 @@ class _HomeScreenState extends State<HomeScreen> {
               body: Stack(
                 children: [
                   Positioned.fill(
-                    child: switch (_tab) {
-                      0 => ChatListPane(
-                          client: client,
-                          compact: true,
-                          bottomInset: listBottomInset,
-                          onOpen: _openMobileChat,
-                        ),
-                      1 => PrivacyShieldScreen(
-                          client: client,
-                          bottomInset: _dockSpace + bottom,
-                        ),
-                      2 => SettingsScreen(
-                          client: client,
-                          themeMode: widget.themeMode,
-                          onThemeModeChanged: widget.onThemeModeChanged,
-                          onOpenShield: () => _selectTab(1),
-                          onOpenProfile: () => _selectTab(3),
-                          bottomInset: _dockSpace + bottom,
-                        ),
-                      _ => ProfileSettingsScreen(
-                          client: client,
-                          themeMode: widget.themeMode,
-                          onThemeModeChanged: widget.onThemeModeChanged,
-                          onOpenSettings: () => _selectTab(2),
-                          onOpenShield: () => _selectTab(1),
-                          bottomInset: _dockSpace + bottom,
-                        ),
-                    },
+                    child: AnimatedSwitcher(
+                      duration: client.appPreferences.powerSavingMode
+                          ? Duration.zero
+                          : const Duration(milliseconds: 140),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      transitionBuilder: (child, anim) =>
+                          FadeTransition(opacity: anim, child: child),
+                      child: switch (_tab) {
+                        0 => KeyedSubtree(
+                            key: const ValueKey('tab_chats'),
+                            child: ChatListPane(
+                              client: client,
+                              compact: true,
+                              bottomInset: listBottomInset,
+                              onOpen: _openMobileChat,
+                            ),
+                          ),
+                        1 => KeyedSubtree(
+                            key: const ValueKey('tab_shield'),
+                            child: PrivacyShieldScreen(
+                              client: client,
+                              bottomInset: _dockSpace + bottom,
+                            ),
+                          ),
+                        2 => KeyedSubtree(
+                            key: const ValueKey('tab_settings'),
+                            child: SettingsScreen(
+                              client: client,
+                              themeMode: widget.themeMode,
+                              onThemeModeChanged: widget.onThemeModeChanged,
+                              onOpenShield: () => _selectTab(1),
+                              onOpenProfile: () => _selectTab(3),
+                              bottomInset: _dockSpace + bottom,
+                            ),
+                          ),
+                        _ => KeyedSubtree(
+                            key: const ValueKey('tab_profile'),
+                            child: ProfileSettingsScreen(
+                              client: client,
+                              themeMode: widget.themeMode,
+                              onThemeModeChanged: widget.onThemeModeChanged,
+                              onOpenSettings: () => _selectTab(2),
+                              onOpenShield: () => _selectTab(1),
+                              bottomInset: _dockSpace + bottom,
+                            ),
+                          ),
+                      },
+                    ),
                   ),
                   Positioned(
                     left: 12,
@@ -341,13 +363,7 @@ class _Rail extends StatelessWidget {
       decoration: BoxDecoration(color: p.settingsBg, border: Border(right: BorderSide(color: p.line))),
       child: Column(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(color: p.fg, borderRadius: BorderRadius.circular(12)),
-            child: Text('T', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.bg)),
-          ),
+          const TalerLogo(size: 40, circular: false),
           const SizedBox(height: 12),
           _RailButton(icon: selected == 0 ? TalerIcons.chatsActive : TalerIcons.messageCircle, label: 'Чаты', selected: selected == 0, badge: unread, onTap: () => onSelect(0)),
           _RailButton(icon: selected == 1 ? TalerIcons.shieldCheck : TalerIcons.shield, label: 'Защита', selected: selected == 1, onTap: () => onSelect(1)),
@@ -932,10 +948,9 @@ class _AnimatedSettingsIconState extends State<_AnimatedSettingsIcon>
             ? const _DockSpringCurve().transform(raw)
             : raw;
         final angle = (math.pi / 3) * curved;
-        final pulse = _ctrl.isAnimating ? 1.0 + 0.07 * math.sin(math.pi * raw) : 1.0;
         return Transform.rotate(
           angle: angle,
-          child: Transform.scale(scale: pulse, child: child),
+          child: child,
         );
       },
       child: TalerIcon(
@@ -1012,8 +1027,8 @@ class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 27,
-      height: 27,
+      width: 24,
+      height: 24,
       child: AnimatedBuilder(
         animation: Listenable.merge([_ringCtrl, _popCtrl]),
         builder: (context, avatarChild) {
@@ -1021,14 +1036,11 @@ class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
           final popT = _popCtrl.value;
           final isPopping = _popCtrl.isAnimating;
 
-          final avatarScale = isPopping
-              ? 1.0 + math.sin(math.pi * popT) * 0.14 * (1.0 - popT * 0.3)
-              : 1.0;
           final tilt = isPopping
-              ? math.sin(2.0 * math.pi * popT) * math.exp(-4.0 * popT) * 0.14
+              ? math.sin(2.0 * math.pi * popT) * math.exp(-4.0 * popT) * 0.12
               : 0.0;
-          final waveScale = 1.0 + popT * 0.45;
-          final waveAlpha = isPopping ? (1.0 - popT).clamp(0.0, 1.0) * 0.48 : 0.0;
+          final waveScale = 1.0 + popT * 0.36;
+          final waveAlpha = isPopping ? (1.0 - popT).clamp(0.0, 1.0) * 0.42 : 0.0;
 
           return Stack(
             clipBehavior: Clip.none,
@@ -1038,13 +1050,13 @@ class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
                 Transform.scale(
                   scale: waveScale,
                   child: Container(
-                    width: 27,
-                    height: 27,
+                    width: 24,
+                    height: 24,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: widget.accentColor.withValues(alpha: waveAlpha),
-                        width: 1.5 * (1.0 - popT * 0.5),
+                        width: 1.4 * (1.0 - popT * 0.5),
                       ),
                     ),
                   ),
@@ -1059,10 +1071,7 @@ class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
               ),
               Transform.rotate(
                 angle: tilt,
-                child: Transform.scale(
-                  scale: avatarScale,
-                  child: avatarChild,
-                ),
+                child: avatarChild,
               ),
             ],
           );
@@ -1071,7 +1080,7 @@ class _AnimatedProfileIconState extends State<_AnimatedProfileIcon>
           seedId: widget.user?.id ?? 0,
           initials: widget.user?.initials ?? 'T',
           imageUrl: widget.user?.avatarUrl,
-          size: 22,
+          size: 20,
         ),
       ),
     );

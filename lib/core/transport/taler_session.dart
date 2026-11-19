@@ -44,7 +44,7 @@ class TalerSession {
 
   /// Закрытие сокета не должно блокировать переподключение.
   static const Duration closeTimeout = Duration(seconds: 2);
-  static const Duration pingInterval = Duration(seconds: 10);
+  static const Duration pingInterval = Duration(seconds: 25);
 
   final PrivacyFirewall firewall;
   final PrivacySettings privacySettings;
@@ -66,7 +66,12 @@ class TalerSession {
   TalerTransport _transport = TalerTransport.none;
   int _seq = 0;
   int _sessionEpoch = 0;
+  int _socketGen = 0;
   int _reconnectAttempt = 0;
+  int _missedPings = 0;
+  bool _pingInFlight = false;
+  DateTime _lastInboundAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastWakeUpAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _autoReconnect = false;
   bool _isAttemptingConnect = false;
   bool _disposed = false;
@@ -214,14 +219,22 @@ class TalerSession {
     );
     socket.setOption(SocketOption.tcpNoDelay, true);
 
+    final gen = ++_socketGen;
     _tlsSocket = socket;
     _receiver.reset();
+    _lastInboundAt = DateTime.now();
+    _missedPings = 0;
     _setState(TalerConnectionState.connected);
 
     _socketSub = socket.listen(
-      _onTlsChunk,
-      onError: (Object error) => _handleDrop('Ошибка TLS-сокета: $error'),
-      onDone: () => _handleDrop('Соединение закрыто сервером'),
+      (chunk) {
+        if (gen != _socketGen) return;
+        _onTlsChunk(chunk);
+      },
+      onError: (Object error) =>
+          _handleDrop('Ошибка TLS-сокета: $error', socketGen: gen),
+      onDone: () =>
+          _handleDrop('Соединение закрыто сервером', socketGen: gen),
       cancelOnError: true,
     );
 
@@ -242,14 +255,22 @@ class TalerSession {
       },
     ).timeout(connectTimeout);
 
+    final gen = ++_socketGen;
     _wsSocket = socket;
     _receiver.reset();
+    _lastInboundAt = DateTime.now();
+    _missedPings = 0;
     _setState(TalerConnectionState.connected);
 
     _socketSub = socket.listen(
-      _onWsFrame,
-      onError: (Object error) => _handleDrop('Ошибка WebSocket: $error'),
-      onDone: () => _handleDrop('Соединение закрыто сервером'),
+      (raw) {
+        if (gen != _socketGen) return;
+        _onWsFrame(raw);
+      },
+      onError: (Object error) =>
+          _handleDrop('Ошибка WebSocket: $error', socketGen: gen),
+      onDone: () =>
+          _handleDrop('Соединение закрыто сервером', socketGen: gen),
       cancelOnError: true,
     );
 
@@ -349,10 +370,21 @@ class TalerSession {
   }
 
   /// Отправляет ping с учётом флага невидимки (interactive: false).
-  /// При сбое/таймауте сбрасывает полуоткрытый сокет и запускает реконнект.
-  Future<void> sendPing({Duration timeout = const Duration(seconds: 6)}) async {
-    if (!isOnline || _disposed) return;
+  /// Не запускает параллельные пинги и допускает единичный таймаут на
+  /// нестабильной мобильной сети перед сбросом сокета.
+  Future<void> sendPing({
+    Duration timeout = const Duration(seconds: 12),
+    bool fromWakeUp = false,
+  }) async {
+    if (!isOnline || _disposed || _pingInFlight) return;
+    final now = DateTime.now();
+    if (!fromWakeUp &&
+        now.difference(_lastInboundAt) < const Duration(seconds: 18)) {
+      return;
+    }
     final epoch = _sessionEpoch;
+    final gen = _socketGen;
+    _pingInFlight = true;
     try {
       await request(
         Opcode.ping,
@@ -360,16 +392,37 @@ class TalerSession {
         throwOnError: false,
         timeout: timeout,
       );
+      if (_sessionEpoch == epoch && _socketGen == gen) {
+        _missedPings = 0;
+        _lastInboundAt = DateTime.now();
+      }
     } catch (_) {
-      if (_disposed || !isOnline || _sessionEpoch != epoch) return;
-      _handleDrop('Keepalive ping не ответил');
+      if (_disposed || !isOnline || _sessionEpoch != epoch || _socketGen != gen) {
+        return;
+      }
+      // Если во время ожидания пинга пришли другие пакеты — канал жив.
+      if (DateTime.now().difference(_lastInboundAt) < timeout) {
+        _missedPings = 0;
+        return;
+      }
+      _missedPings++;
+      if (_missedPings >= 2) {
+        _handleDrop('Keepalive ping не ответил', socketGen: gen);
+      }
+    } finally {
+      _pingInFlight = false;
     }
   }
 
   /// Вызывается при возвращении приложения на экран: проверяет живой ли сокет
-  /// или немедленно запускает переподключение.
+  /// или немедленно запускает переподключение (с защитой от дребезга фокуса).
   void wakeUp() {
     if (_disposed || !_autoReconnect) return;
+    final now = DateTime.now();
+    if (now.difference(_lastWakeUpAt) < const Duration(seconds: 4)) {
+      return;
+    }
+    _lastWakeUpAt = now;
     switch (_state) {
       case TalerConnectionState.disconnected:
         _reconnectAttempt = 0;
@@ -386,7 +439,14 @@ class TalerSession {
       case TalerConnectionState.connected:
         _reconnectAttempt = 0;
       case TalerConnectionState.online:
-        unawaited(sendPing(timeout: const Duration(seconds: 3)));
+        if (now.difference(_lastInboundAt) >= const Duration(seconds: 12)) {
+          unawaited(
+            sendPing(
+              timeout: const Duration(seconds: 8),
+              fromWakeUp: true,
+            ),
+          );
+        }
     }
   }
 
@@ -443,6 +503,9 @@ class TalerSession {
   }
 
   void _dispatchPacket(TalerPacket frame) {
+    _lastInboundAt = DateTime.now();
+    _missedPings = 0;
+
     final allowed = firewall.inspectIncoming(
       frame.opcode,
       frame.payload,
@@ -465,13 +528,19 @@ class TalerSession {
 
     if (safeFrame.cmd == CmdType.request) {
       if (safeFrame.opcode == Opcode.ping) {
-        _writeRaw(
-          TalerFraming.encode(
-            cmd: CmdType.ok,
-            seq: safeFrame.seq,
-            opcode: Opcode.ping,
-          ),
-        );
+        try {
+          _writeRaw(
+            TalerFraming.encode(
+              cmd: CmdType.ok,
+              seq: safeFrame.seq,
+              opcode: Opcode.ping,
+            ),
+          );
+        } catch (_) {}
+        return;
+      }
+      if (safeFrame.opcode == Opcode.reconnect) {
+        _handleDrop('Сервер запросил переподключение', socketGen: _socketGen);
         return;
       }
       if (!_pushController.isClosed) {
@@ -491,8 +560,12 @@ class TalerSession {
     _pingTimer = Timer.periodic(pingInterval, (_) => sendPing());
   }
 
-  void _handleDrop(String reason) {
-    _cleanupSocketOnly();
+  void _handleDrop(String reason, {int? socketGen}) {
+    if (socketGen != null && socketGen != _socketGen) {
+      return;
+    }
+    _socketGen++;
+    unawaited(_cleanupSocketOnly());
     _failPending(TalerPacketException(reason));
     if (_isAttemptingConnect) return;
     _transport = TalerTransport.none;
@@ -505,14 +578,16 @@ class TalerSession {
   }
 
   void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    final delaySec = (2 * (1 << _reconnectAttempt.clamp(0, 3))).clamp(2, 15);
+    if (_disposed || !_autoReconnect || _isAttemptingConnect) return;
+    if (_reconnectTimer?.isActive ?? false) return;
+    final delaySec = (2 * (1 << _reconnectAttempt.clamp(0, 4))).clamp(2, 30);
     _reconnectAttempt++;
     _reconnectTimer = Timer(Duration(seconds: delaySec), () async {
-      if (_disposed || !_autoReconnect) return;
+      _reconnectTimer = null;
+      if (_disposed || !_autoReconnect || isOnline) return;
       try {
         await connect(enableReconnect: true);
-        if (onReconnected != null) {
+        if (onReconnected != null && isOnline) {
           await onReconnected!();
         }
       } on TalerPacketException catch (e) {
@@ -521,17 +596,11 @@ class TalerSession {
           await disconnect();
           return;
         }
-        await _cleanupSocketOnly();
-        _transport = TalerTransport.none;
-        _setState(TalerConnectionState.disconnected);
-        if (_autoReconnect && !_disposed) {
+        if (!_isAttemptingConnect && _autoReconnect && !_disposed && !isOnline) {
           _scheduleReconnect();
         }
       } catch (_) {
-        await _cleanupSocketOnly();
-        _transport = TalerTransport.none;
-        _setState(TalerConnectionState.disconnected);
-        if (_autoReconnect && !_disposed) {
+        if (!_isAttemptingConnect && _autoReconnect && !_disposed && !isOnline) {
           _scheduleReconnect();
         }
       }
@@ -550,6 +619,7 @@ class TalerSession {
   Future<void> _cleanupSocketOnly() async {
     _pingTimer?.cancel();
     _pingTimer = null;
+    _pingInFlight = false;
     final sub = _socketSub;
     final tls = _tlsSocket;
     final ws = _wsSocket;
@@ -575,6 +645,7 @@ class TalerSession {
 
   Future<void> disconnect() async {
     _autoReconnect = false;
+    _socketGen++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _failPending(const TalerPacketException('Сессия закрыта'));

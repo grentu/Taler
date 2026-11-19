@@ -162,7 +162,14 @@ class LocalStore {
   Future<void> removeChat(int chatId) async {
     _chats.remove(chatId);
     _messages.remove(chatId);
+    _drafts.remove(chatId);
     await _persistChats();
+    await _persistDraftsNow();
+    await _prefs?.remove(_msgKey(chatId));
+  }
+
+  Future<void> clearChatMessages(int chatId) async {
+    _messages[chatId] = <TalerMessage>[];
     await _prefs?.remove(_msgKey(chatId));
   }
 

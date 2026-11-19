@@ -778,6 +778,7 @@ class MessageBubble extends StatelessWidget {
         out: out,
         palette: p,
         metaColor: metaColor,
+        maxWidth: maxWidth,
         inlineMeta: metaInAudio && isLast ? meta : null,
         bottomPadding: metaInAudio && isLast ? 8 : 0,
         onResolveSource: onResolveAudio != null ? () => onResolveAudio!(audio) : null,
@@ -1258,11 +1259,27 @@ class _FileView extends StatelessWidget {
   }
 }
 
-String _formatAttachmentDuration(int? raw, {bool isAudio = false}) {
+/// Форматирует длительность аудио/голосового строго из миллисекунд.
+/// При `roundUpForTotal = true` короткие записи (< 1 сек, > 0 мс) показываются как `0:01`.
+String formatAudioDurationMs(int? ms, {bool roundUpForTotal = false}) {
+  if (ms == null || ms <= 0) return '0:00';
+  final secs = roundUpForTotal
+      ? ((ms / 1000).round()).clamp(1, 359999)
+      : (ms ~/ 1000).clamp(0, 359999);
+  final hours = secs ~/ 3600;
+  final mins = (secs % 3600) ~/ 60;
+  final rem = secs % 60;
+  final ss = rem.toString().padLeft(2, '0');
+  if (hours > 0) {
+    final mm = mins.toString().padLeft(2, '0');
+    return '$hours:$mm:$ss';
+  }
+  return '$mins:$ss';
+}
+
+String _formatAttachmentDuration(int? raw) {
   if (raw == null || raw <= 0) return '';
-  final secs = isAudio
-      ? (raw >= 1000 ? (raw / 1000).round() : raw)
-      : (raw >= 10000 ? (raw / 1000).round() : raw);
+  final secs = raw >= 10000 ? (raw / 1000).round() : raw;
   final hours = secs ~/ 3600;
   final mins = (secs % 3600) ~/ 60;
   final rem = secs % 60;
@@ -1540,6 +1557,7 @@ class _AudioView extends StatelessWidget {
   final bool out;
   final TalerPalette palette;
   final Color metaColor;
+  final double maxWidth;
   final MessageMeta? inlineMeta;
   final double bottomPadding;
   final Future<String?> Function()? onResolveSource;
@@ -1550,24 +1568,65 @@ class _AudioView extends StatelessWidget {
     required this.out,
     required this.palette,
     required this.metaColor,
+    required this.maxWidth,
     required this.inlineMeta,
     required this.bottomPadding,
     this.onResolveSource,
   });
 
+  /// Нормализует амплитуды `wave` (из MAX или записи) в `targetCount` столбиков [0.12..1.0].
+  static List<double> _buildNormalizedBars(
+    List<int>? rawWave,
+    int seed, {
+    int targetCount = 34,
+  }) {
+    if (rawWave != null && rawWave.isNotEmpty) {
+      var maxAmp = 1;
+      for (final v in rawWave) {
+        if (v > maxAmp) maxAmp = v;
+      }
+      final hasSignal = maxAmp > 1;
+      if (hasSignal) {
+        final bars = List<double>.filled(targetCount, 0.14);
+        final step = rawWave.length / targetCount;
+        for (var i = 0; i < targetCount; i++) {
+          final start = (i * step).floor().clamp(0, rawWave.length - 1);
+          final end = ((i + 1) * step).ceil().clamp(start + 1, rawWave.length);
+          var peak = 0;
+          for (var j = start; j < end; j++) {
+            if (rawWave[j] > peak) peak = rawWave[j];
+          }
+          // Мягкая логарифмическая кривая, чтобы тихая речь читалась ровно и без резких провалов.
+          final lin = (peak / maxAmp).clamp(0.0, 1.0);
+          final shaped = lin <= 0 ? 0.12 : (0.12 + 0.88 * (lin * 0.65 + (lin * lin) * 0.35));
+          bars[i] = shaped.clamp(0.12, 1.0);
+        }
+        return bars;
+      }
+    }
+
+    // Спокойная естественная огибающая для аудио без присланной волны.
+    return List<double>.generate(targetCount, (i) {
+      final t = i / (targetCount - 1);
+      final envelope = 0.32 + 0.52 * (1.0 - (2.0 * t - 1.0) * (2.0 * t - 1.0));
+      final detail = (((seed ^ (i * 73)) & 0x1F) / 31.0) * 0.38;
+      return (envelope * (0.58 + detail)).clamp(0.14, 0.92);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = palette;
-    final isVoice = attachment.type == 'VOICE';
-    final durText = _formatAttachmentDuration(attachment.durationMs, isAudio: true);
     final fg = out ? p.bubbleOutText : p.bubbleInText;
     final activeBarColor = out ? Colors.white : p.accent;
     final inactiveBarColor = out
-        ? Colors.white.withValues(alpha: 0.36)
-        : p.accent.withValues(alpha: 0.30);
-    final seed = (attachment.url ?? attachment.fileName ?? 'audio').hashCode;
+        ? Colors.white.withValues(alpha: 0.34)
+        : (p.isDark ? Colors.white.withValues(alpha: 0.22) : p.accent.withValues(alpha: 0.26));
+    final seed = (attachment.audioId ?? attachment.url ?? attachment.fileName ?? 'audio').hashCode;
+    final bars = _buildNormalizedBars(attachment.waveform, seed);
     final meta = inlineMeta;
     final ctrl = TalerAudioController.instance;
+    final bubbleW = (maxWidth - 24).clamp(212.0, 256.0);
 
     return ListenableBuilder(
       listenable: ctrl,
@@ -1576,152 +1635,287 @@ class _AudioView extends StatelessWidget {
         final isLoading = ctrl.isLoadingKey(audioKey);
         final isPlaying = ctrl.isPlayingKey(audioKey);
         final progress = ctrl.progressFor(audioKey);
-        final activeLabel = isActive && ctrl.positionMs > 0
-            ? _formatAttachmentDuration(ctrl.positionMs, isAudio: true)
-            : (isVoice
-                ? (durText.isNotEmpty ? durText : 'Голосовое')
-                : (attachment.fileName ?? (durText.isNotEmpty ? durText : 'Аудио')));
+        final totalMs = (isActive && ctrl.durationMs > 0)
+            ? ctrl.durationMs
+            : (attachment.durationMs ?? 0);
+        final totalText = totalMs > 0
+            ? formatAudioDurationMs(totalMs, roundUpForTotal: true)
+            : '0:00';
+        final timeLabel = isActive && (isPlaying || ctrl.positionMs > 0)
+            ? '${formatAudioDurationMs(ctrl.positionMs)} / $totalText'
+            : totalText;
 
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            12,
-            10,
-            12,
-            bottomPadding > 0 ? bottomPadding : 8,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  unawaited(
-                    ctrl.toggle(
-                      key: audioKey,
-                      fallbackDurationMs: attachment.durationMs ?? 0,
-                      resolveSource: () async {
-                        if (onResolveSource != null) {
-                          return onResolveSource!();
-                        }
-                        return attachment.url;
-                      },
+        Future<void> handlePlayToggle() async {
+          final ok = await ctrl.toggle(
+            key: audioKey,
+            fallbackDurationMs: attachment.durationMs ?? 0,
+            resolveSource: () async {
+              if (onResolveSource != null) {
+                return onResolveSource!();
+              }
+              return attachment.url;
+            },
+          );
+          if (!ok && context.mounted) {
+            final msg = ctrl.lastError ?? 'Не удалось воспроизвести голосовое';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(msg)),
+            );
+          }
+        }
+
+        return SizedBox(
+          width: bubbleW + 24,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              11,
+              9,
+              11,
+              bottomPadding > 0 ? bottomPadding : 8,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => unawaited(handlePlayToggle()),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: out
+                          ? Colors.white.withValues(alpha: 0.22)
+                          : p.accent,
+                      shape: BoxShape.circle,
                     ),
-                  );
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: out ? Colors.white.withValues(alpha: 0.2) : p.accent,
-                    shape: BoxShape.circle,
-                  ),
-                  child: isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : isPlaying
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 3.5,
-                                  height: 14,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(1.5),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Container(
-                                  width: 3.5,
-                                  height: 14,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(1.5),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const Padding(
-                              padding: EdgeInsets.only(left: 2),
-                              child: TalerIcon(
-                                TalerIcons.play,
-                                size: 17,
-                                color: Colors.white,
-                                morph: false,
-                              ),
+                    child: isLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
                             ),
+                          )
+                        : isPlaying
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 3.5,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(1.8),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    width: 3.5,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(1.8),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Padding(
+                                padding: EdgeInsets.only(left: 2.5),
+                                child: TalerIcon(
+                                  TalerIcons.play,
+                                  size: 18,
+                                  color: Colors.white,
+                                  morph: false,
+                                ),
+                              ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: isActive
-                        ? (details) {
-                            const totalW = 18 * 2.5 + 17 * 2.5;
-                            final frac = (details.localPosition.dx / totalW)
-                                .clamp(0.0, 1.0);
-                            unawaited(ctrl.seek(audioKey, frac));
-                          }
-                        : null,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _InteractiveWaveform(
+                        bars: bars,
+                        progress: isActive ? progress : 0.0,
+                        activeColor: activeBarColor,
+                        inactiveColor: inactiveBarColor,
+                        interactive: isActive && totalMs > 0,
+                        onSeek: (frac) => unawaited(ctrl.seek(audioKey, frac)),
+                        onTapInactive: () => unawaited(handlePlayToggle()),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
                         children: [
-                          for (var i = 0; i < 18; i++) ...[
-                            if (i > 0) const SizedBox(width: 2.5),
-                            Container(
-                              width: 2.5,
-                              height: 5.0 + (((seed ^ (i * 31)) & 0x7) * 2.1),
-                              decoration: BoxDecoration(
-                                color: (isActive && i / 18.0 <= progress)
-                                    ? activeBarColor
-                                    : inactiveBarColor,
-                                borderRadius: BorderRadius.circular(2),
+                          Text(
+                            timeLabel,
+                            style: TalerTheme.tabularStyle(
+                              size: 11.5,
+                              weight: FontWeight.w500,
+                              color: out
+                                  ? fg.withValues(alpha: 0.86)
+                                  : metaColor,
+                            ),
+                          ),
+                          if (isActive && !isLoading) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => unawaited(ctrl.cycleSpeed()),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5.5,
+                                  vertical: 1.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: out
+                                      ? Colors.white.withValues(alpha: 0.20)
+                                      : p.accent.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  ctrl.speedLabel,
+                                  style: TalerTheme.tabularStyle(
+                                    size: 10.5,
+                                    weight: FontWeight.w600,
+                                    color: out ? Colors.white : p.accent,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
+                          const Spacer(),
+                          ?meta,
                         ],
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        activeLabel,
-                        style: TalerTheme.tabularStyle(
-                          size: 12,
-                          color: out ? fg.withValues(alpha: 0.88) : metaColor,
-                        ),
-                      ),
-                      if (meta != null) ...[
-                        const SizedBox(width: 14),
-                        meta,
-                      ],
                     ],
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
+}
+
+class _InteractiveWaveform extends StatelessWidget {
+  final List<double> bars;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+  final bool interactive;
+  final ValueChanged<double> onSeek;
+  final VoidCallback onTapInactive;
+
+  const _InteractiveWaveform({
+    required this.bars,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.interactive,
+    required this.onSeek,
+    required this.onTapInactive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    void seekAt(double dx) {
+      final box = context.findRenderObject() as RenderBox?;
+      final w = box?.size.width ?? 0;
+      if (w <= 0) return;
+      onSeek((dx / w).clamp(0.0, 1.0));
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: (d) {
+        if (!interactive) {
+          onTapInactive();
+        } else {
+          seekAt(d.localPosition.dx);
+        }
+      },
+      onHorizontalDragStart:
+          interactive ? (d) => seekAt(d.localPosition.dx) : null,
+      onHorizontalDragUpdate:
+          interactive ? (d) => seekAt(d.localPosition.dx) : null,
+      child: SizedBox(
+        height: 26,
+        width: double.infinity,
+        child: CustomPaint(
+          painter: _VoiceWaveformPainter(
+            bars: bars,
+            progress: progress,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceWaveformPainter extends CustomPainter {
+  final List<double> bars;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  const _VoiceWaveformPainter({
+    required this.bars,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bars.isEmpty || size.width <= 0 || size.height <= 0) return;
+    final n = bars.length;
+    final slot = size.width / n;
+    final barW = (slot * 0.56).clamp(2.0, 3.2);
+    final radius = Radius.circular(barW / 2);
+    final splitX = size.width * progress.clamp(0.0, 1.0);
+
+    final inactivePaint = Paint()..color = inactiveColor;
+    final activePaint = Paint()..color = activeColor;
+
+    void drawBars(Paint paint) {
+      for (var i = 0; i < n; i++) {
+        final cx = i * slot + slot / 2;
+        final h = (bars[i] * (size.height - 2)).clamp(3.0, size.height);
+        final top = (size.height - h) / 2;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cx - barW / 2, top, barW, h),
+            radius,
+          ),
+          paint,
+        );
+      }
+    }
+
+    drawBars(inactivePaint);
+    if (splitX > 0.5) {
+      canvas.save();
+      canvas.clipRect(Rect.fromLTWH(0, 0, splitX, size.height));
+      drawBars(activePaint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VoiceWaveformPainter old) =>
+      old.progress != progress ||
+      old.activeColor != activeColor ||
+      old.inactiveColor != inactiveColor ||
+      old.bars != bars;
 }
 
 class _SharePreviewView extends StatelessWidget {

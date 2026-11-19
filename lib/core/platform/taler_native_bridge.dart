@@ -22,6 +22,7 @@ class TalerAudioState {
   final int positionMs;
   final int durationMs;
   final bool completed;
+  final String? error;
 
   const TalerAudioState({
     this.ready = false,
@@ -29,6 +30,7 @@ class TalerAudioState {
     this.positionMs = 0,
     this.durationMs = 0,
     this.completed = false,
+    this.error,
   });
 }
 
@@ -104,6 +106,7 @@ class TalerNativeBridge {
     required int chatId,
     required String title,
     required String body,
+    String? sender,
   }) async {
     final handler = testNotificationHandler;
     if (handler != null) {
@@ -116,8 +119,19 @@ class TalerNativeBridge {
         'chatId': chatId,
         'title': title,
         'body': body,
+        if (sender != null && sender.isNotEmpty) 'sender': sender,
       });
     } catch (_) {}
+  }
+
+  Future<bool> openNotificationSettings() async {
+    if (!_isAndroid) return false;
+    try {
+      return await _channel.invokeMethod<bool>('openNotificationSettings') ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> cancelChatNotification(int chatId) async {
@@ -216,12 +230,17 @@ class TalerNativeBridge {
     return false;
   }
 
-  Future<bool> audioPlay(String source, {String? userAgent}) async {
+  Future<bool> audioPlay(
+    String source, {
+    String? userAgent,
+    double speed = 1.0,
+  }) async {
     if (_isAndroid) {
       try {
         return await _channel.invokeMethod<bool>('audioPlay', {
               'source': source,
               'userAgent': userAgent ?? PrivacyFirewall.defaultHttpUserAgent,
+              'speed': speed,
             }) ??
             false;
       } catch (_) {
@@ -232,6 +251,15 @@ class TalerNativeBridge {
       return openFile(source);
     }
     return false;
+  }
+
+  Future<void> audioSetSpeed(double speed) async {
+    if (!_isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('audioSetSpeed', {
+        'speed': speed,
+      });
+    } catch (_) {}
   }
 
   Future<void> audioPause() async {
@@ -275,6 +303,7 @@ class TalerNativeBridge {
         positionMs: (map['positionMs'] as num?)?.toInt() ?? 0,
         durationMs: (map['durationMs'] as num?)?.toInt() ?? 0,
         completed: map['completed'] as bool? ?? false,
+        error: map['error'] as String?,
       );
     } catch (_) {
       return const TalerAudioState();
@@ -300,7 +329,7 @@ class TalerNativeBridge {
     try {
       final dir = await getTemporaryDirectory();
       final outPath =
-          '${dir.path}${Platform.pathSeparator}taler_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+          '${dir.path}${Platform.pathSeparator}taler_voice_${DateTime.now().millisecondsSinceEpoch}.ogg';
       final ok = await _channel.invokeMethod<bool>('startAudioRecord', {
             'outputPath': outPath,
           }) ??
@@ -351,11 +380,15 @@ class TalerAudioController extends ChangeNotifier {
 
   static final TalerAudioController instance = TalerAudioController._();
 
+  static const List<double> _speeds = [1.0, 1.5, 2.0];
+
   String? _activeKey;
   bool _isLoading = false;
   bool _isPlaying = false;
   int _positionMs = 0;
   int _durationMs = 0;
+  double _speed = 1.0;
+  String? _lastError;
   Timer? _pollTimer;
 
   String? get activeKey => _activeKey;
@@ -363,6 +396,11 @@ class TalerAudioController extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
   int get positionMs => _positionMs;
   int get durationMs => _durationMs;
+  double get speed => _speed;
+  String? get lastError => _lastError;
+
+  String get speedLabel =>
+      _speed == 1.0 ? '1×' : (_speed == 1.5 ? '1.5×' : '2×');
 
   double progressFor(String key) {
     if (_activeKey != key || _durationMs <= 0) return 0.0;
@@ -372,11 +410,21 @@ class TalerAudioController extends ChangeNotifier {
   bool isPlayingKey(String key) => _activeKey == key && _isPlaying;
   bool isLoadingKey(String key) => _activeKey == key && _isLoading;
 
+  Future<void> cycleSpeed() async {
+    final idx = _speeds.indexOf(_speed);
+    _speed = _speeds[(idx + 1) % _speeds.length];
+    notifyListeners();
+    if (_activeKey != null) {
+      await TalerNativeBridge.instance.audioSetSpeed(_speed);
+    }
+  }
+
   Future<bool> toggle({
     required String key,
     required Future<String?> Function() resolveSource,
     int fallbackDurationMs = 0,
   }) async {
+    _lastError = null;
     if (_activeKey == key && !_isLoading) {
       if (_isPlaying) {
         await TalerNativeBridge.instance.audioPause();
@@ -406,15 +454,20 @@ class TalerAudioController extends ChangeNotifier {
     if (source == null || source.isEmpty) {
       _activeKey = null;
       _isLoading = false;
+      _lastError = 'Не удалось загрузить голосовое сообщение';
       notifyListeners();
       return false;
     }
 
-    final started = await TalerNativeBridge.instance.audioPlay(source);
+    final started = await TalerNativeBridge.instance.audioPlay(
+      source,
+      speed: _speed,
+    );
     if (_activeKey != key) return false;
     if (!started) {
       _activeKey = null;
       _isLoading = false;
+      _lastError = 'Не удалось воспроизвести голосовое сообщение';
       notifyListeners();
       return false;
     }
@@ -454,16 +507,30 @@ class TalerAudioController extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 180), (_) async {
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
       final state = await TalerNativeBridge.instance.audioState();
       if (_activeKey == null) {
         _stopPolling();
         return;
       }
+      if (state.error != null && state.error!.isNotEmpty) {
+        _lastError = state.error;
+        _isPlaying = false;
+        _positionMs = 0;
+        _activeKey = null;
+        _stopPolling();
+        notifyListeners();
+        return;
+      }
       if (state.durationMs > 0) {
         _durationMs = state.durationMs;
       }
-      _positionMs = state.positionMs;
+      if (state.ready) {
+        _positionMs = state.positionMs.clamp(
+          0,
+          _durationMs > 0 ? _durationMs : state.positionMs,
+        );
+      }
       if (state.completed) {
         _isPlaying = false;
         _positionMs = 0;
