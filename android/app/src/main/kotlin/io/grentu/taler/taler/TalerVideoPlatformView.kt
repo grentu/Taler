@@ -50,8 +50,8 @@ class TalerVideoPlatformView(
     private var mediaPlayer: MediaPlayer? = null
     private var isPrepared = false
     private var isDisposed = false
-    private var videoWidth = 0
-    private var videoHeight = 0
+    private var currentVideoWidth = 0
+    private var currentVideoHeight = 0
     private var lastError: String? = null
     private var currentVolume = 1.0f
 
@@ -112,16 +112,16 @@ class TalerVideoPlatformView(
                     setDataSource(File(source).absolutePath)
                 }
                 setOnVideoSizeChangedListener { _, w, h ->
-                    videoWidth = w
-                    videoHeight = h
+                    currentVideoWidth = w
+                    currentVideoHeight = h
                     container.post { applyAspectRatio() }
                 }
                 setOnPreparedListener { player ->
                     if (isDisposed) return@setOnPreparedListener
                     isPrepared = true
                     lastError = null
-                    videoWidth = player.videoWidth
-                    videoHeight = player.videoHeight
+                    currentVideoWidth = player.videoWidth
+                    currentVideoHeight = player.videoHeight
                     player.setVolume(currentVolume, currentVolume)
                     container.post { applyAspectRatio() }
                     if (autoPlay) {
@@ -145,9 +145,9 @@ class TalerVideoPlatformView(
     private fun applyAspectRatio() {
         val cw = container.width
         val ch = container.height
-        if (cw <= 0 || ch <= 0 || videoWidth <= 0 || videoHeight <= 0) return
+        if (cw <= 0 || ch <= 0 || currentVideoWidth <= 0 || currentVideoHeight <= 0) return
         val containerRatio = cw.toFloat() / ch.toFloat()
-        val videoRatio = videoWidth.toFloat() / videoHeight.toFloat()
+        val videoRatio = currentVideoWidth.toFloat() / currentVideoHeight.toFloat()
         val targetW: Int
         val targetH: Int
         if (videoRatio > containerRatio) {
@@ -206,8 +206,8 @@ class TalerVideoPlatformView(
                         "playing" to playing,
                         "positionMs" to pos,
                         "durationMs" to dur,
-                        "videoWidth" to videoWidth,
-                        "videoHeight" to videoHeight,
+                        "videoWidth" to currentVideoWidth,
+                        "videoHeight" to currentVideoHeight,
                         "error" to lastError
                     )
                 )
